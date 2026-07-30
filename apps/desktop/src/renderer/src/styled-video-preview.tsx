@@ -34,6 +34,7 @@ import { drawCensorRegions } from './censor-overlay';
 import { resolveCensorRectAtFrame } from '../../shared/censor-regions.mjs';
 import { canvasPointToSourceNormalized, sourceRectToCanvasRect, type CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
 import { moveCensorRect, resizeCensorRect } from '../../shared/censor-regions.mjs';
+import { timelineJoinGain } from '../../shared/timeline-audio-envelope.mjs';
 import {
   cameraCoversSourceTime,
   clampedCameraTime,
@@ -436,6 +437,7 @@ export function StyledVideoPreview({
   trimEndSec,
   cutRanges = [],
   isPlaying: controlledPlaying,
+  playbackRate = 1,
   showControls = true,
   timeMode = 'source',
   onCurrentTimeChange,
@@ -450,6 +452,8 @@ export function StyledVideoPreview({
   onCensorDraw,
   selectedCensor = null,
   onCensorRectChange,
+  mediaUrlOverride,
+  cameraMediaUrlOverride,
 }: {
   project: StyledPreviewProject;
   seekTimeSec?: number;
@@ -457,6 +461,7 @@ export function StyledVideoPreview({
   trimEndSec?: number;
   cutRanges?: CutRange[];
   isPlaying?: boolean;
+  playbackRate?: number;
   showControls?: boolean;
   timeMode?: PreviewTimeMode;
   onCurrentTimeChange?: (sec: number) => void;
@@ -486,6 +491,8 @@ export function StyledVideoPreview({
     rect: { x: number; y: number; w: number; h: number },
     frame: number,
   ) => void;
+  mediaUrlOverride?: string | null;
+  cameraMediaUrlOverride?: string | null;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -589,6 +596,23 @@ export function StyledVideoPreview({
     screenLayerRendererRef.current = null;
   }, []);
 
+  React.useEffect(() => {
+    const rate = Number.isFinite(playbackRate)
+      ? Math.max(0.25, Math.min(4, playbackRate))
+      : 1;
+    timelineRateRef.current = rate;
+    const video = videoRef.current;
+    const cameraVideo = cameraVideoRef.current;
+    if (video) {
+      video.preservesPitch = true;
+      video.playbackRate = rate;
+    }
+    if (cameraVideo) {
+      cameraVideo.preservesPitch = true;
+      cameraVideo.playbackRate = rate;
+    }
+  }, [playbackRate]);
+
   // Force one repaint when the selected zoom focus changes so the target
   // appears/moves/disappears even while the playhead is parked on one frame.
   React.useEffect(() => {
@@ -627,8 +651,8 @@ export function StyledVideoPreview({
     return () => observer?.disconnect();
   }, []);
 
-  const src = project.mediaUrl ?? '';
-  const cameraSrc = project.cameraMediaUrl ?? '';
+  const src = mediaUrlOverride ?? project.mediaUrl ?? '';
+  const cameraSrc = cameraMediaUrlOverride ?? project.cameraMediaUrl ?? '';
   const sourceWidth = project.recording?.width ?? 1920;
   const sourceHeight = project.recording?.height ?? 1080;
   const fps = project.recording?.fps ?? 30;
@@ -998,6 +1022,11 @@ export function StyledVideoPreview({
     timelineFrameFallbackRef.current = timelineFrame;
     const sourceFrame = segment.sourceIn + (timelineFrame - segment.timelineIn);
     const sourceTime = Math.max(0, sourceFrame / fps);
+    video.volume = timelineJoinGain(
+      buildTimelinePlaybackSegments(),
+      segment,
+      timelineFrame,
+    );
     (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
       phase: 'play-start',
       timelineFrame,
@@ -1499,6 +1528,14 @@ export function StyledVideoPreview({
       const currentFrame = timeMode === 'timeline'
         ? timelineDecoded?.timelineFrame ?? playingGapFrame ?? parkedTimelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
         : sourceFrame;
+      screenVideo.volume =
+        timeMode === 'timeline' && timelineDecoded?.segment
+          ? timelineJoinGain(
+              buildTimelinePlaybackSegments(),
+              timelineDecoded.segment,
+              currentFrame,
+            )
+          : 1;
       const renderFrame = timeMode === 'timeline' && timelineDecoded
         ? timelineDecoded.timelineFrame + (sourceFrameFloat - sourceFrame)
         : playingGapFrame ?? parkedTimelineFrame ?? sourceFrameFloat;

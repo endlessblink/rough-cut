@@ -2,7 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createRecordingSession } from '../apps/desktop/src/main/recording/recording-session.mjs';
 import { listPulseAudioSystemAudioSources } from '../apps/desktop/src/main/recording/audio-sources.mjs';
 import { isXinputAvailable } from '../apps/desktop/src/main/recording/xinput-button-listener.mjs';
@@ -10,9 +10,16 @@ import { isXdotoolAvailable, readCursorViaXdotool } from '../apps/desktop/src/ma
 import { stopRecordingAndCreateProject } from '../apps/desktop/src/main/recording-stop-handler.mjs';
 import { remuxMkvToMp4 } from '../apps/desktop/src/main/remux-service.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from '../apps/desktop/src/main/media-probe.mjs';
-import { openProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
+import { openProjectFile, saveProjectForRecording, validateProjectPath } from '../apps/desktop/src/main/project-files.mjs';
 import { EXPORT_MODES, exportProjectToMp4 } from '../apps/desktop/src/main/export-service.mjs';
 import { diagnosticsPathForRecording } from '../apps/desktop/src/main/recording-diagnostics.mjs';
+import { createTranscriptionRuntime } from '../apps/desktop/src/main/transcription-runtime.mjs';
+import { createRecordingTranscriptionBridge } from '../apps/desktop/src/main/transcription-recording-bridge.mjs';
+import { persistTranscriptToProject } from '../apps/desktop/src/main/transcription-project-persistence.mjs';
+import {
+  createRecordingTranscriptPersistence,
+  createRecordingTranscriptionLifecycle,
+} from '../apps/desktop/src/main/transcription-main-lifecycle.mjs';
 
 const width = numberFromEnv('ROUGH_CUT_REAL_SMOKE_WIDTH', 640);
 const height = numberFromEnv('ROUGH_CUT_REAL_SMOKE_HEIGHT', 360);
@@ -23,6 +30,19 @@ const minDurationMs = numberFromEnv('ROUGH_CUT_REAL_SMOKE_MIN_DURATION_MS', 0);
 const expectedFps = numberFromEnv('ROUGH_CUT_REAL_SMOKE_EXPECT_FPS', 0);
 const expectAudio = process.env.ROUGH_CUT_REAL_SMOKE_EXPECT_AUDIO === '1';
 const shouldRecordSystemAudio = process.env.ROUGH_CUT_REAL_SMOKE_SYSTEM_AUDIO === '1';
+const preferredSystemAudioSource =
+  process.env.ROUGH_CUT_REAL_SMOKE_SYSTEM_AUDIO_SOURCE?.trim() || null;
+const audioPlaybackPath =
+  process.env.ROUGH_CUT_REAL_SMOKE_AUDIO_PLAYBACK_PATH?.trim() || null;
+const verifyTranscription = process.env.ROUGH_CUT_REAL_SMOKE_TRANSCRIPTION === '1';
+if (
+  verifyTranscription &&
+  process.env.ROUGH_CUT_TRANSCRIPTION_FIXTURE_PATH?.trim()
+) {
+  throw new Error(
+    'Real local-transcription smoke refuses ROUGH_CUT_TRANSCRIPTION_FIXTURE_PATH.',
+  );
+}
 const cameraDevicePath = normalizeCameraDevicePath(process.env.ROUGH_CUT_REAL_SMOKE_CAMERA_DEVICE_PATH);
 const displayName = process.env.DISPLAY || ':0';
 const display = process.env.ROUGH_CUT_REAL_SMOKE_DISPLAY || `${displayName}${formatX11Offset(originX)},${originY}`;
@@ -53,6 +73,35 @@ await assertPrerequisites();
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-real-recording-smoke-'));
 artifacts.root = root;
+const projectOperationQueues = new Map();
+const persistRecordingTranscript = createRecordingTranscriptPersistence({
+  validateProjectPath,
+  getAllowedRoots: () => [root],
+  enqueueProjectOp: (safePath, op) =>
+    enqueueProjectOperation(projectOperationQueues, safePath, op),
+  persistTranscript: persistTranscriptToProject,
+});
+const transcriptionRuntime = verifyTranscription
+  ? await createTranscriptionRuntime({
+      environment: process.env,
+      userDataDir: join(root, 'transcription-state'),
+      onLog: (message) => console.warn(message),
+      persistTranscript: persistRecordingTranscript,
+    })
+  : null;
+const transcriptionBridge = transcriptionRuntime
+  ? createRecordingTranscriptionBridge({
+      service: transcriptionRuntime.service,
+      fixtureDurationMs: transcriptionRuntime.fixtureDurationMs,
+      incrementalDuringCapture: transcriptionRuntime.incrementalDuringCapture,
+      dispose: transcriptionRuntime.dispose,
+      onLog: (message) => console.warn(message),
+    })
+  : null;
+await transcriptionBridge?.initialize();
+const transcriptionLifecycle = createRecordingTranscriptionLifecycle({
+  getBridge: async () => transcriptionBridge,
+});
 const session = createRecordingSession({
   recordingsDir: root,
   markerPath: join(root, 'recording-recovery.json'),
@@ -61,19 +110,37 @@ const session = createRecordingSession({
 });
 
 const expectButtonEvents = expectButtonEventsOverride === '0' ? false : isXinputAvailable();
-const systemAudioSource = shouldRecordSystemAudio ? await pickSystemAudioSource() : null;
+const systemAudioSource = shouldRecordSystemAudio
+  ? await pickSystemAudioSource(preferredSystemAudioSource)
+  : null;
 console.info(`[smoke:real-recording] recording ${width}x${height} from ${display} for ${durationMs}ms${systemAudioSource ? ` with system audio ${systemAudioSource}` : ''}${cameraDevicePath ? ` with camera ${cameraDevicePath}` : ''}`);
 console.info(`[smoke:real-recording] artifacts: ${root}`);
 
 setPhase('recording-start');
-await session.start({ systemAudioSource, cameraDevicePath });
+const startedStatus = await session.start({ systemAudioSource, cameraDevicePath });
+await transcriptionLifecycle.recordingStarted(startedStatus);
+const audioPlayback = audioPlaybackPath
+  ? startAudioPlayback(audioPlaybackPath, systemAudioSource)
+  : null;
 setPhase('recording-active');
 const recordingStartedAt = Date.now();
 await wait(300);
+await transcriptionLifecycle.recordingProgress(session.status());
 performScriptedPointerActivity({ originX, originY, width, height });
-await wait(Math.max(0, durationMs - (Date.now() - recordingStartedAt)));
+while (Date.now() - recordingStartedAt < durationMs) {
+  await wait(
+    Math.min(1_000, Math.max(0, durationMs - (Date.now() - recordingStartedAt))),
+  );
+  void transcriptionLifecycle.recordingProgress(session.status()).catch((error) => {
+    console.warn(
+      `[smoke:real-recording] transcription progress failed: ${error?.message ?? error}`,
+    );
+  });
+}
+await audioPlayback;
 
 setPhase('stop-and-save');
+await transcriptionLifecycle.recordingStopping(session.status());
 const stopped = await stopRecordingAndCreateProject({
   recordingSession: session,
   assertReadableMp4,
@@ -87,6 +154,10 @@ const stopped = await stopRecordingAndCreateProject({
 artifacts.recordingPath = stopped.outputPath ?? null;
 artifacts.projectPath = stopped.project?.path ?? null;
 artifacts.diagnosticsPath = stopped.diagnosticsPath ?? null;
+if (transcriptionBridge) {
+  setPhase('transcription-finalization');
+  await transcriptionLifecycle.recordingStopped(stopped);
+}
 
 setPhase('assert-saved-recording');
 if (stopped.state !== 'saved' || !stopped.project) {
@@ -105,6 +176,22 @@ assertDiagnostics(diagnostics);
 setPhase('reopen-project');
 const reopened = await openProjectFile(stopped.project.path);
 const recordingAsset = reopened.document.assets[0];
+const transcriptWordCount = reopened.document.transcript?.words?.length ?? 0;
+if (verifyTranscription && transcriptWordCount === 0) {
+  throw new Error('Real recording did not persist a local transcript.');
+}
+const transcriptionProvider =
+  reopened.document.transcription?.provider?.id ?? null;
+if (
+  verifyTranscription &&
+  !['sona-local', 'whisper.cpp'].includes(transcriptionProvider)
+) {
+  throw new Error(
+    `Real recording did not persist an explicit local transcription provider; got ${
+      transcriptionProvider ?? 'missing'
+    }.`,
+  );
+}
 const cursorEvents = recordingAsset?.metadata?.cursorEvents;
 if (!Array.isArray(cursorEvents) || cursorEvents.length < 3) {
   throw new Error(`Expected cursor telemetry from real recording; got ${cursorEvents?.length ?? 0}.`);
@@ -170,6 +257,8 @@ console.info(
       expectedAudio: expectAudio,
       hasAudio: diagnostics.media?.hasAudio ?? false,
       systemAudioSource,
+      transcriptWordCount,
+      transcriptionProvider,
       cameraDevicePath,
       rawExportPath: rawExport?.outputPath ?? null,
       styledExportPath: styledExport?.outputPath ?? null,
@@ -180,10 +269,21 @@ console.info(
   ),
 );
 setPhase('complete');
+transcriptionBridge?.dispose();
 
 function setPhase(phase) {
   currentPhase = phase;
   console.info(`[smoke:real-recording] phase=${phase} artifacts=${JSON.stringify(artifacts)}`);
+}
+
+function enqueueProjectOperation(queues, safePath, op) {
+  const previous = queues.get(safePath) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(() => op());
+  queues.set(safePath, next);
+  next.finally(() => {
+    if (queues.get(safePath) === next) queues.delete(safePath);
+  });
+  return next;
 }
 
 function assertCameraLinked(document, expectedDevicePath) {
@@ -243,7 +343,7 @@ function frameRateFromString(value) {
   return numerator / denominator;
 }
 
-async function pickSystemAudioSource() {
+async function pickSystemAudioSource(preferredSource = null) {
   const sources = await listPulseAudioSystemAudioSources().catch((err) => {
     console.warn(`[smoke:real-recording] skipping system audio capture: ${err?.message ?? err}`);
     return [];
@@ -252,7 +352,38 @@ async function pickSystemAudioSource() {
     console.warn('[smoke:real-recording] skipping system audio capture: no monitor sources found.');
     return null;
   }
+  if (preferredSource) {
+    const preferred = sources.find((source) => source.name === preferredSource);
+    if (!preferred) {
+      throw new Error(
+        `Requested system audio source is unavailable: ${preferredSource}`,
+      );
+    }
+    return preferred.name;
+  }
   return sources[0].name;
+}
+
+function startAudioPlayback(filePath, monitorSource) {
+  if (!monitorSource?.endsWith('.monitor')) {
+    throw new Error('Synthetic playback requires a monitor source.');
+  }
+  const sink = monitorSource.slice(0, -'.monitor'.length);
+  const child = spawn('paplay', [`--device=${sink}`, filePath], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    stderr = `${stderr}${chunk}`.slice(-2_000);
+  });
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`paplay exited ${code}: ${stderr.trim()}`));
+    });
+  });
 }
 
 function performScriptedPointerActivity({ originX, originY, width, height }) {
@@ -275,7 +406,12 @@ function runRendererSmoke({ root, projectPath }) {
   const exportPath = join(root, 'real-recording-ui-export.mp4');
   const resultPath = join(root, 'real-recording-ui-smoke-result.json');
   const screenshotPath = join(root, 'real-recording-ui-smoke.png');
-  const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb', '.'], {
+  const result = spawnSync(electron, [
+    '--no-sandbox',
+    '--disable-gpu',
+    '--force-color-profile=srgb',
+    '.',
+  ], {
     cwd: join(process.cwd(), 'apps/desktop'),
     env: {
       ...process.env,

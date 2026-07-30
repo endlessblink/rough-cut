@@ -530,6 +530,16 @@ export const TranscriptSchema = z.object({
   nonSpeech: z.array(TranscriptNonSpeechSegmentSchema),
 });
 
+export const TranscriptionMetadataSchema = z.object({
+  jobId: z.string().min(1),
+  provider: z.object({
+    kind: z.enum(['local', 'cloud']),
+    id: z.string().min(1),
+    model: z.string().min(1),
+  }),
+  fps: z.number().positive(),
+});
+
 // Renamed from spec's `CaptionStyleSchema` — the existing CaptionStyleSchema
 // describes a per-segment rendering style ({fontSize, position, ...}). The new
 // kind union (subtitle / submagic / karaoke) is a distinct concept.
@@ -649,7 +659,7 @@ export const TimelineMarkerSchema = z.object({
 
 export const TimelineEffectSchema = z.object({
   id: z.string().min(1),
-  kind: z.enum(['cursor', 'click', 'camera-pip', 'zoom', 'annotation']),
+  kind: z.enum(['cursor', 'click', 'camera-pip', 'zoom', 'annotation', 'stabilization']),
   ownerId: z.string().min(1),
   ownerType: z.enum(['clip', 'track', 'source', 'linked-group', 'timeline']),
   startFrame: nonNegativeInt.optional(),
@@ -828,6 +838,7 @@ export const ProjectDocumentSchema = z.object({
   libraryReferences: z.array(ProjectLibraryReferenceSchema),
   // AI architecture additions. Optional until renderer creation paths all own them.
   transcript: TranscriptSchema.optional(),
+  transcription: TranscriptionMetadataSchema.optional(),
   captionTracks: z.array(CaptionTrackSchema).optional(),
   tracks: z.array(NleTrackSchema).optional(),
   timeline: SharedTimelineSchema,

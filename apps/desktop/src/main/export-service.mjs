@@ -13,7 +13,15 @@ import {
   censorKeyframeSegments,
   censorRegionIsAnimated,
 } from '../shared/censor-regions.mjs';
-import { canonicalizeProjectDocument, computeTimelineDuration, createDefaultCameraPresentation, getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
+import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
+import {
+  canonicalizeProjectDocument,
+  computeTimelineDuration,
+  createDefaultCameraPresentation,
+  getRecordingBackgroundColors,
+  getSourceStabilization,
+  getStyledCanvasResolution,
+} from '@rough-cut/project-model';
 import {
   getCameraLayoutRect,
   normalizeCompositionPresentationStyle as normalizePresentationStyle,
@@ -50,7 +58,16 @@ export function normalizeExportScope(scope = EXPORT_SCOPES.TIMELINE) {
   throw new Error(`Unsupported export scope: ${scope}`);
 }
 
-export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MODES.RAW, exportScope = EXPORT_SCOPES.TIMELINE, onProgress = () => undefined, signal = null } = {}) {
+export async function exportProjectToMp4({
+  project,
+  outputPath,
+  mode = EXPORT_MODES.RAW,
+  exportScope = EXPORT_SCOPES.TIMELINE,
+  onProgress = () => undefined,
+  signal = null,
+  preparedStabilizationTransforms = null,
+  resolveStabilizationTransforms = null,
+} = {}) {
   const exportMode = normalizeExportMode(mode);
   const scope = normalizeExportScope(exportScope);
   const recording = getPrimaryRecording(project);
@@ -59,26 +76,85 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   const timelineRecording = resolveTimelineExportRecording(project, recording, { exportScope: scope });
   const exportRecording = timelineRecording ?? recording;
   const hasCutRanges = Array.isArray(exportRecording.cutRanges) && exportRecording.cutRanges.length > 0;
+  const canExportRawTimeline =
+    Array.isArray(exportRecording.timelineSegments)
+    && exportRecording.timelineSegments.length > 0
+    && isCompactRawTimelineSegments(
+      exportRecording.timelineSegments,
+      exportRecording.timelineDurationFrames,
+    )
+    && canExportStyledTimeline(project, recording.assetId, { exportScope: scope });
   const canExportRaw = !hasCutRanges && isSingleUneditedTimelineRecording(project, recording.assetId, { exportScope: scope });
   const canExportTrimmedRaw = !hasCutRanges && isSingleTrimmedTimelineRecording(project, recording.assetId, { exportScope: scope });
   const canExportStyled = canExportRaw || canExportTrimmedRaw || hasCutRanges || canExportStyledTimeline(project, recording.assetId, { exportScope: scope });
+  const sourceStabilization = resolveAssetStabilization({
+    project,
+    assetId: recording.assetId,
+    preparedTransforms: preparedStabilizationTransforms,
+    resolveStabilizationTransforms,
+  });
+  const cameraStabilization = resolveAssetStabilization({
+    project,
+    assetId: recording.camera?.assetId,
+    preparedTransforms: preparedStabilizationTransforms,
+    resolveStabilizationTransforms,
+  });
   const needsStyledCapability = exportMode === EXPORT_MODES.STYLED || exportMode === EXPORT_MODES.EXPERIMENTAL_HEADLESS;
   if ((exportMode === EXPORT_MODES.RAW && !canExportRaw) || (needsStyledCapability && !canExportStyled)) {
-    if (!(exportMode === EXPORT_MODES.RAW && canExportTrimmedRaw)) {
+    if (!(exportMode === EXPORT_MODES.RAW && (canExportTrimmedRaw || canExportRawTimeline))) {
       throw new Error('Only unedited or head/tail-trimmed single-recording exports are supported in the MVP.');
     }
   }
 
   if (exportMode === EXPORT_MODES.EXPERIMENTAL_HEADLESS) {
+    if (sourceStabilization || cameraStabilization) {
+      throw new Error('Stabilized exports require the styled or raw export mode.');
+    }
     return exportExperimentalHeadlessProjectToMp4({ project, recording: exportRecording, outputPath, onProgress, signal });
   }
 
   if (exportMode === EXPORT_MODES.STYLED) {
-    return exportStyledProjectToMp4({ project, recording: exportRecording, outputPath, onProgress, signal });
+    return exportStyledProjectToMp4({
+      project,
+      recording: exportRecording,
+      outputPath,
+      onProgress,
+      signal,
+      sourceStabilization,
+      cameraStabilization,
+    });
+  }
+
+  if (canExportRawTimeline) {
+    return exportRawTimelineProjectToMp4({
+      recording: exportRecording,
+      outputPath,
+      onProgress,
+      signal,
+      stabilization: sourceStabilization,
+    });
   }
 
   if (canExportTrimmedRaw && !canExportRaw) {
-    return exportRawTrimmedProjectToMp4({ recording: exportRecording, outputPath, onProgress, signal });
+    return exportRawTrimmedProjectToMp4({
+      recording: exportRecording,
+      outputPath,
+      onProgress,
+      signal,
+      stabilization: sourceStabilization,
+    });
+  }
+
+  if (canExportRaw && sourceStabilization) {
+    return exportRawTrimmedProjectToMp4({
+      recording: exportRecording,
+      outputPath,
+      onProgress,
+      signal,
+      stabilization: sourceStabilization,
+      startFrame: 0,
+      endFrame: exportRecording.duration ?? recording.duration ?? null,
+    });
   }
 
   onProgress({ phase: 'copying', progress: 0 });
@@ -299,17 +375,36 @@ async function exportHeadlessFrameArtifactsToMp4({ headlessRender, compositionPl
   };
 }
 
-async function exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress = () => undefined, signal = null }) {
+async function exportRawTrimmedProjectToMp4({
+  recording,
+  outputPath,
+  onProgress = () => undefined,
+  signal = null,
+  stabilization = null,
+  startFrame = null,
+  endFrame = null,
+}) {
   onProgress({ phase: 'trimming', progress: 0 });
   await mkdir(dirname(outputPath), { recursive: true });
   const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
-  const result = await run('ffmpeg', buildRawTrimExportArgs({
-    inputPath: recording.filePath,
-    outputPath,
-    startFrame: recording.sourceIn ?? 0,
-    endFrame: recording.sourceOut ?? recording.duration,
-    fps,
-  }), { signal });
+  const args = stabilization?.transformPath
+    ? buildRawStabilizedTrimExportArgs({
+        inputPath: recording.filePath,
+        outputPath,
+        startFrame: Number.isFinite(startFrame) ? startFrame : recording.sourceIn ?? 0,
+        endFrame: Number.isFinite(endFrame) ? endFrame : recording.sourceOut ?? recording.duration,
+        fps,
+        transformPath: stabilization.transformPath,
+        strength: stabilization.strength,
+      })
+    : buildRawTrimExportArgs({
+        inputPath: recording.filePath,
+        outputPath,
+        startFrame: Number.isFinite(startFrame) ? startFrame : recording.sourceIn ?? 0,
+        endFrame: Number.isFinite(endFrame) ? endFrame : recording.sourceOut ?? recording.duration,
+        fps,
+      });
+  const result = await run('ffmpeg', args, { signal });
   if (result.cancelled) {
     await rm(outputPath, { force: true });
     return createCancelledExportResult({ outputPath, sourcePath: recording.filePath });
@@ -325,12 +420,62 @@ async function exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress 
   };
 }
 
+async function exportRawTimelineProjectToMp4({
+  recording,
+  outputPath,
+  onProgress = () => undefined,
+  signal = null,
+  stabilization = null,
+}) {
+  onProgress({ phase: 'rendering-raw-timeline', progress: 0 });
+  await mkdir(dirname(outputPath), { recursive: true });
+  const includeAudio = await sourceHasAudioStream(recording.filePath, signal);
+  const args = buildRawTimelineExportArgs({
+    inputPath: recording.filePath,
+    outputPath,
+    sourceWidth: recording.width,
+    sourceHeight: recording.height,
+    fps: recording.fps,
+    durationFrames: recording.timelineDurationFrames ?? recording.trimmedDuration,
+    segments: recording.timelineSegments,
+    includeAudio,
+    stabilization,
+  });
+  const result = await run('ffmpeg', args, { signal });
+  if (result.cancelled) {
+    await rm(outputPath, { force: true });
+    return createCancelledExportResult({
+      outputPath,
+      sourcePath: recording.filePath,
+    });
+  }
+  if (result.code !== 0) {
+    throw new Error(`Raw timeline export failed: ${result.stderr.trim()}`);
+  }
+  const exported = await stat(outputPath);
+  onProgress({ phase: 'complete', progress: 1 });
+  return {
+    outputPath,
+    sourcePath: recording.filePath,
+    bytes: exported.size,
+    byteEqualCandidate: false,
+  };
+}
+
 function assertDistinctExportPath(sourcePath, outputPath) {
   if (resolve(sourcePath) !== resolve(outputPath)) return;
   throw new Error('Export output must be different from the source recording. Choose a new file name.');
 }
 
-export async function exportStyledProjectToMp4({ project, recording, outputPath, onProgress = () => undefined, signal = null }) {
+export async function exportStyledProjectToMp4({
+  project,
+  recording,
+  outputPath,
+  onProgress = () => undefined,
+  signal = null,
+  sourceStabilization = null,
+  cameraStabilization = null,
+}) {
   onProgress({ phase: 'rendering-styled', progress: 0.01 });
   await mkdir(dirname(outputPath), { recursive: true });
   const canvas = getStyledCanvasResolution({
@@ -402,6 +547,8 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       timelineAudioSegments: includeTimelineAudio ? recording.timelineSegments ?? [] : [],
       zoomCropFilter: zoomLayer?.filterFragment ?? null,
       zoomSendcmdPath: zoomLayer?.path ?? null,
+      sourceStabilizationTransform: sourceStabilization,
+      cameraStabilizationTransform: cameraStabilization,
       cameraInputPath: recording.camera?.filePath ?? null,
       cameraSourceWidth: recording.camera?.width ?? null,
       cameraSourceHeight: recording.camera?.height ?? null,
@@ -1180,6 +1327,8 @@ export function buildStyledExportArgs({
   censorRegions = [],
   zoomCropFilter = null,
   zoomSendcmdPath = null,
+  sourceStabilizationTransform = null,
+  cameraStabilizationTransform = null,
   cameraInputPath = null,
   cameraSourceWidth = null,
   cameraSourceHeight = null,
@@ -1272,10 +1421,16 @@ export function buildStyledExportArgs({
         sourceHeight,
         fps,
         durationFrames: timelineDuration,
-        inputIndex: 0,
+        inputLabel: sourceStabilizationTransform?.transformPath ? '[source_stabilized]' : '[0:v]',
         outputLabel: 'base',
       })
-    : [`[0:v]setpts=PTS-STARTPTS${cutFilter}[base]`];
+    : [`${sourceStabilizationTransform?.transformPath ? '[source_stabilized]' : '[0:v]'}setpts=PTS-STARTPTS${cutFilter}[base]`];
+  const sourceBaseTransformFilter = sourceStabilizationTransform?.transformPath
+    ? `[0:v]${buildStabilizationTransformFilter({
+      transformPath: sourceStabilizationTransform.transformPath,
+      strength: sourceStabilizationTransform.strength,
+    })}[source_stabilized]`
+    : null;
   const cameraBaseFilters = useCameraTimelineSegments
     ? buildTimelineVideoBaseFilters({
         segments: normalizedCameraTimelineSegments,
@@ -1283,11 +1438,17 @@ export function buildStyledExportArgs({
         sourceHeight: cameraSourceHeight,
         fps,
         durationFrames: timelineDuration,
-        inputIndex: 1,
+        inputLabel: cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]',
         outputLabel: 'camera_base',
         transparent: true,
       })
     : [];
+  const cameraBaseTransformFilter = cameraInputPath && cameraStabilizationTransform?.transformPath
+    ? `[1:v]${buildStabilizationTransformFilter({
+      transformPath: cameraStabilizationTransform.transformPath,
+      strength: cameraStabilizationTransform.strength,
+    })}[camera_stabilized]`
+    : null;
   const audioFilters = useTimelineAudio
     ? buildTimelineAudioFilters({
         segments: normalizedTimelineAudioSegments,
@@ -1305,6 +1466,8 @@ export function buildStyledExportArgs({
   ];
   const filter = [
     ...backgroundFilter,
+    ...(sourceBaseTransformFilter ? [sourceBaseTransformFilter] : []),
+    ...(cameraBaseTransformFilter ? [cameraBaseTransformFilter] : []),
     ...sourceBaseFilters,
     ...cameraBaseFilters,
     ...audioFilters,
@@ -1315,7 +1478,7 @@ export function buildStyledExportArgs({
       ? [
           useCameraTimelineSegments
             ? `[camera_base]${cameraScaleStep}[camera_scaled]`
-            : `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
+            : `${cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]'}setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
           `nullsrc=s=${cameraFrame.w}x${cameraFrame.h}:r=1:d=1,format=gray,geq=lum='${cameraAlpha}',${staticLoop}[camera_mask]`,
           '[camera_scaled][camera_mask]alphamerge[camera_rounded]',
           `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
@@ -1362,6 +1525,8 @@ export function canUseSimpleStyledExportFastPath({
   cameraFrame = null,
   cameraCrop = null,
   cutRanges = [],
+  sourceStabilizationTransform = null,
+  cameraStabilizationTransform = null,
 } = {}) {
   if (backgroundImagePath) return false;
   // The fast path skips the screen chain the censor filters live in. Rather than
@@ -1375,6 +1540,7 @@ export function canUseSimpleStyledExportFastPath({
   if (Array.isArray(timelineAudioSegments) && timelineAudioSegments.length > 0) return false;
   if (Array.isArray(cameraTimelineSegments) && cameraTimelineSegments.length > 0) return false;
   if (Array.isArray(cutRanges) && cutRanges.length > 0) return false;
+  if (sourceStabilizationTransform || cameraStabilizationTransform) return false;
   return true;
 }
 
@@ -1627,9 +1793,33 @@ function normalizeTimelineSegments(segments) {
     .sort((left, right) => left.timelineIn - right.timelineIn || left.timelineOut - right.timelineOut || left.sourceIn - right.sourceIn);
 }
 
-function buildTimelineVideoBaseFilters({ segments, sourceWidth, sourceHeight, fps, durationFrames, inputIndex = 0, outputLabel = 'base', transparent = false }) {
+function isCompactRawTimelineSegments(segments, durationFrames) {
+  const normalized = normalizeTimelineSegments(segments);
+  const duration = Math.max(1, Math.round(Number(durationFrames) || 1));
+  return normalized.length > 0
+    && normalized[0].timelineIn === 0
+    && normalized.every(
+      (segment, index) =>
+        index === 0
+        || segment.timelineIn === normalized[index - 1].timelineOut,
+    )
+    && normalized[normalized.length - 1].timelineOut === duration;
+}
+
+function buildTimelineVideoBaseFilters({
+  segments,
+  sourceWidth,
+  sourceHeight,
+  fps,
+  durationFrames,
+  inputIndex = 0,
+  inputLabel = null,
+  outputLabel = 'base',
+  transparent = false,
+} = {}) {
   const safeWidth = Math.max(2, Math.round(Number.isFinite(sourceWidth) ? sourceWidth : 1280));
   const safeHeight = Math.max(2, Math.round(Number.isFinite(sourceHeight) ? sourceHeight : 720));
+  const sourceLabel = inputLabel ?? `[${inputIndex}:v]`;
   const totalFrames = Math.max(1, Math.round(durationFrames || 1));
   const filters = [];
   const labels = [];
@@ -1644,7 +1834,7 @@ function buildTimelineVideoBaseFilters({ segments, sourceWidth, sourceHeight, fp
   segments.forEach((segment, index) => {
     pushGap(segment.timelineIn - cursor);
     const segmentLabel = `${outputLabel}_seg_${index}`;
-    filters.push(`[${inputIndex}:v]trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+    filters.push(`${sourceLabel}trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
     labels.push(`[${segmentLabel}]`);
     cursor = segment.timelineOut;
   });
@@ -1666,7 +1856,29 @@ function buildTimelineAudioFilters({ segments, fps, durationFrames, audioInputLa
     const start = formatFilterNumber(segment.sourceIn / fps);
     const end = formatFilterNumber(segment.sourceOut / fps);
     const delayMs = Math.max(0, Math.round((segment.timelineIn / fps) * 1000));
-    filters.push(`[${audioInputLabel}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[${label}]`);
+    const duration = (segment.sourceOut - segment.sourceIn) / fps;
+    const { fadeInFrames, fadeOutFrames } = timelineJoinFadeFrames(
+      segments,
+      index,
+    );
+    const joinFilters = [];
+    if (fadeInFrames > 0) {
+      joinFilters.push(
+        `afade=t=in:st=0:d=${formatFilterNumber(fadeInFrames / fps)}`,
+      );
+    }
+    if (fadeOutFrames > 0) {
+      joinFilters.push(
+        `afade=t=out:st=${formatFilterNumber(
+          Math.max(0, duration - fadeOutFrames / fps),
+        )}:d=${formatFilterNumber(fadeOutFrames / fps)}`,
+      );
+    }
+    filters.push(
+      `[${audioInputLabel}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS${
+        joinFilters.length > 0 ? `,${joinFilters.join(',')}` : ''
+      },adelay=${delayMs}:all=1[${label}]`,
+    );
     labels.push(`[${label}]`);
   });
   filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=0[a]`);
@@ -1696,6 +1908,119 @@ export function buildRawTrimExportArgs({ inputPath, outputPath, startFrame = 0, 
     '-i',
     inputPath,
     '-c',
+    'copy',
+    '-movflags',
+    '+faststart',
+    outputPath,
+  ];
+}
+
+export function buildRawTimelineExportArgs({
+  inputPath,
+  outputPath,
+  sourceWidth,
+  sourceHeight,
+  fps = 30,
+  durationFrames,
+  segments = [],
+  includeAudio = false,
+  stabilization = null,
+}) {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const normalizedSegments = normalizeTimelineSegments(segments);
+  const safeDurationFrames = Math.max(
+    1,
+    Math.round(durationFrames || 1),
+    ...normalizedSegments.map((segment) => segment.timelineOut),
+  );
+  const stabilizedInputLabel = stabilization?.transformPath
+    ? '[source_stabilized]'
+    : '[0:v]';
+  const videoFilters = buildTimelineVideoBaseFilters({
+    segments: normalizedSegments,
+    sourceWidth,
+    sourceHeight,
+    fps: safeFps,
+    durationFrames: safeDurationFrames,
+    inputLabel: stabilizedInputLabel,
+    outputLabel: 'base',
+  });
+  const stabilizationFilter = stabilization?.transformPath
+    ? `[0:v]${buildStabilizationTransformFilter({
+        transformPath: stabilization.transformPath,
+        strength: stabilization.strength,
+      })}[source_stabilized]`
+    : null;
+  const audioFilters = includeAudio
+    ? buildTimelineAudioFilters({
+        segments: normalizedSegments,
+        fps: safeFps,
+        durationFrames: safeDurationFrames,
+      })
+    : [];
+  const filter = [
+    ...(stabilizationFilter ? [stabilizationFilter] : []),
+    ...videoFilters,
+    ...audioFilters,
+  ].join(';');
+
+  return [
+    '-y',
+    '-progress',
+    'pipe:1',
+    '-nostats',
+    '-i',
+    inputPath,
+    '-filter_complex',
+    filter,
+    '-map',
+    '[base]',
+    ...(includeAudio ? ['-map', '[a]'] : ['-an']),
+    ...buildStyledVideoOutputArgs(STYLED_VIDEO_ENCODERS.CPU),
+    ...(includeAudio ? ['-c:a', 'aac', '-b:a', '192k'] : []),
+    '-movflags',
+    '+faststart',
+    '-metadata',
+    'rough_cut_style=raw-timeline',
+    outputPath,
+  ];
+}
+
+export function buildRawStabilizedTrimExportArgs({
+  inputPath,
+  outputPath,
+  startFrame = 0,
+  endFrame = null,
+  fps = 30,
+  transformPath = '',
+  strength = 50,
+}) {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const safeStart = Math.max(0, Math.round(startFrame || 0));
+  const safeEnd = Number.isFinite(endFrame) ? Math.max(safeStart + 1, Math.round(endFrame)) : safeStart + 1;
+  const settings = stabilizationSettings(strength);
+  return [
+    '-y',
+    '-i',
+    inputPath,
+    '-ss',
+    formatFilterNumber(safeStart / safeFps),
+    '-t',
+    formatFilterNumber((safeEnd - safeStart) / safeFps),
+    '-vf',
+    buildStabilizationTransformFilter({
+      transformPath,
+      strength: settings.strength,
+      smoothing: settings.smoothing,
+      optzoom: settings.optzoom,
+    }),
+    '-c:v',
+    STYLED_VIDEO_ENCODERS.CPU,
+    '-preset',
+    'veryfast',
+    '-crf',
+    '18',
+    '-c:a',
     'copy',
     '-movflags',
     '+faststart',
@@ -1938,6 +2263,72 @@ function formatAssTime(ms) {
 
 function escapeFilterPath(path) {
   return path.replaceAll('\\', '\\\\').replaceAll(':', '\\:').replaceAll("'", "\\'");
+}
+
+function buildStabilizationTransformFilter({ transformPath, strength = 50, smoothing = null, optzoom = null } = {}) {
+  const settings = stabilizationSettings(strength);
+  const safeSmoothing = Number.isFinite(smoothing) ? smoothing : settings.smoothing;
+  const safeOptzoom = Number.isFinite(optzoom) ? optzoom : settings.optzoom;
+  const safePath = typeof transformPath === 'string' ? transformPath : '';
+  if (!safePath) throw new Error('Stabilization transform path is required');
+  return `vidstabtransform=${[
+    `input='${escapeFilterPath(safePath)}'`,
+    `smoothing=${safeSmoothing}`,
+    `optzoom=${safeOptzoom}`,
+    'zoom=0',
+    'interpol=bicubic',
+  ].join(':')}`;
+}
+
+function stabilizationSettings(strength = 50) {
+  const normalized = Number.isFinite(Number(strength))
+    ? Math.max(0, Math.min(100, Math.round(Number(strength))))
+    : 50;
+  return {
+    strength: normalized,
+    smoothing: Math.round(5 + (normalized / 100) * 55),
+    optzoom: 2,
+  };
+}
+
+export function resolveAssetStabilization({
+  project,
+  assetId,
+  preparedTransforms = null,
+  resolveStabilizationTransforms = null,
+}) {
+  if (!project || !assetId) return null;
+  const document = canonicalizeProjectDocument(project);
+  if (!document?.timeline?.effects) return null;
+  const assets = Array.isArray(document.assets) ? document.assets : [];
+  const matchedAsset = assets.find((asset) => asset?.id === assetId);
+  if (matchedAsset?.type !== 'video') return null;
+  const sourceId = document.timeline.sources.find((source) => source.assetId === assetId)?.id;
+  if (!sourceId) return null;
+  const effect = getSourceStabilization(document.timeline, sourceId);
+  if (!effect || effect.enabled === false) return null;
+  const transformPath = resolveStabilizationTransformPath(sourceId, {
+    preparedTransforms,
+    resolveStabilizationTransforms,
+  });
+  if (!transformPath) {
+    throw new Error(`Missing stabilization transform for source ${sourceId}`);
+  }
+  return {
+    sourceId,
+    transformPath,
+    strength: effect?.params?.strength ?? 50,
+  };
+}
+
+function resolveStabilizationTransformPath(sourceId, { preparedTransforms = null, resolveStabilizationTransforms = null }) {
+  if (preparedTransforms != null) {
+    if (typeof preparedTransforms.get === 'function') return preparedTransforms.get(sourceId);
+    if (typeof preparedTransforms === 'function') return preparedTransforms(sourceId);
+    if (Object.prototype.hasOwnProperty.call(preparedTransforms, sourceId)) return preparedTransforms[sourceId];
+  }
+  if (typeof resolveStabilizationTransforms === 'function') return resolveStabilizationTransforms(sourceId);
+  return null;
 }
 
 function buildRoundedAlphaExpression(radius) {

@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCensorSourceFilters, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCensorSourceFilters, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -116,6 +116,159 @@ test('raw trim export args cut to the persisted source frame range', () => {
 
   assert.deepEqual(args.slice(0, 7), ['-y', '-ss', '1', '-t', '3', '-i', '/tmp/source.mp4']);
   assert.deepEqual(args.slice(-5), ['-c', 'copy', '-movflags', '+faststart', '/tmp/export.mp4']);
+});
+
+test('raw stabilized trim export args apply vidstab transform and re-encode', () => {
+  const args = buildRawStabilizedTrimExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    startFrame: 30,
+    endFrame: 120,
+    fps: 30,
+    transformPath: '/tmp/transform.trf',
+    strength: 50,
+  });
+  const joined = args.join(' ');
+
+  assert.deepEqual(args.slice(0, 7), ['-y', '-i', '/tmp/source.mp4', '-ss', '1', '-t', '3']);
+  assert(args.indexOf('-i') < args.indexOf('-ss'));
+  assert(joined.includes("vidstabtransform=input='/tmp/transform.trf'"));
+  assert(joined.includes('smoothing=33'));
+  assert.deepEqual(args.slice(args.indexOf('-c:v'), args.indexOf('-c:v') + 6), ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18']);
+  assert(joined.includes('-c:a copy'));
+});
+
+test('raw timeline export args compact canonical edit segments with aligned audio', () => {
+  const args = buildRawTimelineExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    fps: 30,
+    durationFrames: 90,
+    segments: [
+      { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
+      { timelineIn: 30, timelineOut: 90, sourceIn: 60, sourceOut: 120 },
+    ],
+    includeAudio: true,
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('[0:v]trim=start_frame=0:end_frame=30'));
+  assert(joined.includes('[0:v]trim=start_frame=60:end_frame=120'));
+  assert(joined.includes('[base_seg_0][base_seg_1]concat=n=2:v=1:a=0[base]'));
+  assert(joined.includes('[0:a]atrim=start=0:end=1'));
+  assert(joined.includes('[0:a]atrim=start=2:end=4'));
+  assert(joined.includes('-map [base] -map [a]'));
+  assert(joined.includes('-metadata rough_cut_style=raw-timeline'));
+});
+
+test('raw export accepts a compact canonical timeline after ripple deletion', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-raw-timeline-'));
+  const binDir = join(root, 'bin');
+  const sourcePath = join(root, 'source.mp4');
+  const outputPath = join(root, 'exported.mp4');
+  const argsPath = join(root, 'ffmpeg-args.txt');
+  await mkdir(binDir, { recursive: true });
+  await writeFile(sourcePath, Buffer.from('source'));
+  await writeFile(
+    join(binDir, 'ffprobe'),
+    '#!/usr/bin/env bash\nprintf \'{"streams":[]}\'\n',
+  );
+  await writeFile(
+    join(binDir, 'ffmpeg'),
+    `#!/usr/bin/env bash
+printf '%s\n' "$@" > "${argsPath}"
+printf encoded > "\${@: -1}"
+`,
+  );
+  await Promise.all([
+    chmod(join(binDir, 'ffprobe'), 0o755),
+    chmod(join(binDir, 'ffmpeg'), 0o755),
+  ]);
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:04.000Z',
+      outputPath: sourcePath,
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  const edited = withPrimaryTimelineClips(project, [
+    { id: 'screen-a', timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
+    { id: 'screen-b', timelineIn: 30, timelineOut: 90, sourceIn: 60, sourceOut: 120 },
+  ], 90);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}:${originalPath ?? ''}`;
+
+  try {
+    const result = await exportProjectToMp4({
+      project: edited,
+      outputPath,
+      mode: 'raw',
+    });
+
+    assert.equal(result.byteEqualCandidate, false);
+    const args = await readFile(argsPath, 'utf8');
+    assert(args.includes('trim=start_frame=60:end_frame=120'));
+    assert(args.includes('rough_cut_style=raw-timeline'));
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('export stabilization resolves imported and camera video sources but rejects screen recording', () => {
+  const project = {
+    version: 3,
+    id: 'project',
+    name: 'Stabilized',
+    createdAt: '2026-07-29T00:00:00.000Z',
+    modifiedAt: '2026-07-29T00:00:00.000Z',
+    settings: { fps: 30, resolution: { width: 1280, height: 720 }, aspectRatio: 'auto' },
+    composition: { duration: 60, tracks: [] },
+    assets: [
+      { id: 'screen', type: 'recording', filePath: '/tmp/screen.mp4', metadata: {} },
+      { id: 'camera', type: 'video', filePath: '/tmp/camera.mp4', metadata: { isCamera: true } },
+      { id: 'imported', type: 'video', filePath: '/tmp/imported.mp4', metadata: {} },
+    ],
+    timeline: {
+      version: 1,
+      frameRate: 30,
+      timebase: { numerator: 1, denominator: 30 },
+      sources: [
+        { id: 'source:screen', assetId: 'screen', kind: 'video', duration: 60 },
+        { id: 'source:camera', assetId: 'camera', kind: 'video', duration: 60 },
+        { id: 'source:imported', assetId: 'imported', kind: 'video', duration: 60 },
+      ],
+      tracks: [],
+      effects: [
+        { id: 'camera-stab', kind: 'stabilization', ownerType: 'source', ownerId: 'source:camera', enabled: true, params: { strength: 70, methodVersion: 1 } },
+        { id: 'imported-stab', kind: 'stabilization', ownerType: 'source', ownerId: 'source:imported', enabled: true, params: { strength: 40, methodVersion: 1 } },
+        { id: 'screen-stab', kind: 'stabilization', ownerType: 'source', ownerId: 'source:screen', enabled: true, params: { strength: 90, methodVersion: 1 } },
+      ],
+      markers: [],
+      duration: 60,
+    },
+  };
+  const transforms = new Map([
+    ['source:screen', '/tmp/screen.trf'],
+    ['source:camera', '/tmp/camera.trf'],
+    ['source:imported', '/tmp/imported.trf'],
+  ]);
+
+  assert.equal(resolveAssetStabilization({ project, assetId: 'screen', preparedTransforms: transforms }), null);
+  assert.deepEqual(
+    resolveAssetStabilization({ project, assetId: 'camera', preparedTransforms: transforms }),
+    { sourceId: 'source:camera', transformPath: '/tmp/camera.trf', strength: 70 },
+  );
+  assert.deepEqual(
+    resolveAssetStabilization({ project, assetId: 'imported', preparedTransforms: transforms }),
+    { sourceId: 'source:imported', transformPath: '/tmp/imported.trf', strength: 40 },
+  );
 });
 
 test('single head/tail trimmed recording remains exportable', () => {
@@ -787,6 +940,34 @@ test('headless frame export args can mux timeline audio segments over rendered f
   assert(args.includes('aac'));
 });
 
+test('timeline audio export softens both sides of a discontinuous adjacent join', () => {
+  const args = buildHeadlessFrameExportArgs({
+    framePattern: '/tmp/rendered/frame-%06d.png',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    durationSeconds: 2,
+    audioInputPath: '/tmp/source.mp4',
+    timelineAudioSegments: [
+      { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
+      { timelineIn: 30, timelineOut: 60, sourceIn: 45, sourceOut: 75 },
+    ],
+  });
+  const joined = args.join(' ');
+
+  assert(
+    joined.includes(
+      'afade=t=out:st=0.933:d=0.067,adelay=0:all=1[audio_seg_0]',
+    ),
+  );
+  assert(
+    joined.includes(
+      'afade=t=in:st=0:d=0.067,adelay=1000:all=1[audio_seg_1]',
+    ),
+  );
+});
+
 test('styled export mode uses the ffmpeg styled canvas path', async () => {
   const project = createProjectForRecording({
     recording: {
@@ -1061,6 +1242,55 @@ test('styled export args compose canonical timeline segments over real gaps', ()
   assert(joined.includes('[0:v]trim=start_frame=15:end_frame=75,setpts=PTS-STARTPTS,format=rgba[base_seg_0]'));
   assert(joined.includes('[base_gap_0][base_seg_0]concat=n=2:v=1:a=0[base]'));
   assert(args.includes('-an'));
+});
+
+test('styled export args stabilize source before frame trim and timeline graph composition', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    sourceTrimStartFrame: 45,
+    sourceTrimEndFrame: 135,
+    sourceStabilizationTransform: {
+      sourceId: 'source:abc:screen',
+      transformPath: '/tmp/source.trf',
+      strength: 75,
+    },
+  });
+  const joined = args.join(' ');
+
+  const filterStart = joined.indexOf("[0:v]vidstabtransform=input='/tmp/source.trf'");
+  const setptsStart = joined.indexOf('[source_stabilized]setpts=PTS-STARTPTS');
+  assert(filterStart !== -1);
+  assert(setptsStart > filterStart);
+  assert(joined.includes('smoothing=46'));
+});
+
+test('styled export args stabilize linked camera before crop and overlay', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/screen.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraSourceWidth: 640,
+    cameraSourceHeight: 480,
+    cameraPresentation: { visible: true, shape: 'circle', size: 0.25, x: 0.7, y: 0.7 },
+    cameraStabilizationTransform: {
+      sourceId: 'source:camera',
+      transformPath: '/tmp/camera.trf',
+      strength: 50,
+    },
+  });
+  const joined = args.join(' ');
+
+  const stabilize = joined.indexOf("[1:v]vidstabtransform=input='/tmp/camera.trf'");
+  const crop = joined.indexOf('[camera_stabilized]setpts=PTS-STARTPTS');
+  assert(stabilize !== -1);
+  assert(crop > stabilize);
 });
 
 test('styled export args can render timeline audio segments through filter audio', () => {

@@ -42,7 +42,7 @@ await writeFile(
 
 await writeFile(
   join(artifactRoot, 'run.sh'),
-  '#!/usr/bin/env bash\nset -euo pipefail\nDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nexec "$DIR/electron" "$DIR/resources/app" "$@"\n',
+  '#!/usr/bin/env bash\nset -euo pipefail\nDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nexec "$DIR/electron" --no-sandbox "$DIR/resources/app" "$@"\n',
   { mode: 0o755 },
 );
 

@@ -482,6 +482,15 @@ describe('AI architecture schemas', () => {
     const extended = {
       ...project,
       transcript: { words: [], paragraphs: [], nonSpeech: [] },
+      transcription: {
+        jobId: 'job-local',
+        provider: {
+          kind: 'local' as const,
+          id: 'sona-local',
+          model: 'ggml-model.bin',
+        },
+        fps: 30,
+      },
       captionTracks: [{ id: 'ct-1', style: 'subtitle' as const, phrases: [] }],
       tracks: [
         {
@@ -527,6 +536,30 @@ describe('AI architecture schemas', () => {
     expect(project.timeline.markers[0]).toMatchObject({ kind: 'zoom', linkedGroupId: `linked:${asset.id}` });
     expect(project.timeline.effects.map((effect) => effect.kind)).toEqual(['cursor', 'click', 'camera-pip']);
     expect(project.timeline.exportSettings).toEqual(project.exportSettings);
+  });
+
+  it('accepts a source-owned stabilization effect', () => {
+    const project = createProject({
+      assets: [createAsset('video', '/tmp/imported.mp4')],
+    });
+    const sourceId = project.timeline.sources[0]!.id;
+    expect(() => ProjectDocumentSchema.parse({
+      ...project,
+      timeline: {
+        ...project.timeline,
+        effects: [
+          ...project.timeline.effects,
+          {
+            id: `effect:${sourceId}:stabilization`,
+            kind: 'stabilization',
+            ownerId: sourceId,
+            ownerType: 'source',
+            enabled: true,
+            params: { strength: 50, methodVersion: 1 },
+          },
+        ],
+      },
+    })).not.toThrow();
   });
 
   it('maps recording cut ranges into shared timeline cut markers', () => {

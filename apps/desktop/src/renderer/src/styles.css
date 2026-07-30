@@ -3258,6 +3258,11 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 /* When cut mode is active, the screen lane's track shows a crosshair so the
  * user understands a drag will mark a cut range, not move the playhead. */
 .timelineLane.cutModeActive .laneTrack { cursor: crosshair; }
+.timelineLane.cutModeActive .clipBar,
+.timelineLane.cutModeActive .hiddenTrimRange,
+.timelineLane.cutModeActive .hiddenCutRange {
+  pointer-events: none;
+}
 
 /* Ghost preview of the in-progress cut drag. */
 .cutDragPreview {
@@ -4771,6 +4776,71 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   grid-template-columns: 250px minmax(0, 1fr) minmax(0, 1.25fr) 252px;
   min-height: 0;
 }
+.ev2ActionBar {
+  align-items: center;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--strong-line);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.9rem;
+  min-height: 4.2rem;
+  padding: 0.55rem 0.7rem;
+}
+.ev2ActionBarIntro {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 9.2rem;
+}
+.ev2ActionBarIntro strong {
+  color: var(--text);
+  font-size: 0.78rem;
+}
+.ev2ActionBarIntro span {
+  color: var(--text);
+  font-size: 0.66rem;
+}
+.ev2ActionBarItems {
+  display: flex;
+  flex: 1;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.ev2ActionBarItem {
+  align-items: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  flex: 1 1 0;
+  gap: 0.12rem;
+  justify-content: start;
+  min-height: 3rem;
+  padding: 0.42rem 0.55rem;
+  text-align: left;
+}
+.ev2ActionBarItem strong {
+  color: var(--text);
+  font-size: 0.74rem;
+}
+.ev2ActionBarItem small {
+  color: var(--text);
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+.ev2ActionBarItem:hover:not(:disabled),
+.ev2ActionBarItem:focus-visible {
+  border-color: var(--accent);
+}
+.ev2ActionBarItem.primary {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+.nleEditingEntry {
+  background: var(--accent);
+  color: white;
+  min-height: 1.9rem;
+  padding: 0.3rem 0.55rem;
+}
 .ev2Pane {
   background: var(--surface);
   display: flex;
@@ -4780,6 +4850,543 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 .ev2Pane + .ev2Pane {
   border-left: 1px solid var(--line);
+}
+.ev2BrowserTabs {
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex: 0 0 30px;
+  gap: 0.15rem;
+  padding: 0 0.45rem;
+}
+.ev2BrowserTabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--subtle);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 650;
+  padding: 0 0.38rem;
+}
+.ev2BrowserTabs button[aria-selected='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+.ev2BrowserTabs button:disabled {
+  color: color-mix(in srgb, var(--subtle) 52%, transparent);
+  cursor: default;
+}
+.ev2Transcript {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.ev2TranscriptStatus {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  color: var(--subtle);
+  display: flex;
+  flex: 0 0 32px;
+  font-size: 0.62rem;
+  justify-content: space-between;
+  padding: 0 0.7rem;
+}
+.ev2TranscriptStatus code {
+  color: var(--muted);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.61rem;
+}
+.ev2EditMap {
+  background: color-mix(in srgb, var(--panel) 86%, var(--accent));
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 0.25rem 0.5rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 0.36rem 0.55rem 0.4rem;
+}
+.ev2EditMapTitle,
+.ev2EditMapNote {
+  color: var(--subtle);
+  font-size: 0.55rem;
+}
+.ev2EditMapTitle {
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ev2EditMapItems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.55rem;
+  min-width: 0;
+}
+.ev2EditMapItems span {
+  display: inline-flex;
+  gap: 0.22rem;
+  min-width: 0;
+}
+.ev2EditMapItems strong {
+  color: var(--muted);
+  font-size: 0.56rem;
+  font-weight: 700;
+}
+.ev2EditMapItems small {
+  color: var(--subtle);
+  font-size: 0.54rem;
+}
+.ev2EditMapNote {
+  grid-column: 2;
+}
+.ev2TranscriptTextEditor {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.55rem 0.65rem;
+}
+.ev2TranscriptTextEditorHeader,
+.ev2TranscriptTextEditorFooter {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+  justify-content: space-between;
+}
+.ev2TranscriptTextEditorHeader > div {
+  display: grid;
+  gap: 0.12rem;
+}
+.ev2TranscriptTextEditorHeader strong {
+  color: var(--text);
+  font-size: 0.68rem;
+}
+.ev2TranscriptTextEditorHeader span,
+.ev2TranscriptTextEditorFooter span {
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+.ev2TranscriptTextEditorHeader button,
+.ev2TranscriptTextEditorFooter button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.62rem;
+  min-height: 1.9rem;
+  padding: 0.25rem 0.5rem;
+  white-space: nowrap;
+}
+.ev2TranscriptTextEditorHeader button:hover:not(:disabled),
+.ev2TranscriptTextEditorHeader button:focus-visible,
+.ev2TranscriptTextEditorFooter button:hover:not(:disabled),
+.ev2TranscriptTextEditorFooter button:focus-visible {
+  border-color: var(--accent);
+}
+.ev2TranscriptTextEditorFooter > div {
+  display: flex;
+  gap: 0.35rem;
+}
+.ev2TranscriptTextEditorFooter button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.ev2TranscriptTextEditor textarea {
+  background: #101015;
+  border: 1px solid var(--strong-line);
+  border-radius: 7px;
+  color: var(--text);
+  font: 0.76rem/1.55 Inter, ui-sans-serif, system-ui, sans-serif;
+  min-height: 7rem;
+  padding: 0.55rem 0.65rem;
+  resize: vertical;
+  width: 100%;
+}
+.ev2TranscriptTextEditor textarea:focus-visible {
+  border-color: var(--accent-hover);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.18);
+  outline: none;
+}
+.ev2ReviewSpeed {
+  align-items: center;
+  display: flex;
+  gap: 1px;
+}
+.ev2ReviewSpeed button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--subtle);
+  font: inherit;
+  min-height: 22px;
+  padding: 0 0.28rem;
+}
+.ev2ReviewSpeed button:hover,
+.ev2ReviewSpeed button:focus-visible {
+  border-color: var(--strong-line);
+  color: var(--text);
+}
+.ev2ReviewSpeed button[aria-pressed='true'] {
+  background: var(--panel-alt);
+  border-color: var(--line);
+  color: var(--text);
+}
+.ev2Landmarks {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex: 0 1 38%;
+  flex-direction: column;
+  min-height: 76px;
+}
+.ev2CleanupReview {
+  border-bottom: 1px solid var(--line);
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 220px;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 220px;
+  outline: none;
+  padding: 0.5rem 0.55rem;
+}
+.ev2CleanupReview:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.ev2CleanupReviewHeader,
+.ev2CleanupStages,
+.ev2CleanupActions,
+.ev2CleanupNavigation,
+.ev2CleanupBoundaryActions {
+  align-items: center;
+  display: flex;
+  gap: 0.35rem;
+}
+.ev2CleanupReviewHeader span,
+.ev2CleanupReviewHeader code {
+  color: var(--subtle);
+  font-size: 0.56rem;
+}
+.ev2CleanupReviewHeader strong {
+  color: var(--text);
+  flex: 1;
+  font-size: 0.64rem;
+}
+.ev2CleanupStages span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--subtle);
+  font-size: 0.52rem;
+  padding: 0.12rem 0.35rem;
+  text-transform: capitalize;
+}
+.ev2CleanupStages span[aria-current='step'] {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  border-color: var(--accent);
+  color: var(--text);
+}
+.ev2CleanupReason {
+  color: var(--muted);
+  display: -webkit-box;
+  font-size: 0.61rem;
+  line-height: 1.35;
+  margin: 0;
+  min-height: 2.7em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.ev2CleanupActions button,
+.ev2CleanupNavigation button,
+.ev2CleanupBoundaryActions button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.52rem;
+  min-height: 24px;
+  padding: 0.15rem 0.3rem;
+  white-space: nowrap;
+}
+.ev2CleanupActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ev2CleanupActions button {
+  min-width: 0;
+}
+.ev2CleanupNavigation {
+  justify-content: space-between;
+}
+.ev2CleanupNavigation button {
+  min-width: 4.25rem;
+}
+.ev2CleanupActions button.primary {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  color: var(--text);
+}
+.ev2CleanupActions button:disabled,
+.ev2CleanupNavigation button:disabled,
+.ev2CleanupBoundaryActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.ev2CleanupActions kbd,
+.ev2CleanupNavigation kbd {
+  color: var(--subtle);
+  font: inherit;
+  margin-left: 0.12rem;
+}
+.ev2CleanupBoundaryActions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: auto;
+}
+.ev2CleanupBoundaryActions span {
+  color: var(--subtle);
+  font-size: 0.52rem;
+  grid-column: 1 / -1;
+  justify-self: end;
+  text-transform: capitalize;
+}
+.ev2LandmarkSearch {
+  align-items: center;
+  display: flex;
+  flex: 0 0 32px;
+  gap: 0.4rem;
+  padding: 0 0.55rem;
+}
+.ev2LandmarkSearch > span {
+  color: var(--subtle);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ev2LandmarkSearch small {
+  color: var(--muted);
+  font: inherit;
+  letter-spacing: 0;
+  margin-left: 0.14rem;
+}
+.ev2LandmarkSearch input {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.62rem;
+  height: 22px;
+  min-width: 0;
+  padding: 0 0.4rem;
+  width: 100%;
+}
+.ev2LandmarkSearch input::placeholder {
+  color: var(--subtle);
+}
+.ev2LandmarkList {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0.35rem 0.35rem;
+}
+.ev2Landmark {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 0.35rem;
+  grid-template-columns: 30px minmax(0, 1fr) auto auto;
+  min-height: 25px;
+  padding: 0.18rem 0.35rem;
+  text-align: left;
+}
+.ev2Landmark:hover,
+.ev2Landmark[aria-current='true'] {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+.ev2LandmarkKind {
+  color: var(--accent);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.53rem;
+  font-weight: 750;
+}
+.ev2LandmarkLabel {
+  font-size: 0.62rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ev2LandmarkConfidence {
+  color: var(--subtle);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.54rem;
+}
+.ev2LandmarkEvidence {
+  color: var(--subtle);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.49rem;
+  letter-spacing: 0.025em;
+}
+.ev2LandmarkEmpty {
+  color: var(--subtle);
+  font-size: 0.62rem;
+  padding: 0.35rem;
+}
+.ev2TranscriptWords {
+  display: block;
+  flex: 1;
+  line-height: 1.75;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.65rem 0.7rem 1rem;
+  position: relative;
+}
+.ev2TranscriptEditBar {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.4rem 0.55rem;
+}
+.ev2TranscriptEditBar > span {
+  color: var(--muted);
+  flex: 1 1 7rem;
+  font-size: 0.58rem;
+}
+.ev2TranscriptEditBar button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.52rem;
+  min-height: 24px;
+  padding: 0.15rem 0.34rem;
+  white-space: nowrap;
+}
+.ev2TranscriptEditBar button:hover:not(:disabled),
+.ev2TranscriptEditBar button:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.ev2TranscriptEditBar button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  color: var(--text);
+}
+.ev2TranscriptEditBar button.primary:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-weight: 700;
+}
+.ev2TranscriptEditBar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.ev2TranscriptEditBar kbd {
+  color: var(--subtle);
+  display: inline-block;
+  font: inherit;
+  margin-left: 0.22rem;
+}
+.ev2TranscriptJoinSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+}
+.ev2TranscriptJoinSummary strong {
+  color: var(--text);
+  font-size: 0.58rem;
+}
+.ev2TranscriptJoinSummary small {
+  color: var(--subtle);
+  font-size: 0.5rem;
+}
+.ev2TranscriptJoinSummary .ev2TranscriptJoinWarning {
+  color: var(--warning, #e5a541);
+  font-weight: 650;
+}
+.ev2TranscriptEditBar[data-audio-safety='caution']
+  .ev2TranscriptJoinSummary strong::before {
+  content: '! ';
+}
+.ev2TranscriptWindow {
+  position: relative;
+  width: 100%;
+}
+.ev2TranscriptChunk {
+  align-content: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.12rem 0.24rem;
+  left: 0;
+  min-height: 1px;
+  position: absolute;
+  right: 0;
+}
+.ev2TranscriptWord {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  padding: 0.05rem 0.12rem;
+}
+.ev2TranscriptWord:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+.ev2TranscriptWord[aria-current='true'] {
+  background: color-mix(in srgb, var(--accent) 24%, var(--panel));
+  color: var(--text);
+}
+.ev2TranscriptWord[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  box-shadow: inset 0 -2px 0 var(--accent);
+  color: var(--text);
+}
+.ev2TranscriptWord[data-suggestion-state$='-pending'] {
+  border-bottom-color: var(--muted);
+  border-bottom-style: dashed;
+}
+.ev2TranscriptWord[data-removed='true'] {
+  background: color-mix(in srgb, var(--subtle) 10%, transparent);
+  color: var(--subtle);
+  cursor: not-allowed;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.ev2TranscriptEmpty {
+  color: var(--subtle);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  font-size: 0.68rem;
+  gap: 0.25rem;
+  justify-content: center;
+  padding: 0.8rem;
+}
+.ev2TranscriptEmpty p {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin: 0;
 }
 .ev2PaneHead {
   align-items: center;
@@ -5151,6 +5758,33 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   color: var(--text);
   font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
   font-size: 0.66rem;
+}
+.ev2StabilizationStrength {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 0.5rem;
+}
+.ev2StabilizationStrength > span:first-child {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+.ev2StabilizationStrength output {
+  color: var(--text);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.66rem;
+}
+.ev2StabilizationStrength .rangeControl {
+  grid-column: 1 / -1;
+  margin-top: 0.16rem;
+}
+.ev2StabilizationStatus {
+  color: var(--subtle);
+  font-size: 0.62rem;
+  line-height: 1.35;
+  margin-top: 0.22rem;
+}
+.ev2StabilizationStatus.error {
+  color: var(--danger, #fca5a5);
 }
 .ev2Toggle {
   background: var(--panel-alt);

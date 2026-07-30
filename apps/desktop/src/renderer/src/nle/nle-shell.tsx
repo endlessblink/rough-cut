@@ -17,6 +17,7 @@ const EDITOR_V2_STORAGE_KEY = 'roughCutEditorV2';
 type NleProjectChangeOptions = {
   history?: boolean;
   previous?: NleProject | null;
+  persist?: boolean;
 };
 
 type NleEditHistory = {
@@ -25,11 +26,9 @@ type NleEditHistory = {
 };
 
 function readEditorV2Preference(): boolean {
-  try {
-    return window.localStorage.getItem(EDITOR_V2_STORAGE_KEY) !== '0';
-  } catch {
-    return true;
-  }
+  // The transcript workflow and first-screen editing actions live in v2.
+  // Do not let an old legacy-layout preference hide them on app launch.
+  return true;
 }
 
 export function NleShell({
@@ -59,6 +58,7 @@ export function NleShell({
   // sibling tools. Keep a local fallback for standalone tests/embeds.
   const [localPlayheadFrame, setLocalPlayheadFrame] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
+  const [playbackRate, setPlaybackRate] = React.useState(1);
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
   const [editMode, setEditMode] = React.useState<NleEditMode>('select');
   const [timelineHistory, setTimelineHistory] = React.useState<NleEditHistory>(EMPTY_EDIT_HISTORY as NleEditHistory);
@@ -76,6 +76,7 @@ export function NleShell({
   React.useEffect(() => {
     if (!isPlayheadControlled) setLocalPlayheadFrame(0);
     setIsPlaying(false);
+    setPlaybackRate(1);
     setSelectedClipId(null);
     setEditMode('select');
     setTimelineHistory(EMPTY_EDIT_HISTORY as NleEditHistory);
@@ -96,13 +97,30 @@ export function NleShell({
   const clampedPlayhead = Math.max(0, Math.min(durationFrames, playheadFrame));
   const canSplit = selectedClipId !== null && canSplitClipById(project, selectedClipId, clampedPlayhead);
   const selectedState = selectedClipId ? 'Clip selected' : 'No clip selected';
-  const canUndoTimeline = timelineHistory.undo.length > 0 || canUndo;
-  const canRedoTimeline = timelineHistory.redo.length > 0 || canRedo;
+  const usesExternalHistory = Boolean(onUndo || onRedo);
+  const canUndoTimeline = usesExternalHistory
+    ? canUndo
+    : timelineHistory.undo.length > 0;
+  const canRedoTimeline = usesExternalHistory
+    ? canRedo
+    : timelineHistory.redo.length > 0;
 
-  function commitProjectChange(next: NleProject) {
+  function commitProjectChange(
+    next: NleProject,
+    options: { history?: boolean; persist?: boolean } = {},
+  ) {
     if (!onProjectChange || next === project) return;
-    setTimelineHistory((history) => recordEdit(history, project) as NleEditHistory);
-    onProjectChange(next, { history: true, previous: project });
+    const recordHistory = options.history !== false;
+    if (recordHistory && !usesExternalHistory) {
+      setTimelineHistory(
+        (history) => recordEdit(history, project) as NleEditHistory,
+      );
+    }
+    onProjectChange(next, {
+      history: recordHistory && usesExternalHistory,
+      previous: project,
+      persist: options.persist,
+    });
   }
 
   React.useEffect(() => {
@@ -116,7 +134,7 @@ export function NleShell({
         rafId = window.requestAnimationFrame(tick);
         return;
       }
-      const deltaFrames = ((nowMs - lastMs) / 1000) * fps;
+      const deltaFrames = ((nowMs - lastMs) / 1000) * fps * playbackRate;
       lastMs = nowMs;
       setPlayheadFrame((frame) => {
         const next = clampFrame(frame + deltaFrames, durationFrames);
@@ -128,7 +146,7 @@ export function NleShell({
 
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [isPlaying, durationFrames, fps, setPlayheadFrame]);
+  }, [isPlaying, durationFrames, fps, playbackRate, setPlayheadFrame]);
 
   function splitSelectedClip() {
     if (!selectedClipId || !onProjectChange) return;
@@ -143,32 +161,39 @@ export function NleShell({
     if (!onProjectChange) return;
     setIsPlaying(false);
     setSelectedClipId(null);
+    if (usesExternalHistory) {
+      if (canUndo && onUndo) onUndo();
+      return;
+    }
     const result = undoEdit(timelineHistory, project);
     if (result.snapshot) {
       setTimelineHistory(result.history as NleEditHistory);
       onProjectChange(result.snapshot, { history: false });
       return;
     }
-    if (canUndo && onUndo) onUndo();
   }
 
   function requestRedo() {
     if (!onProjectChange) return;
     setIsPlaying(false);
     setSelectedClipId(null);
+    if (usesExternalHistory) {
+      if (canRedo && onRedo) onRedo();
+      return;
+    }
     const result = redoEdit(timelineHistory, project);
     if (result.snapshot) {
       setTimelineHistory(result.history as NleEditHistory);
       onProjectChange(result.snapshot, { history: false });
       return;
     }
-    if (canRedo && onRedo) onRedo();
   }
 
   React.useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (usesExternalHistory) return;
         e.preventDefault();
         e.stopPropagation();
         e.shiftKey ? requestRedo() : requestUndo();
@@ -180,9 +205,6 @@ export function NleShell({
         const direction = e.key === 'ArrowLeft' ? -1 : 1;
         const step = e.shiftKey ? 10 : 1;
         setPlayheadFrame((frame) => clampFrame(frame + direction * step, durationFrames));
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        setPlayheadFrame(0);
       } else if (e.key === 'End') {
         e.preventDefault();
         setPlayheadFrame(durationFrames);
@@ -299,6 +321,14 @@ export function NleShell({
           <h2 className="nleHeaderTitle">{project.document.name || 'Untitled project'}</h2>
         </div>
         <div className="nleHeaderMeta" aria-label="Editor status">
+          <button
+            type="button"
+            className="nleEditingEntry"
+            onClick={() => setLayoutV2(true)}
+            title="Open the editor actions and transcript tools"
+          >
+            Open editing actions
+          </button>
           <span>{selectedState}</span>
           <span>{Math.round(clampedPlayhead)} / {Math.round(durationFrames)} frames</span>
           <span>{fps} fps</span>
@@ -328,6 +358,7 @@ export function NleShell({
           durationFrames={durationFrames}
           fps={fps}
           isPlaying={isPlaying}
+          playbackRate={playbackRate}
           selectedClipId={selectedClipId}
           editMode={editMode}
           canSplit={canSplit}
@@ -335,6 +366,7 @@ export function NleShell({
           onEditModeChange={setEditMode}
           onPlayheadFrameChange={setPlayheadFrame}
           onPlayingChange={setIsPlaying}
+          onPlaybackRateChange={setPlaybackRate}
           onSelectedClipChange={setSelectedClipId}
           onProjectChange={commitProjectChange}
         />
@@ -345,6 +377,7 @@ export function NleShell({
               project={project}
               playheadFrame={clampedPlayhead}
               isPlaying={isPlaying}
+              playbackRate={playbackRate}
               fps={fps}
               durationFrames={durationFrames}
               onPlayheadFrameChange={setPlayheadFrame}

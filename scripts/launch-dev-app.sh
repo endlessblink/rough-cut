@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launched by the desktop/dock shortcut (Rough Cut MVP.desktop). GUI launches
+# Kept as the compatibility target for older desktop/dock shortcuts. GUI launches
 # don't source ~/.bashrc, so pnpm's directory (~/.npm-global/bin) is not on
 # PATH here — add the known tool locations explicitly. All output goes to a
 # log file because the shortcut runs with Terminal=false (failures would
@@ -26,6 +26,13 @@ if ! command -v pnpm >/dev/null 2>&1; then
   exit 127
 fi
 
-# pnpm dev handles stale-process cleanup itself (predev-cleanup), so clicking
-# the shortcut while the app is already running restarts it cleanly.
-exec pnpm dev >> "$LOG_FILE" 2>&1
+APP_ROOT="$PWD/dist/rough-cut-mvp-linux-x64"
+if [[ ! -x "$APP_ROOT/run.sh" ]]; then
+  echo "Packaged app missing: $APP_ROOT/run.sh" >> "$LOG_FILE"
+  command -v notify-send >/dev/null 2>&1 \
+    && notify-send "Rough Cut MVP" "Packaged app missing. Rebuild Rough Cut first."
+  exit 1
+fi
+
+# Keep the legacy dock launcher name, but always hand off to the packaged app.
+exec "$APP_ROOT/run.sh" >> "$LOG_FILE" 2>&1

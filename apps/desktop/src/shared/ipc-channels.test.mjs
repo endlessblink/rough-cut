@@ -101,6 +101,14 @@ test('clip visuals channel is part of the IPC contract', async () => {
   assert.equal(IPC_CHANNELS.CLIP_VISUALS_GET, 'clip-visuals:get');
 });
 
+test('visual discontinuity inspection is part of the IPC contract', async () => {
+  const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
+  assert.equal(
+    IPC_CHANNELS.VISUAL_DISCONTINUITY_INSPECT,
+    'visual-discontinuity:inspect',
+  );
+});
+
 test('debug dump channel is part of the IPC contract', async () => {
   const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
   assert.equal(IPC_CHANNELS.DEBUG_DUMP_SAVE, 'debug:dump-save');

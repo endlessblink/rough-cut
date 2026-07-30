@@ -131,6 +131,7 @@ async function runAdversarialRecordingProbe(projectPath) {
     return {
       ok: initial.canvas.ok
         && cut.created
+        && cut.shortDragIgnored
         && final.clipCount >= 2
         && outerStart.changed
         && firstInner.changed
@@ -192,6 +193,7 @@ async function runProjectProbe(projectPath, label) {
         && trimEnd.changed
         && trimStart.changed
         && cut.created
+        && cut.shortDragIgnored
         && nleInitial.canvas.ok
         && nleSplit.created
         && nleSplit.keptSelection
@@ -381,6 +383,15 @@ async function assertRecordingCut(page) {
   const tool = page.locator('button[aria-label="Cut tool"]');
   await tool.click();
   const track = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'recording screen track');
+  await page.mouse.move(track.x + track.width * 0.30, track.y + track.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(track.x + track.width * 0.302, track.y + track.height / 2);
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+  const afterShortDrag = await readRecordingState(page);
+  const shortDragIgnored = !geometryChanged(before.clip, afterShortDrag.clip)
+    && afterShortDrag.clipCount === before.clipCount;
+  if (!shortDragIgnored) throw new Error('Recording cut tool treated a sub-threshold drag as an edit.');
   await page.mouse.move(track.x + track.width * 0.36, track.y + track.height / 2);
   await page.mouse.down();
   await page.mouse.move(track.x + track.width * 0.46, track.y + track.height / 2, { steps: 6 });
@@ -390,7 +401,8 @@ async function assertRecordingCut(page) {
   const afterCut = await readRecordingState(page);
   const hiddenCutVisible = await page.locator('.hiddenCutRange').count() > 0;
   const created = geometryChanged(before.clip, afterCut.clip) || afterCut.clipCount > before.clipCount;
-  return { created, hiddenCutVisible, before: before.clip, afterCut: afterCut.clip, clipCountBefore: before.clipCount, clipCountAfter: afterCut.clipCount };
+  if (!created) throw new Error('Recording cut tool did not create a cut from a drag across the screen clip.');
+  return { created, shortDragIgnored, hiddenCutVisible, before: before.clip, afterCut: afterCut.clip, clipCountBefore: before.clipCount, clipCountAfter: afterCut.clipCount };
 }
 
 async function assertNleSplitKeepsSelection(page) {

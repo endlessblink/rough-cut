@@ -269,6 +269,18 @@ export function NleTimeline({
     return () => window.cancelAnimationFrame(rafId);
   }, [isPlaying, timelineContentWidth]);
 
+  React.useEffect(() => {
+    function handleTimelineHomeKey(event: KeyboardEvent) {
+      if (event.key !== 'Home' || event.repeat || isTypingTarget(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onPlayheadFrameChange(0);
+      if (bodiesRef.current) bodiesRef.current.scrollLeft = 0;
+    }
+    document.addEventListener('keydown', handleTimelineHomeKey);
+    return () => document.removeEventListener('keydown', handleTimelineHomeKey);
+  }, [onPlayheadFrameChange]);
+
   function applyZoom(direction: 1 | -1, anchorFrame: number, pointerOffsetPx: number | null) {
     const next = zoomStep(pixelsPerFrame, direction, viewWidthPx, durationFrames);
     const nextPpf = resolvePixelsPerFrame(next, viewWidthPx, durationFrames);

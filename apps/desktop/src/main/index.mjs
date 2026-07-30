@@ -13,6 +13,10 @@ import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recordin
 import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { ensureClipVisual } from './clip-visuals.mjs';
+import {
+  inspectVisualDiscontinuity,
+  resolveReferencedVisualSource,
+} from './visual-discontinuity-service.mjs';
 import { remuxMkvSegmentsToMp4, remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
 import { startFfmpegAudioLevelProbe, startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
@@ -25,6 +29,14 @@ import { createUserTemplatesStore, defaultUserTemplatesPath } from './user-templ
 import { createRecordingTemplateOverridesStore, defaultRecordingTemplateOverridesPath } from './recording-template-overrides-store.mjs';
 import { createAiAssetsStore, defaultAiAssetsRoot } from './ai-assets-store.mjs';
 import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
+import { createStabilizationService } from './stabilization-service.mjs';
+import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
+import { persistTranscriptToProject } from './transcription-project-persistence.mjs';
+import { createTranscriptionRuntime } from './transcription-runtime.mjs';
+import {
+  createRecordingTranscriptPersistence,
+  createRecordingTranscriptionLifecycle,
+} from './transcription-main-lifecycle.mjs';
 import {
   analyzeProject,
   getKeyStatus as getAiKeyStatus,
@@ -80,6 +92,9 @@ const aiAssetsStore = createAiAssetsStore({
   rootDir: defaultAiAssetsRoot(app.getPath('userData')),
   onLog: (msg) => console.warn(msg),
 });
+const stabilizationService = createStabilizationService({
+  cacheRoot: join(app.getPath('userData'), 'stabilization-cache'),
+});
 const recordingStopShortcut = 'CommandOrControl+Shift+R';
 const recordingRestartShortcut = 'CommandOrControl+Shift+N';
 let hiddenRecorderWindow = null;
@@ -102,6 +117,28 @@ const recordingSession = createRecordingSession({
   // (electron/electron#42519). Fall back to it on platforms where xdotool is
   // unavailable so the app still records cursor under simpler setups.
   getCursorPoint: () => readCursorViaXdotool() ?? screen.getCursorScreenPoint(),
+});
+const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
+  environment: process.env,
+  userDataDir: app.getPath('userData'),
+  onLog: (message) => console.warn(message),
+  persistTranscript: persistRecordingTranscript,
+}).then(async (runtime) => {
+  const bridge = createRecordingTranscriptionBridge({
+    service: runtime.service,
+    fixtureDurationMs: runtime.fixtureDurationMs,
+    incrementalDuringCapture: runtime.incrementalDuringCapture,
+    dispose: runtime.dispose,
+    onLog: (message) => console.warn(message),
+  });
+  await bridge.initialize();
+  return bridge;
+}).catch((error) => {
+  console.warn(`[transcription] runtime unavailable: ${error?.message ?? error}`);
+  return null;
+});
+const recordingTranscriptionLifecycle = createRecordingTranscriptionLifecycle({
+  getBridge: () => recordingTranscriptionBridgePromise,
 });
 
 async function listCameraSources() {
@@ -206,6 +243,8 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           ? runRendererStartupRecordButtonSmoke
           : process.env.ROUGH_CUT_UI_SMOKE_RECORD_FLOW === '1'
           ? runRendererRecordingFlowSmoke
+          : process.env.ROUGH_CUT_UI_SMOKE_TRANSCRIPT_ONLY === '1'
+          ? runRendererTranscriptSmoke
           : process.env.ROUGH_CUT_UI_SMOKE_NLE_ONLY === '1'
           ? runRendererNleSmoke
           : runRendererUiSmoke;
@@ -223,6 +262,9 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
             startupOpenProjects: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_PROJECTS === '1',
             startupCreateBlankProject: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_CREATE_BLANK_PROJECT === '1',
             sidebarExpectLoaded: Boolean(process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH),
+            cleanupReview: process.env.ROUGH_CUT_UI_SMOKE_CLEANUP_REVIEW === '1',
+            externalProject: process.env.ROUGH_CUT_UI_SMOKE_EXTERNAL_PROJECT === '1',
+            projectPath: process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH ?? null,
           })})`,
           true,
         );
@@ -689,6 +731,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
     await new Promise((resolve) => setTimeout(resolve, 350));
   }
   const status = await recordingSession.start(recordingOptions);
+  await recordingTranscriptionLifecycle.recordingStarted(status);
   if (hideWindowDuringRecording && senderWindow) showRecordingTray(senderWindow);
   return status;
 });
@@ -718,6 +761,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_RESTART, async (_event, options = null) =>
   updateRecordingTray(null, 'restarting');
   await stopActiveAudioPreview();
   const status = await recordingSession.restart(options);
+  await (await recordingTranscriptionBridgePromise)?.recordingRestarted(status);
   updateRecordingTray(null, 'recording');
   return status;
 });
@@ -729,6 +773,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_CANCEL, async (event) => {
   try {
     console.info('[recording:cancel] requested');
     const result = await recordingSession.cancel();
+    await (await recordingTranscriptionBridgePromise)?.recordingCancelled();
     console.info(`[recording:cancel] completed ${JSON.stringify(result)}`);
     if (shouldShowRecorderAfterCancel && senderWindow && !senderWindow.isDestroyed()) senderWindow.show();
     updateRecordingTray(null, 'discarded');
@@ -738,7 +783,11 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_CANCEL, async (event) => {
     throw err;
   }
 });
-ipcMain.handle(IPC_CHANNELS.RECORDING_STATUS, () => recordingSession.status());
+ipcMain.handle(IPC_CHANNELS.RECORDING_STATUS, () => {
+  const status = recordingSession.status();
+  void recordingTranscriptionLifecycle.recordingProgress(status);
+  return status;
+});
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
   await mkdir(recordingsDir, { recursive: true });
   const result = await dialog.showOpenDialog({
@@ -863,6 +912,18 @@ function enqueueProjectOp(safePath, op) {
     if (projectSaveQueues.get(safePath) === next) projectSaveQueues.delete(safePath);
   });
   return next;
+}
+
+const persistRecordingTranscriptThroughProjectQueue =
+  createRecordingTranscriptPersistence({
+    validateProjectPath,
+    getAllowedRoots: buildAllowedProjectRoots,
+    enqueueProjectOp,
+    persistTranscript: persistTranscriptToProject,
+  });
+
+function persistRecordingTranscript(input) {
+  return persistRecordingTranscriptThroughProjectQueue(input);
 }
 
 class OpenProjectLockedError extends Error {
@@ -992,23 +1053,89 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName 
   if (result.canceled || !result.filePath) return null;
   return result.filePath;
 });
-ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, mode, exportScope }) => {
+ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, {
+  document,
+  projectPath,
+  outputPath,
+  mode,
+  exportScope,
+}) => {
   if (activeExportController) throw new Error('An export is already running. Cancel it before starting another export.');
   const controller = new AbortController();
   activeExportController = controller;
   try {
+    const preparedStabilizationTransforms = await prepareExportStabilizationTransforms({
+      document,
+      projectPath,
+      signal: controller.signal,
+      onProgress: (progress) => event.sender.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, {
+        phase: progress.phase === 'analyzing' ? 'analyzing-stabilization' : 'building-stabilized-video',
+        progress: progress.phase === 'analyzing'
+          ? progress.progress * 0.5
+          : 0.5 + progress.progress * 0.5,
+      }),
+    });
     return await exportProjectToMp4({
       project: document,
       outputPath,
       mode,
       exportScope,
       signal: controller.signal,
+      preparedStabilizationTransforms,
       onProgress: (progress) => event.sender.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, progress),
     });
   } finally {
     if (activeExportController === controller) activeExportController = null;
   }
 });
+
+async function prepareExportStabilizationTransforms({
+  document,
+  projectPath,
+  signal,
+  onProgress,
+}) {
+  const prepared = new Map();
+  const recording = getPrimaryRecording(document);
+  const exportedAssetIds = new Set([
+    recording?.assetId,
+    recording?.camera?.assetId,
+  ].filter(Boolean));
+  const enabledEffects = (document?.timeline?.effects ?? []).filter(
+    (effect) => effect?.kind === 'stabilization'
+      && effect.ownerType === 'source'
+      && effect.enabled === true,
+  );
+  for (const effect of enabledEffects) {
+    if (signal?.aborted) {
+      const error = new Error('Export was cancelled');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const source = document?.timeline?.sources?.find((entry) => entry?.id === effect.ownerId);
+    const asset = document?.assets?.find((entry) => entry?.id === source?.assetId);
+    if (asset?.type !== 'video' || !exportedAssetIds.has(asset.id)) continue;
+    const sourcePath = asset.filePath ?? asset.path;
+    if (typeof sourcePath !== 'string' || !sourcePath) {
+      throw new Error(`The stabilized video ${asset.id} has no readable source file`);
+    }
+    if (!isAbsolute(sourcePath) && (typeof projectPath !== 'string' || !projectPath)) {
+      throw new Error('Export needs the current project path to rebuild stabilization');
+    }
+    const resolvedSourcePath = isAbsolute(sourcePath)
+      ? sourcePath
+      : join(dirname(projectPath), sourcePath);
+    const result = await stabilizationService.prepare({
+      sourceId: source.id,
+      sourcePath: resolvedSourcePath,
+      strength: effect.params?.strength,
+      signal,
+      onProgress,
+    });
+    prepared.set(source.id, result.transformPath);
+  }
+  return prepared;
+}
 ipcMain.handle(IPC_CHANNELS.CENSOR_TRACK, async (event, payload = {}) => {
   const { document, regionId } = payload;
   const recording = getPrimaryRecording(document);
@@ -1036,6 +1163,44 @@ ipcMain.handle(IPC_CHANNELS.CENSOR_TRACK, async (event, payload = {}) => {
     if (activeCensorTrackController === controller) activeCensorTrackController = null;
   }
 });
+ipcMain.handle(IPC_CHANNELS.STABILIZATION_SUPPORT, () => stabilizationService.probeSupport());
+ipcMain.handle(IPC_CHANNELS.STABILIZATION_CANCEL, (_event, jobId) => ({
+  cancelled: stabilizationService.cancel(jobId),
+}));
+ipcMain.handle(IPC_CHANNELS.STABILIZATION_PREPARE, async (event, payload = {}) => {
+  const { document, projectPath, sourceId, strength } = payload;
+  if (typeof projectPath !== 'string' || !projectPath) {
+    throw new Error('stabilization:prepare needs the current project path');
+  }
+  const source = document?.timeline?.sources?.find((entry) => entry?.id === sourceId);
+  if (!source) throw new Error(`Cannot find stabilization source ${sourceId}`);
+  const asset = document?.assets?.find((entry) => entry?.id === source.assetId);
+  if (!asset || asset.type !== 'video') {
+    throw new Error('Only imported and camera video can be stabilized');
+  }
+  const sourcePath = asset.filePath ?? asset.path;
+  if (typeof sourcePath !== 'string' || !sourcePath) {
+    throw new Error('The selected video has no readable source file');
+  }
+  const resolvedSourcePath = isAbsolute(sourcePath)
+    ? sourcePath
+    : join(dirname(projectPath), sourcePath);
+  const result = await stabilizationService.prepare({
+    sourceId,
+    sourcePath: resolvedSourcePath,
+    strength,
+    onProgress: (progress) => event.sender.send(IPC_CHANNELS.STABILIZATION_PROGRESS, progress),
+  });
+  return {
+    jobId: result.jobId,
+    sourceId: result.sourceId,
+    cacheKey: result.cacheKey,
+    strength: result.strength,
+    methodVersion: result.methodVersion,
+    reused: result.reused,
+    proxyUrl: toMediaUrl(result.proxyPath),
+  };
+});
 ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
   const { projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx } = payload;
   if (typeof projectPath !== 'string' || !projectPath) throw new Error('clip-visuals: projectPath required');
@@ -1052,6 +1217,52 @@ ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
   const { path: visualPath, ...meta } = visual;
   return { ...meta, url: toMediaUrl(visualPath) };
 });
+const visualDiscontinuityRequests = new Map();
+ipcMain.handle(
+  IPC_CHANNELS.VISUAL_DISCONTINUITY_INSPECT,
+  async (_event, payload = {}) => {
+    const { projectPath, sourcePath, beforeFrame, afterFrame, fps } = payload;
+    if (typeof projectPath !== 'string' || !projectPath) {
+      throw new Error('visual-discontinuity: projectPath required');
+    }
+    if (typeof sourcePath !== 'string' || !sourcePath) {
+      throw new Error('visual-discontinuity: sourcePath required');
+    }
+    const safeProjectPath = validateProjectPath(projectPath, {
+      allowedRoots: buildAllowedProjectRoots(),
+    });
+    const project = await openProjectFile(safeProjectPath);
+    const resolvedSource = resolveReferencedVisualSource({
+      projectPath: safeProjectPath,
+      sourcePath,
+      assets: project.document.assets,
+    });
+    const requestKey = [
+      resolvedSource,
+      beforeFrame,
+      afterFrame,
+      fps,
+    ].join(':');
+    const current = visualDiscontinuityRequests.get(requestKey);
+    if (current) return current;
+    const request = inspectVisualDiscontinuity({
+      sourcePath: resolvedSource,
+      beforeFrame,
+      afterFrame,
+      fps,
+    }).catch((error) => {
+      visualDiscontinuityRequests.delete(requestKey);
+      throw error;
+    });
+    visualDiscontinuityRequests.set(requestKey, request);
+    if (visualDiscontinuityRequests.size > 128) {
+      visualDiscontinuityRequests.delete(
+        visualDiscontinuityRequests.keys().next().value,
+      );
+    }
+    return request;
+  },
+);
 
 ipcMain.handle(IPC_CHANNELS.DEBUG_DUMP_SAVE, async (_event, payload = {}) => {
   const { projectPath, dump } = payload;
@@ -1141,6 +1352,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  void recordingTranscriptionBridgePromise.then((bridge) => bridge?.dispose());
   void stopActiveAudioPreview();
   void stopActiveCameraPreview();
   globalShortcut.unregister(recordingStopShortcut);
@@ -1159,6 +1371,19 @@ async function runRendererSidebarLayoutSmoke(options = {}) {
     throw new Error(`Timed out waiting for ${label}`);
   };
   const waitForFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const waitForAnimationCondition = async (
+    predicate,
+    label,
+    timeoutMs = 1000,
+  ) => {
+    const started = performance.now();
+    while (performance.now() - started < timeoutMs) {
+      const value = await predicate();
+      if (value) return value;
+      await waitForFrame();
+    }
+    throw new Error(`Timed out waiting for ${label}`);
+  };
 
   const expectLoaded = Boolean(options.sidebarExpectLoaded);
   await waitFor(
@@ -1356,6 +1581,8 @@ function unregisterHiddenRecordingStopShortcut() {
 
 async function finalizeActiveRecording() {
   if (activeRecordingFinalizePromise) return activeRecordingFinalizePromise;
+  const finalRecordingStatus = recordingSession.status();
+  await recordingTranscriptionLifecycle.recordingStopping(finalRecordingStatus);
   activeRecordingFinalizePromise = stopRecordingAndCreateProject({
     recordingSession,
     assertReadableMp4,
@@ -1366,6 +1593,16 @@ async function finalizeActiveRecording() {
     probeVideoTiming,
     probeVideoStreamsTiming,
     computeSyncedRecordingTiming,
+  }).then(async (result) => {
+    await recordingTranscriptionLifecycle.recordingStopped(result);
+    const bridge = await recordingTranscriptionBridgePromise;
+    if (bridge && result?.state === 'saved' && result.project?.path) {
+      return {
+        ...result,
+        project: formatProject(await openProjectFile(result.project.path)),
+      };
+    }
+    return result;
   }).finally(() => {
     activeRecordingFinalizePromise = null;
   });
@@ -1404,8 +1641,10 @@ async function restartHiddenRecording(window) {
     const nextOptions = hiddenRecordingOptions ?? {};
     updateRecordingTray(window, 'restarting');
     await recordingSession.cancel();
+    await (await recordingTranscriptionBridgePromise)?.recordingCancelled();
     await new Promise((resolve) => setTimeout(resolve, 350));
-    await recordingSession.start(nextOptions);
+    const status = await recordingSession.start(nextOptions);
+  await recordingTranscriptionLifecycle.recordingStarted(status);
     hiddenRecordingStopping = false;
     if (!window.isDestroyed()) showRecordingTray(window);
   } catch (err) {
@@ -1423,6 +1662,7 @@ async function cancelHiddenRecording(window) {
   updateRecordingTray(window, 'canceling');
   try {
     await recordingSession.cancel();
+    await (await recordingTranscriptionBridgePromise)?.recordingCancelled();
     if (!window.isDestroyed()) {
       window.show();
       loadRenderer(window, { mode: 'recorder' });
@@ -2582,7 +2822,6 @@ async function runRendererNleSmoke() {
     }
     throw new Error(`Timed out waiting for ${label}; body=${document.body.innerText.slice(0, 800)}`);
   };
-
   await waitFor(() => document.body.textContent?.includes('preview-source') || document.querySelector('[data-ui-region="nle-workspace"]'), 'loaded smoke project', 30000);
   const nleTab = document.querySelector('button[title="Editor"]')
     ?? Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Editor'));
@@ -2601,7 +2840,28 @@ async function runRendererNleSmoke() {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', bubbles: true, cancelable: true }));
   const splitButton = await waitFor(() => document.querySelector('button[aria-label="Split at playhead"]'), 'NLE split button');
   const splitDisabledBeforeSelection = splitButton.disabled === true;
-  document.querySelector('.nleClipBlock')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  const initialClip = document.querySelector('.nleClipBlock');
+  const initialClipRect = initialClip?.getBoundingClientRect();
+  if (initialClip && initialClipRect) {
+    const selectionX = initialClipRect.left + Math.min(24, initialClipRect.width / 2);
+    const selectionY = initialClipRect.top + initialClipRect.height / 2;
+    initialClip.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId: 6,
+      clientX: selectionX,
+      clientY: selectionY,
+    }));
+    window.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId: 6,
+      clientX: selectionX,
+      clientY: selectionY,
+    }));
+  }
   await waitFor(() => splitButton.disabled === false, 'NLE split button enabled after clip selection');
   const hasNleTrimHandles = Boolean(
     document.querySelector('.nleClipTrimHandle.left') && document.querySelector('.nleClipTrimHandle.right'),
@@ -2640,6 +2900,22 @@ async function runRendererNleSmoke() {
     .find((button) => button.textContent?.includes('Generated'));
   generatedTab?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   await waitFor(() => document.querySelector('[data-ui-region="nle-generated-assets"]'), 'NLE generated assets tab');
+  const playheadBeforeTranscriptSeek =
+    document.querySelector('.nleTimelineStatus')?.getAttribute('data-playhead-frame');
+    const transcriptTab = document.querySelector('button[aria-label="Edit transcript"], button[aria-label="Transcript"]');
+  transcriptTab?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  const transcriptPanel = await waitFor(
+    () => document.querySelector('[data-ui-region="transcript-panel"]'),
+    'transcript panel',
+  );
+  const transcriptWord = transcriptPanel.querySelector('button[aria-label="Seek to editor"]');
+  transcriptWord?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await waitFor(
+    () =>
+      document.querySelector('.nleTimelineStatus')?.getAttribute('data-playhead-frame')
+      !== playheadBeforeTranscriptSeek,
+    'transcript word seek',
+  );
 
   return {
     ok: true,
@@ -2651,6 +2927,10 @@ async function runRendererNleSmoke() {
     hasNleClipBlock: Boolean(document.querySelector('.nleClipBlock')),
     rulerAlignedToBodies: Boolean(laneRect && Math.abs(rulerRect.left - laneRect.left) <= 1 && Math.abs(rulerRect.width - laneRect.width) <= 1),
     hasNleArrowKeyStep: true,
+    hasTranscriptPanel: Boolean(transcriptPanel),
+    hasTranscriptSeek:
+      document.querySelector('.nleTimelineStatus')?.getAttribute('data-playhead-frame')
+      !== playheadBeforeTranscriptSeek,
     hasNleSpacePreventDefault: spaceEvent.defaultPrevented,
     hasNleSplitButton: Boolean(splitButton),
     hasNleSplitDisabledWithoutSelection: splitDisabledBeforeSelection,
@@ -2662,5 +2942,916 @@ async function runRendererNleSmoke() {
     hasNleGeneratedAssetsTab: Boolean(document.querySelector('[data-ui-region="nle-generated-assets"]')),
     hasNleGeneratedSearch: Boolean(document.querySelector('.nleGeneratedSearch input[type="search"]')),
     hasNleGeneratedFilters: document.querySelectorAll('.nleGeneratedFilters button').length >= 5,
+  };
+}
+
+async function runRendererTranscriptSmoke(config = {}) {
+  const waitFor = async (predicate, label, timeoutMs = 10000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for ${label}; body=${document.body.innerText.slice(0, 800)}`);
+  };
+  const waitForAnimationCondition = async (
+    predicate,
+    label,
+    timeoutMs = 1000,
+  ) => {
+    const started = performance.now();
+    while (performance.now() - started < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      );
+    }
+    throw new Error(`Timed out waiting for ${label}; body=${document.body.innerText.slice(0, 800)}`);
+  };
+  const startPreviewFrameMonitor = () => {
+    const state = {
+      running: true,
+      frameCount: 0,
+      badFrames: 0,
+      rafId: 0,
+    };
+    const sample = () => {
+      if (!state.running) return;
+      const canvas = document.querySelector('canvas.styledPreviewCanvas');
+      let looksBad = true;
+      if (
+        canvas instanceof HTMLCanvasElement &&
+        canvas.width > 0 &&
+        canvas.height > 0
+      ) {
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (context) {
+          const width = Math.min(120, canvas.width);
+          const height = Math.min(68, canvas.height);
+          const pixels = context.getImageData(
+            Math.floor((canvas.width - width) / 2),
+            Math.floor((canvas.height - height) / 2),
+            width,
+            height,
+          ).data;
+          let minLuma = 255;
+          let maxLuma = 0;
+          let saturation = 0;
+          let gray = 0;
+          for (let index = 0; index < pixels.length; index += 4) {
+            const red = pixels[index] ?? 0;
+            const green = pixels[index + 1] ?? 0;
+            const blue = pixels[index + 2] ?? 0;
+            const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+            minLuma = Math.min(minLuma, luma);
+            maxLuma = Math.max(maxLuma, luma);
+            saturation += Math.max(red, green, blue) - Math.min(red, green, blue);
+            if (Math.abs(red - green) < 5 && Math.abs(green - blue) < 5) gray += 1;
+          }
+          const pixelCount = Math.max(1, pixels.length / 4);
+          looksBad =
+            saturation / pixelCount < 12 ||
+            maxLuma - minLuma < 20 ||
+            gray / pixelCount > 0.9;
+        }
+      }
+      state.frameCount += 1;
+      if (looksBad) state.badFrames += 1;
+      state.rafId = requestAnimationFrame(sample);
+    };
+    state.rafId = requestAnimationFrame(sample);
+    return {
+      stop() {
+        state.running = false;
+        cancelAnimationFrame(state.rafId);
+        return {
+          frameCount: state.frameCount,
+          badFrames: state.badFrames,
+        };
+      },
+    };
+  };
+
+  await waitFor(
+    () => config.externalProject
+      ? document.querySelector('button[title="Editor"]')
+      : document.body.textContent?.includes('preview-source'),
+    'loaded smoke project',
+    30000,
+  );
+  const nleTab = document.querySelector('button[title="Editor"]')
+    ?? Array.from(document.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('Editor'));
+  nleTab?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await waitFor(() => document.querySelector('[data-ui-region="nle-workspace"]'), 'NLE workspace');
+  const playhead = () =>
+    document.querySelector('.nleTimelineStatus')?.getAttribute('data-playhead-frame');
+  const before = playhead();
+  const transcriptTab = await waitFor(
+    () => document.querySelector('button[aria-label="Edit transcript"], button[aria-label="Transcript"]'),
+    'transcript tab',
+  );
+  transcriptTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  const transcriptPanel = await waitFor(
+    () => document.querySelector('[data-ui-region="transcript-panel"]'),
+    'transcript panel',
+  );
+  const initialCleanupDuration = Number(
+    document.querySelector('[data-ui-region="editor-v2"]')
+      ?.getAttribute('data-cleanup-draft-duration') ?? 0,
+  );
+  let hasCleanupReview = false;
+  let hasCleanupTypingGuard = false;
+  let hasCleanupKeyboardAccept = false;
+  let hasCleanupDraftProjection = false;
+  let hasLiveCleanupDraft = false;
+  let hasTranscriptSelection = false;
+  let hasManualTranscriptCut = false;
+  let hasFastReviewSpeeds = false;
+  let hasAutomaticJoinVerificationResume = false;
+  let hasManualCutUndoRedo = false;
+  let hasTranscriptFollowLock = false;
+  let hasBoundaryGestureSingleCommit = false;
+  let hasReviewFocusContinuity = false;
+  let hasReviewLayoutStability = false;
+  let hasCleanupFrameContinuity = false;
+  let cleanupFrameCount = 0;
+  let cleanupBadFrameCount = 0;
+  let hasBoundaryFeedbackWithinBudget = false;
+  let boundaryFeedbackLatencyMs = null;
+  let joinPreviewStartupLatencyMs = null;
+  let hasNaturalJoinChoice = false;
+  let hasVisualDiscontinuityCheck = false;
+  let hasFinalizeSingleHistoryCommit = false;
+  let hasFinalizeCanonicalTimeline = false;
+  let hasFinalizeSavedReopen = false;
+  let hasFinalizeUndoRestore = false;
+  let cleanupFrameMonitor = null;
+  if (config.cleanupReview) {
+    const cleanupReview = await waitFor(
+      () => transcriptPanel.querySelector('[aria-label="Smart cleanup review"]'),
+      'cleanup review',
+    );
+    cleanupFrameMonitor = startPreviewFrameMonitor();
+    const cleanupReviewText = cleanupReview.textContent.toLocaleLowerCase();
+    hasCleanupReview =
+      cleanupReviewText.includes('before') &&
+      cleanupReviewText.includes('cut') &&
+      cleanupReviewText.includes('result');
+    const acceptButtonFor = (panel) =>
+      Array.from(panel.querySelectorAll('button')).find(
+        (button) =>
+          button.textContent?.trim().startsWith('Accept')
+          && !button.disabled,
+      );
+    const moveToAcceptableSuggestion = async (panel) => {
+      if (!config.externalProject || acceptButtonFor(panel)) return panel;
+      for (let attempt = 0; attempt < 1000; attempt += 1) {
+        const previousPosition =
+          panel.querySelector('.ev2CleanupReviewHeader span')?.textContent;
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'j',
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await waitFor(
+          () =>
+            panel.querySelector('.ev2CleanupReviewHeader span')?.textContent
+            !== previousPosition,
+          'next cleanup suggestion',
+        );
+        if (acceptButtonFor(panel)) return panel;
+      }
+      throw new Error('No acceptable cleanup suggestion in long project.');
+    };
+    await moveToAcceptableSuggestion(cleanupReview);
+    const initialCleanupPosition = cleanupReview.querySelector(
+      '.ev2CleanupReviewHeader span',
+    )?.textContent;
+    const searchInput = transcriptPanel.querySelector(
+      'input[aria-label="Search screen actions"]',
+    );
+    searchInput.focus();
+    searchInput.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    hasCleanupTypingGuard = Boolean(
+      transcriptPanel.querySelector('[aria-label="Smart cleanup review"]'),
+    );
+    searchInput.blur();
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true }),
+    );
+    const nextCleanupReview = await waitFor(
+      () => {
+        const panel = transcriptPanel.querySelector(
+          '[aria-label="Smart cleanup review"]',
+        );
+        return panel?.querySelector('.ev2CleanupReviewHeader span')?.textContent !==
+          initialCleanupPosition
+          ? panel
+          : null;
+      },
+      'cleanup keyboard accept and advance',
+    );
+    hasCleanupKeyboardAccept = Boolean(nextCleanupReview);
+    await moveToAcceptableSuggestion(nextCleanupReview);
+    await waitFor(
+      () => document.activeElement === nextCleanupReview,
+      'cleanup review focus continuity after accept',
+    );
+    const reviewRectBeforeBoundary = nextCleanupReview.getBoundingClientRect();
+    const historyDepthBeforeBoundary = Number(
+      transcriptPanel.getAttribute('data-cleanup-history-depth') ?? 0,
+    );
+    const removalCountBeforeBoundary = Number(
+      document
+        .querySelector('[data-ui-region="editor-v2"]')
+        ?.getAttribute('data-cleanup-draft-removals') ?? 0,
+    );
+    const positionBeforeAdjustedAccept = nextCleanupReview.querySelector(
+      '.ev2CleanupReviewHeader span',
+    )?.textContent;
+    const boundaryStartBefore = Number(
+      nextCleanupReview.getAttribute('data-boundary-start') ?? 0,
+    );
+    const boundaryFeedbackStartedAt = performance.now();
+    for (let repeat = 0; repeat < 3; repeat += 1) {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: ']',
+          repeat: repeat > 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    boundaryFeedbackLatencyMs = performance.now() - boundaryFeedbackStartedAt;
+    hasBoundaryFeedbackWithinBudget =
+      Number(nextCleanupReview.getAttribute('data-boundary-start') ?? 0) ===
+        boundaryStartBefore + 3 &&
+      boundaryFeedbackLatencyMs <= 100;
+    if (!hasBoundaryFeedbackWithinBudget) {
+      throw new Error(
+        `Held cleanup boundary feedback missed its 100 ms budget: ${boundaryFeedbackLatencyMs.toFixed(1)} ms`,
+      );
+    }
+    document.dispatchEvent(
+      new KeyboardEvent('keyup', {
+        key: ']',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'a',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () =>
+        nextCleanupReview.querySelector('.ev2CleanupReviewHeader span')?.textContent !==
+          positionBeforeAdjustedAccept &&
+        Number(transcriptPanel.getAttribute('data-cleanup-history-depth') ?? 0) ===
+          historyDepthBeforeBoundary + 1 &&
+        Number(
+          document
+            .querySelector('[data-ui-region="editor-v2"]')
+            ?.getAttribute('data-cleanup-draft-removals') ?? 0,
+        ) > removalCountBeforeBoundary,
+      'immediate accept preserves held cleanup boundary',
+    );
+    hasBoundaryGestureSingleCommit = true;
+    hasReviewFocusContinuity = document.activeElement === nextCleanupReview;
+    const reviewRectAfterBoundary = nextCleanupReview.getBoundingClientRect();
+    hasReviewLayoutStability =
+      Math.abs(reviewRectAfterBoundary.x - reviewRectBeforeBoundary.x) < 0.5 &&
+      Math.abs(reviewRectAfterBoundary.y - reviewRectBeforeBoundary.y) < 0.5 &&
+      Math.abs(reviewRectAfterBoundary.width - reviewRectBeforeBoundary.width) < 0.5 &&
+      Math.abs(reviewRectAfterBoundary.height - reviewRectBeforeBoundary.height) < 0.5;
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'r',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () => document.activeElement === nextCleanupReview,
+      'cleanup review focus continuity after replay',
+    );
+    const positionBeforeReject = config.externalProject
+      ? nextCleanupReview.querySelector('.ev2CleanupReviewHeader span')
+          ?.textContent
+      : null;
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'x',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    if (config.externalProject) {
+      await waitFor(
+        () =>
+          nextCleanupReview.querySelector('.ev2CleanupReviewHeader span')
+            ?.textContent !== positionBeforeReject
+          && document.activeElement === nextCleanupReview,
+        'cleanup review stable advance after reject',
+      );
+    } else {
+      await waitFor(
+        () =>
+          nextCleanupReview.getAttribute('data-review-closed') === 'true'
+          && document.activeElement === nextCleanupReview,
+        'cleanup review stable completion after reject',
+      );
+    }
+    const reviewRectAfterCompletion = nextCleanupReview.getBoundingClientRect();
+    hasReviewFocusContinuity =
+      hasReviewFocusContinuity && document.activeElement === nextCleanupReview;
+    hasReviewLayoutStability =
+      hasReviewLayoutStability &&
+      Math.abs(reviewRectAfterCompletion.x - reviewRectBeforeBoundary.x) < 0.5 &&
+      Math.abs(reviewRectAfterCompletion.y - reviewRectBeforeBoundary.y) < 0.5 &&
+      Math.abs(reviewRectAfterCompletion.width - reviewRectBeforeBoundary.width) <
+        0.5 &&
+      Math.abs(reviewRectAfterCompletion.height - reviewRectBeforeBoundary.height) <
+        0.5;
+    hasCleanupDraftProjection = Array.from(
+      transcriptPanel.querySelectorAll('.ev2TranscriptWord[data-removed="true"]'),
+    ).length > 0;
+    hasLiveCleanupDraft = await waitFor(
+      () => {
+        const editor = document.querySelector('[data-ui-region="editor-v2"]');
+        const removals = Number(
+          editor?.getAttribute('data-cleanup-draft-removals') ?? 0,
+        );
+        const duration = Number(
+          editor?.getAttribute('data-cleanup-draft-duration') ?? 0,
+        );
+        return (
+          removals > 0
+          && duration > 0
+          && duration < initialCleanupDuration
+        );
+      },
+      'live cleanup draft in preview and timeline',
+    ).then(Boolean);
+  }
+    const transcriptWord = await waitFor(() => {
+      const currentFrame = playhead();
+      return [...transcriptPanel.querySelectorAll('button.ev2TranscriptWord')]
+        .find((button) =>
+          !button.disabled
+          && button.getAttribute('data-timeline-frame') !== currentFrame);
+    }, 'seekable transcript word');
+    const transcriptWordFrame =
+      transcriptWord.getAttribute('data-timeline-frame');
+    const transcriptWordIndex =
+      transcriptWord.getAttribute('data-word-index');
+    const transcriptSeekPlayheadBefore = playhead();
+    const transcriptSeekStartedAt = performance.now();
+    transcriptWord.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    try {
+      await waitForAnimationCondition(
+        () =>
+          transcriptWordFrame !== null
+          && playhead() === transcriptWordFrame
+          && playhead() !== transcriptSeekPlayheadBefore,
+        'transcript word seek',
+      );
+    } catch {
+      throw new Error(
+        `Transcript seek mismatch: before=${transcriptSeekPlayheadBefore} target=${transcriptWordFrame} current=${playhead()} active=${
+          transcriptPanel.querySelector(
+            `[data-word-index="${transcriptWordIndex}"]`,
+          )?.getAttribute('aria-current') ?? 'missing'
+        }`,
+      );
+    }
+    const transcriptSeekLatencyMs = performance.now() - transcriptSeekStartedAt;
+    const afterWordSeek = playhead();
+    const alternateTranscriptWord = [...transcriptPanel.querySelectorAll('button.ev2TranscriptWord')]
+      .find((button) =>
+        !button.disabled &&
+        button !== transcriptWord &&
+        button.getAttribute('data-timeline-frame') !== transcriptWordFrame,
+      );
+    if (alternateTranscriptWord) {
+      const alternateFrame = alternateTranscriptWord.getAttribute('data-timeline-frame');
+      alternateTranscriptWord.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+      await waitForAnimationCondition(
+        () => alternateFrame !== null && playhead() === alternateFrame,
+        'alternate transcript word seek before keyboard seek',
+      );
+    }
+    transcriptWord.focus();
+    transcriptWord.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationCondition(
+      () =>
+        transcriptWordFrame !== null &&
+        playhead() === transcriptWordFrame,
+      'keyboard transcript word seek',
+    );
+    const hasTranscriptEnterSeek = playhead() === transcriptWordFrame;
+  const visibleWords = [...transcriptPanel.querySelectorAll('button.ev2TranscriptWord')]
+    .filter((button) => !button.disabled);
+  const firstWord = visibleWords[0];
+  const latestWord = visibleWords[visibleWords.length - 1];
+  const latestWordFrame = latestWord.getAttribute('data-timeline-frame');
+    const rapidSeekStartedAt = performance.now();
+    firstWord.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    latestWord.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await waitForAnimationCondition(
+      () => latestWordFrame !== null && playhead() === latestWordFrame,
+      `latest rapid transcript seek to ${latestWordFrame ?? 'missing frame'}`,
+      1000,
+    );
+    const rapidSeekSettleLatencyMs = performance.now() - rapidSeekStartedAt;
+  const hasLatestRapidSeek = playhead() === latestWordFrame;
+  const actionLandmarkSelector =
+    'button[aria-label^="Seek to Command:"]:not(:disabled)';
+  const actionLandmark = config.externalProject
+    ? transcriptPanel.querySelector(actionLandmarkSelector)
+    : await waitFor(
+        () => transcriptPanel.querySelector(actionLandmarkSelector),
+        'command action landmark',
+      );
+  let hasActionLandmark = Boolean(actionLandmark);
+  let hasLandmarkSeek = false;
+  if (actionLandmark) {
+    const actionLandmarkFrame =
+      actionLandmark.getAttribute('data-timeline-frame');
+    actionLandmark.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(
+      () => actionLandmarkFrame !== null && playhead() === actionLandmarkFrame,
+      'action landmark seek',
+    );
+    hasLandmarkSeek = true;
+  }
+  const totalTranscriptWordCount = Number(
+    transcriptPanel.getAttribute('data-total-words') ?? 0,
+  );
+  let lastTranscriptWordVisible = false;
+  if (totalTranscriptWordCount > 1000) {
+    const transcriptScroller = transcriptPanel.querySelector('.ev2TranscriptWords');
+    for (let pass = 0; pass < 3; pass += 1) {
+      transcriptScroller.scrollTop = transcriptScroller.scrollHeight;
+      transcriptScroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    lastTranscriptWordVisible = Array.from(
+      transcriptPanel.querySelectorAll('.ev2TranscriptWord'),
+    ).some(
+      (button) =>
+        button.getAttribute('data-word-index')
+        === String(totalTranscriptWordCount - 1),
+    );
+  }
+  let hasCleanupReopened = false;
+  let hasCleanupDraftAfterReopen = false;
+  if (config.cleanupReview) {
+    const transcriptScroller = transcriptPanel.querySelector('.ev2TranscriptWords');
+    transcriptScroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+    const resumeFollow = await waitFor(
+      () =>
+        Array.from(transcriptPanel.querySelectorAll('button')).find(
+          (button) => button.textContent?.trim() === 'Resume follow',
+        ),
+      'manual transcript scroll lock',
+    );
+    hasTranscriptFollowLock = Boolean(resumeFollow);
+    resumeFollow.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    const editor = document.querySelector('[data-ui-region="editor-v2"]');
+    const reviewSpeedButtons = Array.from(
+      transcriptPanel.querySelectorAll('.ev2ReviewSpeed button'),
+    );
+    const twoTimesReview = reviewSpeedButtons.find(
+      (button) => button.textContent?.trim() === '2×',
+    );
+    hasFastReviewSpeeds =
+      ['1×', '1.5×', '2×', '3×'].every((label) =>
+        reviewSpeedButtons.some((button) => button.textContent?.trim() === label),
+      ) && Boolean(twoTimesReview);
+    twoTimesReview?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(
+      () => transcriptPanel.getAttribute('data-review-playback-rate') === '2',
+      'two-times transcript review speed',
+    );
+    const removalsBeforeManualCut = Number(
+      editor?.getAttribute('data-cleanup-draft-removals') ?? 0,
+    );
+    const completedJoinVerificationsBeforeCut = Number(
+      transcriptPanel.getAttribute('data-completed-join-verifications') ?? 0,
+    );
+    const selectableWords = Array.from(
+      transcriptPanel.querySelectorAll(
+        '.ev2TranscriptWord:not([data-removed="true"])',
+      ),
+    );
+    const selectableWord = config.externalProject
+      ? selectableWords[Math.max(0, selectableWords.length - 3)]
+      : selectableWords.findLast(
+          (button) => button.textContent?.trim() === 'save',
+        );
+    selectableWord.focus();
+    selectableWord.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: ' ',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () => transcriptPanel.getAttribute('data-selected-words') === '1',
+      'keyboard transcript word selection',
+    );
+    const selectionStartIndex = selectableWord.getAttribute('data-word-index');
+    selectableWord.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () =>
+        Number(transcriptPanel.getAttribute('data-selected-words') ?? 0) > 1 &&
+        document.activeElement?.getAttribute('data-word-index') !== selectionStartIndex,
+      'keyboard transcript selection extension',
+    );
+    hasTranscriptSelection = true;
+    const joinPreviewStartedAt = performance.now();
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Delete',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () =>
+        transcriptPanel.getAttribute('data-join-verification') &&
+        transcriptPanel.getAttribute('data-review-playback-rate') === '1',
+      'warm join preview startup',
+    );
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    joinPreviewStartupLatencyMs = performance.now() - joinPreviewStartedAt;
+    if (joinPreviewStartupLatencyMs > 250) {
+      throw new Error(
+        `Warm join preview startup missed its 250 ms budget: ${joinPreviewStartupLatencyMs.toFixed(1)} ms`,
+      );
+    }
+    await waitFor(
+      () =>
+        Number(editor?.getAttribute('data-cleanup-draft-removals') ?? 0) >
+        removalsBeforeManualCut,
+      'manual transcript draft cut',
+    );
+    hasManualTranscriptCut = true;
+    await waitFor(
+      () =>
+        Number(
+          transcriptPanel.getAttribute('data-completed-join-verifications') ?? 0,
+        ) === completedJoinVerificationsBeforeCut + 1 &&
+        transcriptPanel.getAttribute('data-review-playback-rate') === '2',
+      'automatic fast-review resume after join verification',
+    ).catch((error) => {
+      throw new Error(
+        `${error?.message ?? error}; verification=${
+          transcriptPanel.getAttribute('data-join-verification') ?? 'none'
+        }; completed=${
+          transcriptPanel.getAttribute('data-completed-join-verifications') ?? 'missing'
+        }; rate=${
+          transcriptPanel.getAttribute('data-review-playback-rate') ?? 'missing'
+        }; range=${
+          transcriptPanel.getAttribute('data-join-verification-start') ?? 'missing'
+        }-${
+          transcriptPanel.getAttribute('data-join-verification-end') ?? 'missing'
+        }; playhead=${playhead() ?? 'missing'}`,
+      );
+    });
+    hasAutomaticJoinVerificationResume = true;
+    const joinBar = await waitFor(
+      () => transcriptPanel.querySelector('[data-natural-join-controls="true"]'),
+      'natural transcript join controls',
+    );
+    const exactJoinButton = Array.from(joinBar.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Exact',
+    );
+    const saferJoinButton = Array.from(joinBar.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Safer',
+    );
+    const historyDepthBeforeExactJoin = Number(
+      transcriptPanel.getAttribute('data-cleanup-history-depth') ?? 0,
+    );
+    hasNaturalJoinChoice =
+      joinBar.getAttribute('data-audio-safety') === 'safe' &&
+      saferJoinButton?.getAttribute('aria-pressed') === 'true' &&
+      saferJoinButton.disabled === false;
+    await waitFor(
+      () =>
+        joinBar.getAttribute('data-visual-discontinuity') === 'ready',
+      'visual discontinuity check',
+    );
+    hasVisualDiscontinuityCheck = true;
+    exactJoinButton?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(
+      () => {
+        const currentExactJoinButton = Array.from(
+          transcriptPanel.querySelectorAll('[data-natural-join-controls="true"] button'),
+        ).find((button) => button.textContent?.trim() === 'Exact');
+        return currentExactJoinButton?.getAttribute('aria-pressed') === 'true' &&
+        Number(transcriptPanel.getAttribute('data-cleanup-history-depth') ?? 0) ===
+          historyDepthBeforeExactJoin + 1;
+      },
+      'exact transcript join alternative',
+    );
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () => {
+        const currentSaferJoinButton = Array.from(
+          transcriptPanel.querySelectorAll('[data-natural-join-controls="true"] button'),
+        ).find((button) => button.textContent?.trim() === 'Safer');
+        return currentSaferJoinButton?.getAttribute('aria-pressed') === 'true' &&
+        Number(editor?.getAttribute('data-cleanup-draft-removals') ?? 0) >
+          removalsBeforeManualCut;
+      },
+      'undo exact boundary back to safer transcript join',
+    );
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () =>
+        Number(editor?.getAttribute('data-cleanup-draft-removals') ?? 0) ===
+        removalsBeforeManualCut,
+      'undo manual transcript draft cut',
+    );
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () =>
+        Number(editor?.getAttribute('data-cleanup-draft-removals') ?? 0) >
+        removalsBeforeManualCut,
+      'redo manual transcript draft cut',
+    );
+    hasManualCutUndoRedo = true;
+    const mediaTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
+      (tab) => tab.textContent?.trim() === 'Media',
+    );
+    mediaTab?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(
+      () => !document.querySelector('[data-ui-region="transcript-panel"]'),
+      'media tab after cleanup',
+    );
+    document.querySelector('button[aria-label="Edit transcript"], button[aria-label="Transcript"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(
+      () => document.querySelector('[aria-label="Smart cleanup review"]'),
+      'reopened cleanup review',
+    );
+    hasCleanupReopened = true;
+    hasCleanupDraftAfterReopen = Array.from(
+      document.querySelectorAll('.ev2TranscriptWord[data-removed="true"]'),
+    ).length > 0 && Number(
+      document
+        .querySelector('[data-ui-region="editor-v2"]')
+        ?.getAttribute('data-cleanup-draft-removals') ?? 0,
+    ) > removalsBeforeManualCut;
+    document.querySelector('[data-ui-region="transcript-panel"]')?.focus();
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () =>
+        Number(
+          document
+            .querySelector('[data-ui-region="editor-v2"]')
+            ?.getAttribute('data-cleanup-draft-removals') ?? 0,
+        ) === removalsBeforeManualCut,
+      'undo manual transcript cut after reopen',
+    );
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () =>
+        Number(
+          document
+            .querySelector('[data-ui-region="editor-v2"]')
+            ?.getAttribute('data-cleanup-draft-removals') ?? 0,
+        ) > removalsBeforeManualCut,
+      'redo manual transcript cut after reopen',
+    );
+    const finalizedDraftDuration = Number(
+      document
+        .querySelector('[data-ui-region="editor-v2"]')
+        ?.getAttribute('data-cleanup-draft-duration') ?? 0,
+    );
+    const finalizeButton = await waitFor(
+      () =>
+        Array.from(document.querySelectorAll('button')).find(
+          (button) =>
+            button.getAttribute('aria-label')?.startsWith('Finalize ') &&
+            !button.disabled,
+        ),
+      'enabled finalize draft button',
+    );
+    const globalUndoBeforeFinalize = document.querySelector(
+      'button[aria-label="Undo timeline edit"]',
+    );
+    const historyWasCleanBeforeFinalize =
+      globalUndoBeforeFinalize instanceof HTMLButtonElement &&
+      globalUndoBeforeFinalize.disabled;
+    finalizeButton.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(
+      () =>
+        Number(
+          document
+            .querySelector('[data-ui-region="editor-v2"]')
+            ?.getAttribute('data-cleanup-draft-removals') ?? -1,
+        ) === 0,
+      'canonical cleanup finalization',
+    );
+    const globalUndoAfterFinalize = await waitFor(
+      () => {
+        const button = document.querySelector(
+          'button[aria-label="Undo timeline edit"]',
+        );
+        return button instanceof HTMLButtonElement && !button.disabled
+          ? button
+          : null;
+      },
+      'single finalize undo entry',
+    );
+    hasFinalizeSingleHistoryCommit =
+      historyWasCleanBeforeFinalize &&
+      globalUndoAfterFinalize instanceof HTMLButtonElement;
+    hasFinalizeCanonicalTimeline =
+      Number(
+        document
+          .querySelector('[data-ui-region="editor-v2"]')
+          ?.getAttribute('data-cleanup-draft-duration') ?? 0,
+      ) === finalizedDraftDuration &&
+      !document.querySelector('button[aria-label^="Finalize "]');
+    if (config.projectPath && window.roughCut?.openProjectPath) {
+      const started = Date.now();
+      while (Date.now() - started < 10000) {
+        const reopened = await window.roughCut.openProjectPath(
+          config.projectPath,
+        );
+        const recording = reopened?.document?.assets?.find(
+          (asset) => asset.type === 'recording',
+        );
+        const savedDuration = Math.max(
+          0,
+          ...(reopened?.document?.timeline?.tracks ?? []).flatMap(
+            (track) => (track.clips ?? []).map((clip) => clip.timelineOut),
+          ),
+        );
+        if (
+          savedDuration === finalizedDraftDuration &&
+          recording?.metadata?.smartCleanupDraft === undefined
+        ) {
+          hasFinalizeSavedReopen = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    globalUndoAfterFinalize.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(
+      () =>
+        Number(
+          document
+            .querySelector('[data-ui-region="editor-v2"]')
+            ?.getAttribute('data-cleanup-draft-removals') ?? 0,
+        ) > removalsBeforeManualCut &&
+        document.querySelector(
+          '[data-ui-region="transcript-panel"][data-cleanup-finalizable="true"]',
+        ),
+      'undo finalized cleanup back to reversible draft',
+    );
+    hasFinalizeUndoRestore =
+      document.querySelector('button[aria-label="Undo timeline edit"]')
+        ?.hasAttribute('disabled') === true;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const frameContinuity = cleanupFrameMonitor.stop();
+    cleanupFrameMonitor = null;
+    cleanupFrameCount = frameContinuity.frameCount;
+    cleanupBadFrameCount = frameContinuity.badFrames;
+    hasCleanupFrameContinuity =
+      frameContinuity.frameCount > 3 && frameContinuity.badFrames === 0;
+  }
+
+  return {
+    ok: true,
+    hasTranscriptPanel: true,
+    hasCleanupReview,
+    hasCleanupTypingGuard,
+    hasCleanupKeyboardAccept,
+    hasCleanupDraftProjection,
+    hasLiveCleanupDraft,
+    hasTranscriptSelection,
+    hasManualTranscriptCut,
+    hasFastReviewSpeeds,
+    hasAutomaticJoinVerificationResume,
+    hasManualCutUndoRedo,
+    hasTranscriptFollowLock,
+    hasBoundaryGestureSingleCommit,
+    hasReviewFocusContinuity,
+    hasReviewLayoutStability,
+    hasCleanupFrameContinuity,
+    cleanupFrameCount,
+    cleanupBadFrameCount,
+    hasBoundaryFeedbackWithinBudget,
+    boundaryFeedbackLatencyMs,
+    joinPreviewStartupLatencyMs,
+    hasNaturalJoinChoice,
+    hasVisualDiscontinuityCheck,
+    hasFinalizeSingleHistoryCommit,
+    hasFinalizeCanonicalTimeline,
+    hasFinalizeSavedReopen,
+    hasFinalizeUndoRestore,
+    hasCleanupReopened,
+    hasCleanupDraftAfterReopen,
+    hasTranscriptSeek: true,
+    hasTranscriptEnterSeek,
+    transcriptSeekLatencyMs,
+    transcriptSeekRequestedFrame: transcriptWordFrame,
+    transcriptSeekResultFrame: afterWordSeek,
+    hasLatestRapidSeek,
+    rapidSeekSettleLatencyMs,
+    hasActionLandmark,
+    hasLandmarkSeek,
+    totalTranscriptWordCount,
+    transcriptWordCount: transcriptPanel.querySelectorAll('.ev2TranscriptWord').length,
+    lastTranscriptWordVisible,
+    playheadBeforeTranscriptSeek: before,
+    playheadAfterTranscriptSeek: playhead(),
   };
 }

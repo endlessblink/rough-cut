@@ -35,6 +35,7 @@ test('recording session starts capture, writes marker, stops capture, and clears
   });
 
   const started = await session.start();
+  assert.equal(started.fps, 30);
   assert.equal(started.state, 'recording');
   assert.equal(captureCalls.length, 1);
   assert.equal(captureCalls[0].outputPath.endsWith('.mkv'), true);
@@ -308,7 +309,7 @@ test('recording session cancel stops capture and deletes incomplete artifacts', 
   assert.equal(canceled.canceled, true);
   assert.equal(cancelCalled, true);
   assert.equal(stopCalled, false);
-  assert.equal(session.status().state, 'idle');
+    assert.equal(session.status().state, 'idle');
   assert.equal(existsSync(markerPath), false);
   assert.equal(existsSync(started.rawPath), false);
   assert.equal(existsSync(started.outputPath), false);

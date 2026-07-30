@@ -252,6 +252,19 @@ test('Recording edit timeline deletes selected zoom markers from the timeline ke
   assert.match(source, /isTypingTarget\(event\.target\) \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.altKey/);
 });
 
+test('Recording edit cut mode disables clip interactions so drags reach the lane', async () => {
+  const source = await readFile(join(here, 'main.tsx'), 'utf8');
+  const styles = await readFile(join(here, 'styles.css'), 'utf8');
+
+  assert.match(source, /if \(!region\.id \|\| cutModeActive\) return;/);
+  assert.match(source, /if \(!onMoveClip \|\| !region\.id \|\| event\.button !== 0 \|\| cutModeActive\) return;/);
+  assert.match(source, /tabIndex=\{cutModeActive \? -1 : 0\}/);
+  assert.match(styles, /\.timelineLane\.cutModeActive \.clipBar,/);
+  assert.match(styles, /\.timelineLane\.cutModeActive \.hiddenTrimRange,/);
+  assert.match(styles, /\.timelineLane\.cutModeActive \.hiddenCutRange\s*\{/);
+  assert.match(styles, /pointer-events: none;/);
+});
+
 test('censor lane places regions through the screen clips like zoom markers do', () => {
   const document = addCensorRegionAt(recordingDocument(), {
     id: 'c1',

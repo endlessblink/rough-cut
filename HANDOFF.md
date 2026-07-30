@@ -1,32 +1,31 @@
-# Rough Cut dropoff — 2026-07-30 15:31 Israel time
+# Rough Cut dropoff — 2026-07-30 17:04 Israel time
 
 You are continuing work in `rough-cut-mvp` on branch `master`.
 
 ## Current task & next step
 
-Make the editor’s available actions obvious and expose real text editing where users expect it — next: inspect the rendered editor surfaces and add a visible, testable map of what is editable.
+Make the dock-launched Rough Cut editor load reliably and make transcript editing comfortable and usable — next: install the packaged Electron sandbox helper, rebuild the dock artifact, then run the exact dock-compatible launch and inspect the transcript text editor.
 
 ## Files touched / in flight
 
-The worktree contains broad uncommitted Rough Cut changes from the current feature lane, including the editor-v2 transcript workflow, transcript/runtime services, cleanup review, timeline/export behavior, and smoke tests. Do not revert unrelated edits. `HANDOFF.md` was recreated for this dropoff.
+The worktree contains broad uncommitted Rough Cut feature-lane changes; preserve unrelated edits. This session additionally changed `apps/desktop/src/renderer/src/editor-v2/transcript-panel.tsx` to add an inline transcript text editor, `apps/desktop/src/renderer/src/editor-v2/editor-v2-layout.tsx` and its test to expose and keep Transcript clickable, `apps/desktop/src/renderer/src/styles.css` for the editor surface, `apps/desktop/src/renderer/src/nle/nle-shell.tsx` to always enter the transcript-capable layout, `scripts/package-linux.mjs` to package the Electron launcher, and `scripts/launch-dev-app.sh` to redirect legacy dock shortcuts to the packaged artifact. The dock desktop entry now points to the packaged artifact; it is outside the repository.
 
 ## Key decisions & gotchas
 
-- The user reports that text editing is unavailable anywhere and cannot tell what the app exposes where.
-- The current transcript surface exposes transcript words as buttons for seek/select/cut; it is not an editable text control.
-- The transcript tab was renamed to “Edit transcript”, but that currently means transcript-driven editing, not changing transcript text.
-- A recent keyboard fix made Enter on a focused transcript word seek to that word; the bounded transcript UI smoke covers it.
-- Recording quality remains higher priority than background transcript analysis.
-- Existing verification: desktop build passes; editor-v2 layout tests pass; project-model tests pass; export tests pass; transcript-only UI smoke passes. The full cleanup smoke still reports a graphics/frame-continuity failure in the sandbox, while editing/persistence checks pass.
-- Do not claim the app supports arbitrary transcript text editing until a real input is visible and runtime-tested.
+- The dock-launched app is the acceptance surface and verifier; dev commands are supporting checks only.
+- The dock originally launched `pnpm dev`, and a stale development process was still running. The compatibility launcher now hands off to the packaged app.
+- The packaged Electron app initially aborted because `chrome-sandbox` lacked root ownership and mode 4755. The user selected the safer sandbox-helper fix; the privileged command still needs to be run after packaging.
+- Do not use `--no-sandbox` without explicit renewed approval; the safety reviewer rejected persisting that weakening.
+- The transcript action was disabled when no transcript existed. It is now always clickable and opens the transcript panel; the panel can show an empty state and an `Add transcript text` control.
+- Transcript text editing is now an inline textarea with Save/Cancel. Matching word counts preserve timing; changing the count redistributes timing across the transcript and says so in the UI.
+- The new transcript editor has focused source tests and desktop build/typecheck passing before the latest package rebuild. The packaged-app smoke passed before the latest sandbox-helper rebuild; the exact dock-compatible launch was blocked by the sandbox helper.
+- UI changes used the impeccable design skill. A fresh packaged screenshot showed the previous package smoke captured the Recording edit view, not the Editor/transcript surface; the next verification must navigate to Editor and inspect the Transcript control and text editor.
 
 ## Env / run state
 
-Branch: `master` | Last commit: `c44eee1 [TASK-252] Mark censor regions done, with the open follow-up recorded`
+Branch: `master` | Last commit: `e3c66f1 wip: dropoff handoff — expose editor actions`
 
-Running: nothing relevant.
+Running: no relevant app process after the stale dev process was terminated.
 
-Use lean-ctx tools for repository exploration and shell commands. UI changes require the impeccable design skill and a fresh smoke screenshot before claiming completion.
-
-Start by: search the renderer for all text-input/contenteditable surfaces and trace the global keyboard guards, then reproduce the missing-edit affordance in the bounded UI smoke before implementing the smallest reversible fix.
+Start by: run `sudo chown root:root /media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp/dist/rough-cut-mvp-linux-x64/chrome-sandbox && sudo chmod 4755 /media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp/dist/rough-cut-mvp-linux-x64/chrome-sandbox`, then launch `scripts/launch-dev-app.sh` under the host display or click the dock icon and verify the packaged Editor → Transcript flow.
 

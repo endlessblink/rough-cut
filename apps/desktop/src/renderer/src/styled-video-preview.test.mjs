@@ -135,6 +135,13 @@ test('styled video preview keeps resolving and drawing zoom frames while timelin
   assert.match(source, /const cursorFrame = timeMode === 'timeline' \? screenLayer\?\.sourceFrame \?\? renderFrame : renderFrame/);
 });
 
+test('styled video preview accepts exact stabilized media without rewriting the project', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /mediaUrlOverride \?\? project\.mediaUrl/);
+  assert.match(source, /cameraMediaUrlOverride \?\? project\.cameraMediaUrl/);
+});
+
 test('styled video preview routes screen video drawing through the feature-flagged screen-layer renderer', () => {
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
   const rendererSource = readFileSync(join(here, 'screen-layer-renderer.ts'), 'utf8');
@@ -396,6 +403,16 @@ test('styled video preview keeps only one audible hidden preview playing', () =>
   assert.match(source, /claimAudiblePreviewVideo\(event\.currentTarget\)/);
   assert.match(source, /releaseAudiblePreviewVideo\(event\.currentTarget\)/);
   assert.match(source, /pausePreviewVideo\(video\);\n\s+cameraVideo\?\.pause\(\)/);
+});
+
+test('styled video preview applies the selected review rate with pitch preservation', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /playbackRate = 1/);
+  assert.match(source, /timelineRateRef\.current = rate/);
+  assert.match(source, /video\.preservesPitch = true/);
+  assert.match(source, /cameraVideo\.preservesPitch = true/);
+  assert.match(source, /video\.playbackRate = rate/);
 });
 
 test('styled video preview routes camera PiP through the preview compositor boundary', () => {

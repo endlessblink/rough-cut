@@ -16,6 +16,10 @@ const IPC_CHANNELS = {
   LIBRARY_CREATE_BLANK_PROJECT: 'library:create-blank-project',
   CENSOR_TRACK: 'censor:track',
   CENSOR_TRACK_PROGRESS: 'censor:track-progress',
+  STABILIZATION_PREPARE: 'stabilization:prepare',
+  STABILIZATION_CANCEL: 'stabilization:cancel',
+  STABILIZATION_PROGRESS: 'stabilization:progress',
+  STABILIZATION_SUPPORT: 'stabilization:support',
   EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
   EXPORT_START: 'export:start',
   EXPORT_CANCEL: 'export:cancel',
@@ -58,6 +62,7 @@ const IPC_CHANNELS = {
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
   AI_ASSET_LIST: 'ai-asset:list',
   CLIP_VISUALS_GET: 'clip-visuals:get',
+  VISUAL_DISCONTINUITY_INSPECT: 'visual-discontinuity:inspect',
   DEBUG_DUMP_SAVE: 'debug:dump-save',
   AI_ASSET_DELETE: 'ai-asset:delete',
   AI_ASSET_TAG: 'ai-asset:tag',
@@ -118,6 +123,8 @@ contextBridge.exposeInMainWorld('roughCut', {
   analyzeProjectWithAi: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_PROJECT, payload),
   listAiAssets: () => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_LIST),
   getClipVisual: (payload) => ipcRenderer.invoke(IPC_CHANNELS.CLIP_VISUALS_GET, payload),
+  inspectVisualDiscontinuity: (payload) =>
+    ipcRenderer.invoke(IPC_CHANNELS.VISUAL_DISCONTINUITY_INSPECT, payload),
   saveDebugDump: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEBUG_DUMP_SAVE, payload),
   deleteAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_DELETE, payload),
   tagAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_TAG, payload),
@@ -134,6 +141,14 @@ contextBridge.exposeInMainWorld('roughCut', {
     const listener = (_event, progress) => callback(progress);
     ipcRenderer.on(IPC_CHANNELS.CENSOR_TRACK_PROGRESS, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.CENSOR_TRACK_PROGRESS, listener);
+  },
+  prepareStabilization: (payload) => ipcRenderer.invoke(IPC_CHANNELS.STABILIZATION_PREPARE, payload),
+  cancelStabilization: (jobId) => ipcRenderer.invoke(IPC_CHANNELS.STABILIZATION_CANCEL, jobId),
+  getStabilizationSupport: () => ipcRenderer.invoke(IPC_CHANNELS.STABILIZATION_SUPPORT),
+  onStabilizationProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.STABILIZATION_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.STABILIZATION_PROGRESS, listener);
   },
   exportProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_START, payload),
   cancelExport: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_CANCEL),

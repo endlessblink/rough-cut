@@ -37,7 +37,10 @@ const visualNleLinkedClipsSource = readFileSync(join(root, 'scripts/visual-nle-l
 const compositorMigrationPath = join(root, 'docs/architecture/compositor-migration.md');
 
 test('root test command runs repo-level script regression tests', () => {
-  assert.match(rootPackage.scripts.test, /node --test scripts\/repo-regression\.test\.mjs scripts\/export-benchmark-utils\.test\.mjs/);
+  assert.match(
+    rootPackage.scripts.test,
+    /node --test scripts\/repo-regression\.test\.mjs scripts\/export-benchmark-utils\.test\.mjs scripts\/smart-rough-cut-benchmark-utils\.test\.mjs/,
+  );
 });
 
 test('stale root handoff files stay removed', () => {
@@ -487,7 +490,10 @@ test('TASK-247 Slice 1 keeps preview default policy separate from export default
 
   assert.match(exportServiceSource, /export const EXPORT_MODES = Object\.freeze\(\{\n\s+RAW: 'raw',\n\s+STYLED: 'styled',\n\s+EXPERIMENTAL_HEADLESS: 'experimental-headless'/);
   assert.match(exportServiceSource, /export function normalizeExportMode\(mode = EXPORT_MODES\.RAW\)/);
-  assert.match(exportServiceSource, /if \(exportMode === EXPORT_MODES\.EXPERIMENTAL_HEADLESS\) \{\n\s+return exportExperimentalHeadlessProjectToMp4/);
+  assert.match(
+    exportServiceSource,
+    /if \(exportMode === EXPORT_MODES\.EXPERIMENTAL_HEADLESS\) \{[\s\S]{0,400}return exportExperimentalHeadlessProjectToMp4/,
+  );
   assert.match(exportServiceSource, /export function experimentalHeadlessExportEnabled\(env = process\.env\) \{\n\s+return env\.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT === '1';\n\}/);
   assert.match(exportServiceTestSource, /normalizeExportMode\('experimental-headless'\)/);
   assert.match(headlessExportRendererTestSource, /experimental headless UI flag does not enable the export renderer/);
@@ -551,6 +557,21 @@ test('UI smoke force-exits after writing artifacts so packaged smoke cannot hang
   assert.match(desktopMainSource, /function quitSmokeApp\(exitCode = process\.exitCode \?\? 0\)/);
   assert.match(desktopMainSource, /app\.quit\(\);\s+setTimeout\(\(\) => app\.exit\(exitCode\), 1000\);\s+setTimeout\(\(\) => process\.exit\(exitCode\), 2500\);/);
   assert.match(desktopMainSource, /finally \{\s+quitSmokeApp\(\);\s+\}/);
+});
+
+test('transcript smoke latency checks use frame-based waiting instead of 100 ms polling', () => {
+  assert.match(desktopMainSource, /const waitForAnimationCondition = async \(/);
+  assert.match(desktopMainSource, /await waitForAnimationCondition\(\s*\(\) => playhead\(\) !== before,\s*'transcript word seek'/);
+  assert.match(desktopMainSource, /await waitForAnimationCondition\(\s*\(\) => latestWordFrame !== null && playhead\(\) === latestWordFrame,/);
+});
+
+test('headless UI smoke disables GPU acceleration for stable canvas readback', () => {
+  assert.match(smokeUiSource, /'--disable-gpu'/);
+  assert.match(smokeUiSource, /spawnSync\(electron, \[\s*'--no-sandbox',\s*'--disable-gpu',/);
+  assert.match(
+    readFileSync(join(root, 'scripts/smoke-real-recording.mjs'), 'utf8'),
+    /spawnSync\(electron, \[\s*'--no-sandbox',\s*'--disable-gpu',/,
+  );
 });
 
 test('packaged app smoke can finish from verified artifacts if smoke-mode Electron hangs', () => {

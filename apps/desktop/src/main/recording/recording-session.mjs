@@ -89,6 +89,7 @@ export function createRecordingSession({
       startedAt: active.startedAt,
       rawPath: active.rawPath,
       outputPath: active.outputPath,
+      fps: active.fps,
       paused: Boolean(active.paused),
       recordedDurationMs,
       segmentCount: Math.max(1, active.segmentIndex ?? 1),

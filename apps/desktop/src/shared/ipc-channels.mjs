@@ -42,6 +42,13 @@ export const IPC_CHANNELS = {
   // and without this the button is indistinguishable from one that has hung.
   CENSOR_TRACK_PROGRESS: 'censor:track-progress',
 
+  // Source-owned video stabilization. Preview preparation is a cancellable
+  // two-pass FFmpeg job and reports progress independently from export.
+  STABILIZATION_PREPARE: 'stabilization:prepare',
+  STABILIZATION_CANCEL: 'stabilization:cancel',
+  STABILIZATION_PROGRESS: 'stabilization:progress',
+  STABILIZATION_SUPPORT: 'stabilization:support',
+
   // Export
   EXPORT_START: 'export:start',
   EXPORT_CANCEL: 'export:cancel',
@@ -150,6 +157,7 @@ export const IPC_CHANNELS = {
   // TASK-237 slice 3 — per-source filmstrip/waveform PNG for timeline clips.
   // Returns { url, kind, durationSec, tiles?, intervalSec?, stripSeconds?, widthPx? }.
   CLIP_VISUALS_GET: 'clip-visuals:get',
+  VISUAL_DISCONTINUITY_INSPECT: 'visual-discontinuity:inspect',
   // TASK-228 — write a timestamped editor state dump next to the project so
   // live-reported bugs become reproducible. Returns { path }.
   DEBUG_DUMP_SAVE: 'debug:dump-save',

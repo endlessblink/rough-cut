@@ -86,6 +86,16 @@ test('NLE shell keeps the right split segment selected after splitting', () => {
   assert.match(source, /setSelectedClipId\(rightClipIdAfterSplit\(next, selectedClipId, clampedPlayhead\)\)/);
 });
 
+test('Home moves the shared playhead and timeline viewport to the start in both editors', () => {
+  const nleTimelineSource = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
+  const nleShellSource = readFileSync(join(here, 'nle-shell.tsx'), 'utf8');
+  const recordingEditorSource = readFileSync(join(here, '..', 'main.tsx'), 'utf8');
+
+  assert.match(nleTimelineSource, /function handleTimelineHomeKey[\s\S]+event\.key !== 'Home'[\s\S]+isTypingTarget\(event\.target\)[\s\S]+onPlayheadFrameChange\(0\)[\s\S]+bodiesRef\.current\.scrollLeft = 0/);
+  assert.doesNotMatch(nleShellSource, /else if \(e\.key === 'Home'\)/);
+  assert.match(recordingEditorSource, /function handleTimelineHomeKey[\s\S]+event\.key !== 'Home'[\s\S]+isEditableShortcutTarget\(event\.target\)[\s\S]+onScrubEnd\(0\)[\s\S]+viewportRef\.current\.scrollLeft = 0/);
+});
+
 test('NLE timeline ships Editor v2 deck affordances (ghost channels, tags, zoom gating)', () => {
   const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
   const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
@@ -171,8 +181,9 @@ test('NLE shell wires undo and redo through shared edit history controls (TASK-2
   assert.match(shell, /canRedo = false/);
   assert.match(shell, /import \{ EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit \} from '\.\.\/edit-history\.mjs'/);
   assert.match(shell, /const \[timelineHistory, setTimelineHistory\] = React\.useState<NleEditHistory>/);
-  assert.match(shell, /setTimelineHistory\(\(history\) => recordEdit\(history, project\) as NleEditHistory\)/);
-  assert.match(shell, /onProjectChange\(next, \{ history: true, previous: project \}\)/);
+  assert.match(shell, /const usesExternalHistory = Boolean\(onUndo \|\| onRedo\)/);
+  assert.match(shell, /if \(recordHistory && !usesExternalHistory\) \{[\s\S]*recordEdit\(history, project\) as NleEditHistory/);
+  assert.match(shell, /onProjectChange\(next, \{[\s\S]*history: recordHistory && usesExternalHistory,[\s\S]*persist: options\.persist/);
   assert.match(shell, /const result = undoEdit\(timelineHistory, project\)/);
   assert.match(shell, /onProjectChange\(result\.snapshot, \{ history: false \}\)/);
   assert.match(shell, /const result = redoEdit\(timelineHistory, project\)/);
@@ -183,9 +194,10 @@ test('NLE shell wires undo and redo through shared edit history controls (TASK-2
   assert.match(shell, /<ArrowClockwise aria-hidden="true" \/>/);
   assert.match(shell, /if \(\(e\.ctrlKey \|\| e\.metaKey\) && e\.key\.toLowerCase\(\) === 'z'\)/);
   assert.match(shell, /e\.shiftKey \? requestRedo\(\) : requestUndo\(\)/);
+  assert.match(shell, /if \(usesExternalHistory\) return;[\s\S]*e\.preventDefault\(\)/);
 
   assert.match(main, /onProjectChange=\{\(next, options\) => applyProjectChange\(/);
-  assert.match(main, /options\?\.history \? \{ history: true, previous: \(options\.previous as unknown as ProjectState \| null\) \?\? project \?\? undefined \} : \{\}/);
+  assert.match(main, /persist: options\?\.persist/);
   assert.match(main, /canUndo=\{editHistory\.undo\.length > 0\}/);
   assert.match(main, /canRedo=\{editHistory\.redo\.length > 0\}/);
   assert.match(main, /onUndo=\{undoProjectEdit\}/);

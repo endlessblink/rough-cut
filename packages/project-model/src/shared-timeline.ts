@@ -53,7 +53,7 @@ export interface TimelineMarker {
   readonly params: Record<string, unknown>;
 }
 
-export type TimelineEffectKind = 'cursor' | 'click' | 'camera-pip' | 'zoom' | 'annotation';
+export type TimelineEffectKind = 'cursor' | 'click' | 'camera-pip' | 'zoom' | 'annotation' | 'stabilization';
 
 export interface TimelineEffect {
   readonly id: string;

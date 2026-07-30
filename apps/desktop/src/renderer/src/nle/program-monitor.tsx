@@ -6,20 +6,26 @@ export function NleProgramMonitor({
   project,
   playheadFrame,
   isPlaying,
+  playbackRate = 1,
   fps,
   durationFrames,
   onPlayheadFrameChange,
   onPlayingChange,
+  mediaUrlOverride,
+  cameraMediaUrlOverride,
 }: {
   project: NleProject;
   playheadFrame: number;
   isPlaying: boolean;
+  playbackRate?: number;
   fps: number;
   durationFrames: number;
   onPlayheadFrameChange: (frame: number) => void;
   onPlayingChange: (playing: boolean) => void;
+  mediaUrlOverride?: string | null;
+  cameraMediaUrlOverride?: string | null;
 }) {
-  const src = project.mediaUrl ?? '';
+  const src = mediaUrlOverride ?? project.mediaUrl ?? '';
 
   if (!src) {
     return (
@@ -35,6 +41,7 @@ export function NleProgramMonitor({
         project={project as unknown as Parameters<typeof StyledVideoPreview>[0]['project']}
         seekTimeSec={frameToSeconds(playheadFrame, fps)}
         isPlaying={isPlaying}
+        playbackRate={playbackRate}
         showControls={false}
         timeMode="timeline"
         onPlayingChange={onPlayingChange}
@@ -42,6 +49,8 @@ export function NleProgramMonitor({
           const frame = secondsToFrame(seconds, fps);
           onPlayheadFrameChange(Math.max(0, Math.min(durationFrames, frame)));
         }}
+        mediaUrlOverride={mediaUrlOverride}
+        cameraMediaUrlOverride={cameraMediaUrlOverride}
       />
     </div>
   );

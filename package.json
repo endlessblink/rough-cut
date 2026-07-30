@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r --sort build",
-    "test": "node --test scripts/repo-regression.test.mjs scripts/export-benchmark-utils.test.mjs && pnpm build && pnpm -r --sort test",
+    "test": "node --test scripts/repo-regression.test.mjs scripts/export-benchmark-utils.test.mjs scripts/smart-rough-cut-benchmark-utils.test.mjs && pnpm build && pnpm -r --sort test",
     "typecheck": "pnpm -r --sort typecheck",
     "smoke:mvp": "pnpm --filter @rough-cut/project-model build && node scripts/smoke-mvp.mjs",
     "smoke:real-recording": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-real-recording.mjs",
@@ -20,6 +20,7 @@
     "smoke:experimental-headless-export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-experimental-headless-export.mjs",
     "smoke:experimental-headless-runtime-export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-experimental-headless-runtime-export.mjs",
     "benchmark:export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/benchmark-export.mjs",
+    "benchmark:smart-rough-cut": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/benchmark-smart-rough-cut.mjs",
     "visual:export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-export-playwright.mjs",
     "visual:export-layout": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-export-layout-parity.mjs",
     "visual:nle-export-parity": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-nle-export-parity.mjs",

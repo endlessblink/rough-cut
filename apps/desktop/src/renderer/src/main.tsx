@@ -141,7 +141,7 @@ declare global {
       recoverLastRecording: () => Promise<{ state: 'recovered'; project: ProjectState; remuxWarnings: Array<{ source: string; message: string }> }>;
       dismissRecovery: (options?: { deleteFiles?: boolean }) => Promise<{ dismissed: boolean; removed: string[] }>;
       pickExportOutputPath: (projectName: string) => Promise<string | null>;
-      exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode; exportScope?: ExportScope }) => Promise<ExportResult>;
+      exportProject: (payload: { document: ProjectState['document']; projectPath: string; outputPath: string; mode: ExportMode; exportScope?: ExportScope }) => Promise<ExportResult>;
       cancelExport: () => Promise<{ cancelled: boolean }>;
       trackCensorRegion: (payload: { document: ProjectState['document']; regionId: string }) => Promise<{
         keyframes: { frame: number; rect: { x: number; y: number; w: number; h: number } }[];
@@ -152,6 +152,28 @@ declare global {
       }>;
       onCensorTrackProgress: (
         callback: (progress: { analyzedFrames: number; totalFrames: number }) => void,
+      ) => () => void;
+      prepareStabilization: (payload: {
+        document: ProjectDocument;
+        projectPath: string;
+        sourceId: string;
+        strength: number;
+      }) => Promise<{
+        jobId: string;
+        sourceId: string;
+        proxyUrl: string;
+        strength: number;
+        reused: boolean;
+      }>;
+      cancelStabilization: (jobId: string) => Promise<{ cancelled: boolean }>;
+      getStabilizationSupport: () => Promise<{ supported: boolean; reason?: string | null }>;
+      onStabilizationProgress: (
+        callback: (progress: {
+          jobId: string;
+          sourceId: string;
+          phase: 'analyzing' | 'encoding' | 'ready';
+          progress: number;
+        }) => void,
       ) => () => void;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
       listRecentProjects: () => Promise<Array<{
@@ -230,7 +252,11 @@ type ProjectState = {
   mediaUrl: string | null;
   cameraMediaUrl?: string | null;
 };
-type ProjectChangeOptions = { history?: boolean; previous?: ProjectState };
+type ProjectChangeOptions = {
+  history?: boolean;
+  previous?: ProjectState;
+  persist?: boolean;
+};
 type RecordingTemplateOverride = {
   templateId: string;
   aspectRatio: ProjectAspectRatio;
@@ -1131,7 +1157,13 @@ function App() {
         return;
       }
       setExportMode(mode);
-      const result = await window.roughCut.exportProject({ document: documentOverride ?? project.document, outputPath, mode, exportScope });
+    const result = await window.roughCut.exportProject({
+      document: documentOverride ?? project.document,
+      projectPath: project.path,
+      outputPath,
+      mode,
+      exportScope,
+    });
       if (result.cancelled) {
         setExportProgress(null);
         return;
@@ -1224,6 +1256,18 @@ function App() {
       setEditHistory((history) => recordEdit(history, options.previous as ProjectState));
     }
     setProject(next);
+    if (options.persist) {
+      void saveProjectGuarded({
+        path: next.path,
+        document: next.document,
+      })
+        .then((saved) => {
+          setProject((current) => (current === next ? saved : current));
+        })
+        .catch((err) => {
+          setError(appError('project', err, 'Could not save project edit.'));
+        });
+    }
   }
 
   async function restoreProjectSnapshot(next: ProjectState) {
@@ -1597,7 +1641,18 @@ function App() {
               onPlayheadFrameChange={updateSharedTimelineFrame}
               onProjectChange={(next, options) => applyProjectChange(
                 next as unknown as ProjectState,
-                options?.history ? { history: true, previous: (options.previous as unknown as ProjectState | null) ?? project ?? undefined } : {},
+                {
+                  ...(options?.history
+                    ? {
+                        history: true,
+                        previous:
+                          (options.previous as unknown as ProjectState | null) ??
+                          project ??
+                          undefined,
+                      }
+                    : {}),
+                  persist: options?.persist,
+                },
               )}
               canUndo={editHistory.undo.length > 0}
               canRedo={editHistory.redo.length > 0}
@@ -2418,6 +2473,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     ['Trim / zoom focus + arrows', 'Nudge selected boundary one frame; hold Shift for one second'],
     ['[ / ]', 'Set trim start or end to playhead'],
     ['Ctrl/Cmd + E', 'Export with the selected preset'],
+    ['Ctrl/Cmd + Enter', 'Finalize the transcript cleanup draft'],
     ['?', 'Show this shortcut sheet'],
     ['Ctrl/Cmd + Z', 'Undo last edit'],
     ['Ctrl/Cmd + Shift + Z', 'Redo last edit'],
@@ -4881,6 +4937,18 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   }, [pixelsPerFrame]);
 
   React.useEffect(() => {
+    function handleTimelineHomeKey(event: KeyboardEvent) {
+      if (event.key !== 'Home' || event.repeat || isEditableShortcutTarget(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onScrubEnd(0);
+      if (viewportRef.current) viewportRef.current.scrollLeft = 0;
+    }
+    window.addEventListener('keydown', handleTimelineHomeKey);
+    return () => window.removeEventListener('keydown', handleTimelineHomeKey);
+  }, [onScrubEnd]);
+
+  React.useEffect(() => {
     const el = viewportRef.current;
     if (!isPlaying || timelinePanning || !el) return;
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -5424,7 +5492,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   }
 
   function beginClipTrimDrag(region: { id: string; timelineIn?: number; timelineOut?: number }, index: number, edge: 'head' | 'tail', event: React.PointerEvent<HTMLButtonElement>) {
-    if (!region.id) return;
+    if (!region.id || cutModeActive) return;
     const bounds = clipTrimBounds(index, edge);
     if (!bounds) return;
     event.preventDefault();
@@ -5462,7 +5530,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   }
 
   function beginClipMoveDrag(region: { id: string; timelineIn?: number; timelineOut?: number }, index: number, event: React.PointerEvent<HTMLButtonElement>) {
-    if (!onMoveClip || !region.id || event.button !== 0) return;
+    if (!onMoveClip || !region.id || event.button !== 0 || cutModeActive) return;
     if (!Number.isFinite(region.timelineIn) || !Number.isFinite(region.timelineOut)) return;
     const initialIn = Math.round(region.timelineIn ?? 0);
     const initialOut = Math.round(region.timelineOut ?? initialIn + 1);
@@ -5815,12 +5883,18 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                 Fit
               </button>
             </div>
-            <TimelineLane label="Screen" className={`screenLane ${cutModeActive ? 'cutModeActive' : ''}`} onTrackPointerDown={cutModeActive ? handleScreenLaneCutPointerDown : handleTimelineSeekPointerDown} trackTitle={cutModeActive ? 'Drag to mark a cut range' : 'Click or drag to seek'}>
+            <TimelineLane
+              label="Screen"
+              className={`screenLane ${cutModeActive ? 'cutModeActive' : ''}`}
+              onTrackPointerDown={cutModeActive ? undefined : handleTimelineSeekPointerDown}
+              onTrackPointerDownCapture={cutModeActive ? handleScreenLaneCutPointerDown : undefined}
+              trackTitle={cutModeActive ? 'Drag to mark a cut range' : 'Click or drag to seek'}
+            >
           {model.lanes.screen.map((region, index) => (
             <div key={region.id} className={`clipBar ${clipDragPreview?.clipId === region.id ? 'dragging' : ''}`} style={screenRegionStyle(region)} data-recording-clip-id={region.id}>
-              <button type="button" role="slider" className="trimHandle trimHandleStart" data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} />
-              <button type="button" className="clipBody" onPointerDown={(event) => beginClipMoveDrag(region, index, event)} onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: 'Source clip selected from the timeline.' })}><Icon name="frame" /> Clip</button>
-              <button type="button" role="slider" className="trimHandle trimHandleEnd" data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} />
+              <button type="button" role="slider" className="trimHandle trimHandleStart" data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} />
+              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDown={(event) => beginClipMoveDrag(region, index, event)} onClick={() => { if (!cutModeActive) onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: 'Source clip selected from the timeline.' }); }}><Icon name="frame" /> Clip</button>
+              <button type="button" role="slider" className="trimHandle trimHandleEnd" data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} />
             </div>
           ))}
           {cutDragPreview ? (() => {
@@ -5986,11 +6060,11 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   );
 }
 
-function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackPointerDown, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {
+function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackPointerDown, onTrackPointerDownCapture, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; onTrackPointerDownCapture?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {
   return (
     <div className={`timelineLane ${className}`} data-timeline-lane={label.toLowerCase()} aria-label={ariaLabel}>
       <span className="laneLabel">{label}</span>
-      <div className={`laneTrack ${trackClassName ?? ''}`} onDoubleClick={onTrackDoubleClick} onPointerDown={onTrackPointerDown} title={trackTitle}>{children}</div>
+      <div className={`laneTrack ${trackClassName ?? ''}`} onDoubleClick={onTrackDoubleClick} onPointerDown={onTrackPointerDown} onPointerDownCapture={onTrackPointerDownCapture} title={trackTitle}>{children}</div>
     </div>
   );
 }
