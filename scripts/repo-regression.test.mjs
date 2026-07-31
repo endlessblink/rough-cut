@@ -95,10 +95,9 @@ test('linux package copies main-process workspace dependencies', () => {
   assert.match(packageLinuxSource, /join\(appRoot, 'packages', packageName, 'dist'\)/);
 });
 
-test('dock package launches the source-faithful FreeCut editor', () => {
+test('dock package launches the Rough Cut shell and keeps FreeCut available in the editor', () => {
   assert.match(packageLinuxSource, /join\(appRoot, 'freecut'\)/);
-  assert.match(packageLinuxSource, /export ROUGH_CUT_STARTUP_MODE=freecut/);
-  assert.match(desktopMainSource, /startupMode === 'freecut'/);
+  assert.match(packageLinuxSource, /export ROUGH_CUT_STARTUP_MODE=editor/);
   assert.match(desktopMainSource, /openFreecutEditor\(\{ app \}\)/);
 });
 
