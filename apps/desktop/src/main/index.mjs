@@ -31,6 +31,7 @@ import { createAiAssetsStore, defaultAiAssetsRoot } from './ai-assets-store.mjs'
 import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import { createStabilizationService } from './stabilization-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
+import { getFreecutStatus, openFreecutEditor } from './freecut-window.mjs';
 import { persistTranscriptToProject } from './transcription-project-persistence.mjs';
 import { createTranscriptionRuntime } from './transcription-runtime.mjs';
 import {
@@ -123,6 +124,13 @@ const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
   userDataDir: app.getPath('userData'),
   onLog: (message) => console.warn(message),
   persistTranscript: persistRecordingTranscript,
+  onStateChange: (job) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.TRANSCRIPTION_PROGRESS, job);
+      }
+    }
+  },
 }).then(async (runtime) => {
   const bridge = createRecordingTranscriptionBridge({
     service: runtime.service,
@@ -420,17 +428,12 @@ function waitForRendererLoad(webContents, timeoutMs = 30000) {
   });
 }
 
-// When mode is 'editor' and the caller has signaled a project (either a real
-// projectPath or the smoke FORCE_EDITOR escape hatch), the renderer's
-// initial app view is pinned to 'editor'. Without this, the new Library
-// rewrite makes 'projects' the default and smoke harnesses that rely on the
-// editor surface being mounted at boot time out waiting for the Inspector.
-function rendererInitialView({ mode, projectPath }) {
+// Editor windows always mount the editor surface; recorder windows keep the
+// dedicated capture surface.
+function rendererInitialView({ mode }) {
   if (mode === 'recorder') return null;
   if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_NLE === '1') return 'nle';
-  if (projectPath) return 'editor';
-  if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1') return 'editor';
-  return null;
+  return 'editor';
 }
 
 function webglScreenLayerEnabled() {
@@ -606,6 +609,11 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   }
   senderWindow.show();
   loadRenderer(senderWindow, { mode: 'editor', projectPath });
+});
+ipcMain.handle(IPC_CHANNELS.APP_GET_FREECUT_STATUS, () => getFreecutStatus({ app }));
+ipcMain.handle(IPC_CHANNELS.APP_OPEN_FREECUT_EDITOR, (event) => {
+  const parent = BrowserWindow.fromWebContents(event.sender);
+  return openFreecutEditor({ app, parent });
 });
 ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
@@ -892,6 +900,11 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_event, { path, document }) => 
   } finally {
     if (projectSaveQueues.get(safePath) === next) projectSaveQueues.delete(safePath);
   }
+});
+ipcMain.handle(IPC_CHANNELS.TRANSCRIPTION_TRANSCRIBE_PROJECT, async (_event, payload = {}) => {
+  const bridge = await recordingTranscriptionBridgePromise;
+  if (!bridge) return { state: 'unavailable', job: null };
+  return await bridge.transcribeExisting(payload);
 });
 ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_GET, async () => {
   await mkdir(recordingsDir, { recursive: true });
@@ -1338,7 +1351,12 @@ app.whenReady().then(() => {
     return;
   }
   const startupProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
-  const startupMode = process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1' ? 'editor' : startupProjectPath ? 'editor' : 'recorder';
+  const startupMode = process.env.ROUGH_CUT_STARTUP_MODE === 'editor'
+    || process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1'
+    || startupProjectPath
+    ? 'editor'
+    : 'recorder';
+  console.info(`[startup] mode=${startupMode} requested=${process.env.ROUGH_CUT_STARTUP_MODE ?? 'default'}`);
   createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
 
   app.on('activate', () => {

@@ -121,6 +121,13 @@ export function createRecordingTranscriptionBridge({
     return await recordingStarted(status);
   }
 
+  async function transcribeExisting(input) {
+    if (!service?.transcribeExisting) {
+      return { state: 'unavailable', job: null };
+    }
+    return await service.transcribeExisting(input);
+  }
+
   return {
     initialize,
     recordingStarted,
@@ -129,6 +136,7 @@ export function createRecordingTranscriptionBridge({
     recordingStopped,
     recordingCancelled,
     recordingRestarted,
+    transcribeExisting,
     dispose,
     getActiveJobId() {
       return activeJobId;

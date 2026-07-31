@@ -769,7 +769,8 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
 function selectPrimaryTimelineModel(project, assetId) {
   if (!project?.timeline || !assetId) return null;
   const document = canonicalizeProjectDocument(project);
-  const sourceId = `source:${assetId}:screen`;
+  const sourceId = resolvePrimaryTimelineSourceId(document.timeline.sources, assetId);
+  if (!sourceId) return null;
   const cameraSourceId = `source:${assetId}:camera`;
   const linkedGroupId = `linked:${assetId}`;
   const screenClips = clipsForMedia(document.timeline.tracks, sourceId);
@@ -783,6 +784,7 @@ function selectPrimaryTimelineModel(project, assetId) {
   );
   return {
     document,
+    primarySourceId: sourceId,
     screenClips,
     cameraClips,
     timelineDurationFrames,
@@ -792,6 +794,15 @@ function selectPrimaryTimelineModel(project, assetId) {
         ? { ...marker.params.marker, id: marker.id, startFrame: marker.startFrame, endFrame: marker.endFrame }
         : { id: marker.id, startFrame: marker.startFrame, endFrame: marker.endFrame }),
   };
+}
+
+function resolvePrimaryTimelineSourceId(sources, assetId) {
+  if (!Array.isArray(sources)) return null;
+  const matches = sources.filter((source) => source?.assetId === assetId);
+  return matches.find((source) => source.id === `source:${assetId}:screen`)?.id
+    ?? matches.find((source) => source.id === `source:${assetId}`)?.id
+    ?? matches[0]?.id
+    ?? null;
 }
 
 function clipsForMedia(tracks, mediaId) {
@@ -2375,7 +2386,7 @@ export function isSingleUneditedTimelineRecording(project, assetId, { exportScop
   const asset = project.assets[0];
   return Boolean(
     asset?.id === assetId &&
-      clip.mediaId === `source:${assetId}:screen` &&
+      clip.mediaId === model.primarySourceId &&
       clip.timelineIn === 0 &&
       clip.sourceIn === 0 &&
       clip.timelineOut === asset.duration &&
@@ -2393,7 +2404,7 @@ export function isSingleTrimmedTimelineRecording(project, assetId, { exportScope
   const asset = project.assets[0];
   return Boolean(
     asset?.id === assetId &&
-      clip.mediaId === `source:${assetId}:screen` &&
+      clip.mediaId === model.primarySourceId &&
       clip.timelineIn === 0 &&
       clip.timelineOut === clip.sourceOut - clip.sourceIn &&
       clip.sourceIn >= 0 &&
@@ -2412,10 +2423,10 @@ function canExportStyledTimeline(project, assetId, { exportScope = EXPORT_SCOPES
     if (track.kind !== 'video' || track.enabled === false) return [];
     return (track.clips ?? []).filter((clip) => clip.enabled !== false);
   });
-  const unsupportedClips = enabledVideoClips.filter((clip) => clip.mediaId !== `source:${assetId}:screen` && clip.linkGroupId !== linkedGroupId);
+  const unsupportedClips = enabledVideoClips.filter((clip) => clip.mediaId !== model.primarySourceId && clip.linkGroupId !== linkedGroupId);
   if (unsupportedClips.length > 0) return false;
 
-  const linkedVideoClips = enabledVideoClips.filter((clip) => clip.mediaId !== `source:${assetId}:screen`);
+  const linkedVideoClips = enabledVideoClips.filter((clip) => clip.mediaId !== model.primarySourceId);
   if (linkedVideoClips.length === 0) return true;
   void exportScope;
   return linkedVideoClips.every((clip) => model.screenClips.some((screenClip) => (

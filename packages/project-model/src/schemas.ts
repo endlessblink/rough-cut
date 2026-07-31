@@ -516,7 +516,12 @@ export const TranscriptParagraphSchema = z.object({
   speaker: z.string().min(1).optional(),
 });
 
-export const TranscriptNonSpeechKindSchema = z.enum(['silence', 'music', 'noise']);
+export const TranscriptNonSpeechKindSchema = z.enum([
+  'silence',
+  'music',
+  'noise',
+  'unrecognized',
+]);
 
 export const TranscriptNonSpeechSegmentSchema = z.object({
   kind: TranscriptNonSpeechKindSchema,

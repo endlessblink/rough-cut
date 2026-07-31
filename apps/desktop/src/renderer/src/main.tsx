@@ -63,6 +63,7 @@ import './styles.css';
 import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
 import { NleShell } from './nle/nle-shell';
+import { FreecutEditorEntry } from './freecut-editor-entry';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
@@ -108,6 +109,8 @@ declare global {
       getVersion: () => Promise<string>;
       getRuntimeLogPath: () => Promise<string>;
       openEditor: (projectPath?: string | null) => Promise<void>;
+      getFreecutStatus: () => Promise<{ available: boolean; root: string | null }>;
+      openFreecutEditor: () => Promise<{ ok: boolean; reused?: boolean; reason?: string }>;
       setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
       writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
       showItemInFolder: (path: string) => Promise<void>;
@@ -131,6 +134,23 @@ declare global {
       restartRecording: (options?: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean } | null) => Promise<RecordingStatus>;
       cancelRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
+      transcribeProject: (payload: {
+        sourcePath: string;
+        projectPath: string;
+        fps: number;
+        totalMs: number;
+      }) => Promise<{
+        state: string;
+        job: { id: string; status: string; transcript?: ProjectDocument['transcript'] } | null;
+      }>;
+      onTranscriptionProgress: (callback: (progress: {
+        id: string;
+        projectPath?: string | null;
+        status: string;
+        checkpointMs?: number;
+        totalMs?: number;
+        error?: string;
+      }) => void) => () => void;
       openProject: () => Promise<ProjectState | null>;
       openProjectPath: (path: string) => Promise<ProjectState | null>;
       saveProject: (project: { path: string; document: ProjectState['document'] }) => Promise<ProjectState>;
@@ -1574,6 +1594,11 @@ function App() {
             onContinueScreenOnly={() => setDismissedCameraFailureForStartedAt(activeCameraFailure.startedAt)}
           />
         ) : null}
+        <AppViewTabStrip
+          activeId={activeAppView}
+          onChange={setActiveAppView}
+          editorEnabled={project !== null}
+        />
         <div className="editorContentSlot" data-ui-region="editor-content-slot">
           {activeAppView === 'recording' ? (
             <section className="recordingWorkspace" data-ui-region="recording-workspace">
@@ -1635,32 +1660,35 @@ function App() {
               }}
             />
           ) : activeAppView === 'nle' ? (
-            <NleShell
-              project={project as unknown as Parameters<typeof NleShell>[0]['project']}
-              playheadFrame={sharedTimelineFrame}
-              onPlayheadFrameChange={updateSharedTimelineFrame}
-              onProjectChange={(next, options) => applyProjectChange(
-                next as unknown as ProjectState,
-                {
-                  ...(options?.history
-                    ? {
-                        history: true,
-                        previous:
-                          (options.previous as unknown as ProjectState | null) ??
-                          project ??
-                          undefined,
-                      }
-                    : {}),
-                  persist: options?.persist,
-                },
-              )}
-              canUndo={editHistory.undo.length > 0}
-              canRedo={editHistory.redo.length > 0}
-              onUndo={undoProjectEdit}
-              onRedo={redoProjectEdit}
-              onGoToProjects={() => setActiveAppView('projects')}
-              onCreateBlankProject={() => { void createBlankProject(null); }}
-            />
+            <>
+              <FreecutEditorEntry projectName={project?.document?.name} />
+              <NleShell
+                project={project as unknown as Parameters<typeof NleShell>[0]['project']}
+                playheadFrame={sharedTimelineFrame}
+                onPlayheadFrameChange={updateSharedTimelineFrame}
+                onProjectChange={(next, options) => applyProjectChange(
+                  next as unknown as ProjectState,
+                  {
+                    ...(options?.history
+                      ? {
+                          history: true,
+                          previous:
+                            (options.previous as unknown as ProjectState | null) ??
+                            project ??
+                            undefined,
+                        }
+                      : {}),
+                    persist: options?.persist,
+                  },
+                )}
+                canUndo={editHistory.undo.length > 0}
+                canRedo={editHistory.redo.length > 0}
+                onUndo={undoProjectEdit}
+                onRedo={redoProjectEdit}
+                onGoToProjects={() => setActiveAppView('projects')}
+                onCreateBlankProject={() => { void createBlankProject(null); }}
+              />
+            </>
           ) : activeAppView === 'ai' ? (
             <AiShell
               project={project ? { path: project.path, document: project.document } : null}
@@ -1737,11 +1765,6 @@ function App() {
           )}
         </div>
       </section>
-      <AppViewTabStrip
-        activeId={activeAppView}
-        onChange={setActiveAppView}
-        editorEnabled={project !== null}
-      />
     </main>
   );
 }

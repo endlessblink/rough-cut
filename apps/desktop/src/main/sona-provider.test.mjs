@@ -5,9 +5,44 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createSonaProvider, parseSonaTranscript } from './sona-provider.mjs';
+import {
+  applyDetectedPauses,
+  createSonaProvider,
+  parseSonaTranscript,
+} from './sona-provider.mjs';
 
-test('maps real Sona segment JSON into conservative transcript words and silence', () => {
+function wavWithSamples() {
+  const wav = Buffer.alloc(46);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(38, 4);
+  wav.write('WAVE', 8);
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(16_000, 24);
+  wav.writeUInt32LE(32_000, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(2, 40);
+  wav.writeInt16LE(1, 44);
+  return wav;
+}
+
+function emptyWav() {
+  const wav = Buffer.alloc(44);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36, 4);
+  wav.write('WAVE', 8);
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16);
+  wav.write('data', 36);
+  wav.writeUInt32LE(0, 40);
+  return wav;
+}
+
+test('maps ASR gaps as unrecognized audio instead of inventing silence', () => {
   assert.deepEqual(
     parseSonaTranscript(
       {
@@ -30,8 +65,8 @@ test('maps real Sona segment JSON into conservative transcript words and silence
         { text: 'Hello, this is local speech.', startFrame: 75, endFrame: 135 },
       ],
       nonSpeech: [
-        { kind: 'silence', startFrame: 60, endFrame: 75 },
-        { kind: 'silence', startFrame: 135, endFrame: 150 },
+      { kind: 'unrecognized', startFrame: 60, endFrame: 75 },
+      { kind: 'unrecognized', startFrame: 135, endFrame: 150 },
       ],
     },
   );
@@ -62,6 +97,38 @@ test('prefers real Sona word timestamps when the backend supplies them', () => {
   );
 });
 
+test('splits unexplained ASR gaps into detected pauses and reviewable audio', () => {
+  const transcript = {
+    words: [],
+    paragraphs: [],
+    nonSpeech: [{ kind: 'unrecognized', startFrame: 30, endFrame: 90 }],
+  };
+  assert.deepEqual(
+    applyDetectedPauses(
+      transcript,
+      [{ startSeconds: 0.5, endSeconds: 1.5 }],
+      { startMs: 1_000, fps: 30 },
+    ).nonSpeech,
+    [
+      { kind: 'unrecognized', startFrame: 30, endFrame: 45 },
+      { kind: 'silence', startFrame: 45, endFrame: 75 },
+      { kind: 'unrecognized', startFrame: 75, endFrame: 90 },
+    ],
+  );
+});
+
+test('keeps a detected short pause even when the ASR gap was below its segment threshold', () => {
+  const transcript = { words: [], paragraphs: [], nonSpeech: [] };
+  assert.deepEqual(
+    applyDetectedPauses(
+      transcript,
+      [{ startSeconds: 0.2, endSeconds: 0.45 }],
+      { startMs: 0, fps: 30 },
+    ).nonSpeech,
+    [{ kind: 'silence', startFrame: 6, endFrame: 14 }],
+  );
+});
+
 test('does not duplicate exact words exposed at both response levels', () => {
   const word = { word: 'hello', start: 0.1, end: 0.4 };
   assert.equal(
@@ -74,6 +141,36 @@ test('does not duplicate exact words exposed at both response levels', () => {
     ).words.length,
     1,
   );
+});
+
+test('keeps fillers and repetitions when Sona supplies only partial exact words', () => {
+  const result = parseSonaTranscript(
+    {
+      segments: [
+        {
+          start: 0,
+          end: 1.2,
+          text: 'אממ שלום אממ',
+          words: [
+            { word: 'שלום', start: 0.42, end: 0.78, probability: 0.95 },
+          ],
+        },
+      ],
+    },
+    { startMs: 0, endMs: 1_200, fps: 30 },
+  );
+
+  assert.deepEqual(result.words.map((word) => word.word), [
+    'אממ',
+    'שלום',
+    'אממ',
+  ]);
+  assert.deepEqual(result.words[1], {
+    word: 'שלום',
+    startFrame: 13,
+    endFrame: 23,
+    confidence: 0.95,
+  });
 });
 
 test('cancelling a cold Sona start aborts readiness and kills the server', async () => {
@@ -94,7 +191,7 @@ test('cancelling a cold Sona start aborts readiness and kills the server', async
     const provider = await createSonaProvider({
       modelPath,
       runProcess: async (_command, args) => {
-        if (args.includes('-y')) await writeFile(args.at(-1), 'audio');
+        if (args.includes('-y')) await writeFile(args.at(-1), wavWithSamples());
       },
       spawnProcess: () => child,
       fetchImpl: async () => ({ ok: false }),
@@ -112,6 +209,39 @@ test('cancelling a cold Sona start aborts readiness and kills the server', async
 
     await assert.rejects(operation, { name: 'AbortError' });
     assert.deepEqual(kills, ['SIGKILL']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('treats an extracted WAV with no samples as timed silence', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rough-cut-sona-empty-test-'));
+  try {
+    const modelPath = join(dir, 'model.bin');
+    await writeFile(modelPath, 'model');
+    const provider = await createSonaProvider({
+      modelPath,
+      runProcess: async (_command, args) => {
+        if (args.includes('-y')) await writeFile(args.at(-1), emptyWav());
+      },
+      fetchImpl: async () => {
+        throw new Error('Empty audio must not be sent to Sona');
+      },
+    });
+
+    assert.deepEqual(
+      await provider.transcribeChunk({
+        sourcePath: '/recording.mkv',
+        fps: 30,
+        startMs: 1_000,
+        endMs: 16_000,
+      }),
+      {
+        words: [],
+        paragraphs: [],
+        nonSpeech: [{ kind: 'silence', startFrame: 30, endFrame: 480 }],
+      },
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

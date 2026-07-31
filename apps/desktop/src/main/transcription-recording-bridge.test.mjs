@@ -34,6 +34,10 @@ function harness(overrides = {}) {
       calls.push(['cancelRecording', jobId]);
       return { id: jobId, status: 'cancelled' };
     },
+    async transcribeExisting(input) {
+      calls.push(['transcribeExisting', input]);
+      return { state: 'completed', job: { id: `job-${++nextId}`, status: 'completed' } };
+    },
     ...overrides,
   };
   return { service, calls };
@@ -251,4 +255,18 @@ test('bridge failures are logged and never fail the recording lifecycle', async 
   assert.equal(await bridge.recordingStarted(recordingStatus), null);
   assert.match(logs[0], /fixture broken/);
   assert.equal(bridge.getActiveJobId(), null);
+});
+
+test('bridge exposes on-demand transcription for an existing project', async () => {
+  const { service, calls } = harness();
+  const bridge = createRecordingTranscriptionBridge({ service });
+  const input = {
+    sourcePath: '/recordings/existing.mkv',
+    projectPath: '/projects/existing.roughcut',
+    fps: 30,
+    totalMs: 10_000,
+  };
+
+  assert.equal((await bridge.transcribeExisting(input)).state, 'completed');
+  assert.deepEqual(calls, [['transcribeExisting', input]]);
 });

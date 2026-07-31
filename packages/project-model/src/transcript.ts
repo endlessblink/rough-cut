@@ -14,7 +14,11 @@ export interface TranscriptParagraph {
   readonly speaker?: string;
 }
 
-export type TranscriptNonSpeechKind = 'silence' | 'music' | 'noise';
+export type TranscriptNonSpeechKind =
+  | 'silence'
+  | 'music'
+  | 'noise'
+  | 'unrecognized';
 
 export interface TranscriptNonSpeechSegment {
   readonly kind: TranscriptNonSpeechKind;

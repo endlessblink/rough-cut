@@ -35,12 +35,19 @@ import {
   undoCleanupDecision,
   redoCleanupDecision,
   type CleanupDraftProjection,
+  type CleanupDraftRemoval,
   type CleanupSession,
   type ProjectDocument,
   type ScreenActionLandmark,
   type TranscriptTimelineWordEntry,
   type TranscriptWord,
 } from '@rough-cut/project-model';
+import { applyTranscriptTextEdit } from './transcript-text-edit.mjs';
+import {
+  buildTranscriptCoverage,
+  removeTranscriptBlockRanges,
+} from './transcript-coverage.mjs';
+import { TranscriptCoverageEditor } from './transcript-coverage-editor';
 
 export function TranscriptPanel({
   document,
@@ -54,6 +61,7 @@ export function TranscriptPanel({
   playbackRate,
   onPlaybackRateChange,
   onDocumentChange,
+  onTranscriptEdit,
   onDraftProjectionChange,
   onFinalizeDraft,
 }: {
@@ -68,13 +76,18 @@ export function TranscriptPanel({
   playbackRate: number;
   onPlaybackRateChange: (rate: number) => void;
   onDocumentChange?: (document: ProjectDocument) => void;
+  onTranscriptEdit?: (
+    document: ProjectDocument,
+    removals: readonly CleanupDraftRemoval[],
+  ) => void;
   onDraftProjectionChange: (projection: CleanupDraftProjection) => void;
   onFinalizeDraft?: () => void;
 }) {
-  const recordingAssetId = React.useMemo(
-    () => document.assets.find((asset) => asset.type === 'recording')?.id ?? null,
+  const recordingAsset = React.useMemo(
+    () => document.assets.find((asset) => asset.type === 'recording') ?? null,
     [document.assets],
   );
+  const recordingAssetId = recordingAsset?.id ?? null;
   const cleanupSuggestions = React.useMemo(
     () =>
       cleanupSuggestionsFromAnalysis(
@@ -177,6 +190,13 @@ export function TranscriptPanel({
   const wordChunks = React.useMemo(
     () => chunk(draftTimelineIndex.words, 120),
     [draftTimelineIndex.words],
+  );
+  const coverageBlocks = React.useMemo(
+    () =>
+      buildTranscriptCoverage(document, durationFrames, {
+        minimumReviewFrames: Math.max(2, Math.round(fps * 0.12)),
+      }),
+    [document, durationFrames, fps],
   );
   const [wordSelection, setWordSelection] = React.useState<{
     anchor: number;
@@ -530,7 +550,62 @@ export function TranscriptPanel({
   ]);
   const [landmarkQuery, setLandmarkQuery] = React.useState('');
   const [textEditorOpen, setTextEditorOpen] = React.useState(false);
-  const [textEditorValue, setTextEditorValue] = React.useState('');
+  const [advancedToolsOpen, setAdvancedToolsOpen] = React.useState(false);
+  const [textEditorValue, setTextEditorValue] = React.useState(
+    () => transcriptText(document),
+  );
+  const [transcriptionStatus, setTranscriptionStatus] = React.useState<{
+    phase: 'idle' | 'running' | 'error';
+    progress: number;
+    message: string | null;
+  }>({ phase: 'idle', progress: 0, message: null });
+  React.useEffect(
+    () =>
+      window.roughCut.onTranscriptionProgress((progress) => {
+        if (progress.projectPath !== projectPath) return;
+        const totalMs = Number(progress.totalMs) || 0;
+        const checkpointMs = Number(progress.checkpointMs) || 0;
+        setTranscriptionStatus((current) => ({
+          ...current,
+          phase: progress.status === 'failed' ? 'error' : 'running',
+          progress: totalMs > 0 ? Math.min(1, checkpointMs / totalMs) : current.progress,
+          message: progress.error ?? null,
+        }));
+      }),
+    [projectPath],
+  );
+  const transcribeRecording = React.useCallback(async () => {
+    if (!recordingAsset?.filePath || !projectPath || !onDocumentChange) return;
+    setTranscriptionStatus({ phase: 'running', progress: 0, message: null });
+    try {
+      const result = await window.roughCut.transcribeProject({
+        sourcePath: recordingAsset.filePath,
+        projectPath,
+        fps,
+        totalMs: Math.max(1, Math.round((durationFrames / fps) * 1_000)),
+      });
+      if (result.state !== 'completed') {
+        throw new Error(
+          result.state === 'unavailable'
+            ? 'Local Hebrew transcription is unavailable. Rebuild the dock package after running the transcription setup.'
+            : `Transcription stopped with status: ${result.state}`,
+        );
+      }
+      const opened = await window.roughCut.openProjectPath(projectPath);
+      if (!opened) throw new Error('The transcribed project could not be reopened.');
+      const nextDocument = opened.document as unknown as ProjectDocument;
+      onDocumentChange(nextDocument);
+      setTextEditorValue(transcriptText(nextDocument));
+      setTextEditorOpen(false);
+      setTranscriptionStatus({ phase: 'idle', progress: 1, message: null });
+    } catch (error) {
+      setTranscriptionStatus({
+        phase: 'error',
+        progress: 0,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [durationFrames, fps, onDocumentChange, projectPath, recordingAsset]);
   const landmarks = React.useMemo(
     () => deriveScreenActionLandmarks(document),
     [document],
@@ -545,6 +620,8 @@ export function TranscriptPanel({
       ref={panelRef}
       className="ev2Transcript"
       data-ui-region="transcript-panel"
+      data-text-editor-open={textEditorOpen ? 'true' : 'false'}
+      data-advanced-tools={advancedToolsOpen ? 'true' : 'false'}
       data-total-words={timelineIndex.words.length}
       data-selected-words={selectedWordCount}
       data-cleanup-history-depth={cleanupSession.history.past.length}
@@ -582,21 +659,46 @@ export function TranscriptPanel({
       </div>
       <TranscriptTextEditor
         document={document}
-        durationFrames={durationFrames}
         value={textEditorValue}
         open={textEditorOpen}
         canSave={Boolean(onDocumentChange)}
+        canTranscribe={Boolean(recordingAsset?.filePath && projectPath && onDocumentChange)}
+        transcriptionStatus={transcriptionStatus}
+        onTranscribe={() => void transcribeRecording()}
         onOpen={() => {
           setTextEditorValue(transcriptText(document));
+          setAdvancedToolsOpen(false);
           setTextEditorOpen(true);
         }}
         onCancel={() => setTextEditorOpen(false)}
         onChange={setTextEditorValue}
-        onSave={(nextDocument) => {
-          onDocumentChange?.(nextDocument);
+        onSave={(nextValue) => {
+          const edit = applyTranscriptTextEdit(document, nextValue, durationFrames);
+          if (onTranscriptEdit) onTranscriptEdit(edit.document, edit.removals);
+          else onDocumentChange?.(edit.document);
+          setTextEditorValue(transcriptText(edit.document));
           setTextEditorOpen(false);
         }}
       />
+      {!textEditorOpen && timelineIndex.words.length > 0 ? (
+        <TranscriptCoverageEditor
+          blocks={coverageBlocks}
+          fps={fps}
+          playheadFrame={playheadFrame}
+          onSeek={requestSeek}
+          onPlayingChange={onPlayingChange}
+          onCorrectText={() => {
+            setTextEditorValue(transcriptText(document));
+            setTextEditorOpen(true);
+          }}
+          onRemove={(selectedBlocks) => {
+            const edit = removeTranscriptBlockRanges(document, selectedBlocks);
+            if (onTranscriptEdit) onTranscriptEdit(edit.document, edit.removals);
+            else onDocumentChange?.(edit.document);
+            setTextEditorValue(transcriptText(edit.document));
+          }}
+        />
+      ) : null}
       <section
         className="ev2EditMap"
         aria-label="Editing actions"
@@ -847,24 +949,32 @@ const TRANSCRIPT_CHUNK_OVERSCAN = 2;
 
 function TranscriptTextEditor({
   document,
-  durationFrames,
   value,
   open,
   canSave,
+  canTranscribe,
+  transcriptionStatus,
+  onTranscribe,
   onOpen,
   onCancel,
   onChange,
   onSave,
 }: {
   document: ProjectDocument;
-  durationFrames: number;
   value: string;
   open: boolean;
   canSave: boolean;
+  canTranscribe: boolean;
+  transcriptionStatus: {
+    phase: 'idle' | 'running' | 'error';
+    progress: number;
+    message: string | null;
+  };
+  onTranscribe: () => void;
   onOpen: () => void;
   onCancel: () => void;
   onChange: (value: string) => void;
-  onSave: (document: ProjectDocument) => void;
+  onSave: (value: string) => void;
 }) {
   const originalWordCount = document.transcript?.words.length ?? 0;
   const nextWordCount = tokenizeTranscript(value).length;
@@ -873,21 +983,62 @@ function TranscriptTextEditor({
     <section className="ev2TranscriptTextEditor" aria-label="Transcript text editing">
       <div className="ev2TranscriptTextEditorHeader">
         <div>
-          <strong>Edit transcript text</strong>
-          <span>{originalWordCount > 0 ? 'Change the words without changing the cut.' : 'Add text to create a transcript.'}</span>
+          <strong>Transcript text</strong>
+          <span>{originalWordCount > 0 ? 'Correct wording, or delete words to cut their audio and video.' : 'Add text to create a transcript.'}</span>
         </div>
         {!open ? (
-          <button type="button" onClick={onOpen} disabled={!canSave}>
-            {originalWordCount > 0 ? 'Edit text' : 'Add transcript text'}
-          </button>
+          <div className="ev2TranscriptTextEditorActions">
+            <button
+              type="button"
+              className={originalWordCount === 0 ? 'primary' : undefined}
+              onClick={onTranscribe}
+              disabled={!canTranscribe || transcriptionStatus.phase === 'running'}
+              title={
+                originalWordCount > 0
+                  ? 'Replace the current transcript without changing audio or video edits'
+                  : undefined
+              }
+            >
+              {transcriptionStatus.phase === 'running'
+                ? `Transcribing… ${Math.round(transcriptionStatus.progress * 100)}%`
+                : originalWordCount > 0
+                  ? 'Re-transcribe recording'
+                  : 'Transcribe recording'}
+            </button>
+            <button type="button" onClick={onOpen} disabled={!canSave || transcriptionStatus.phase === 'running'}>
+              {originalWordCount > 0 ? 'Edit transcript' : 'Paste transcript'}
+            </button>
+          </div>
         ) : null}
       </div>
+      {transcriptionStatus.phase !== 'idle' ? (
+        <div
+          className={`ev2TranscriptTranscriptionState ${transcriptionStatus.phase}`}
+          role={transcriptionStatus.phase === 'error' ? 'alert' : 'status'}
+          aria-live="polite"
+        >
+          <strong>
+            {transcriptionStatus.phase === 'running'
+              ? 'Transcribing locally'
+              : 'Transcription could not finish'}
+          </strong>
+          <span>
+            {transcriptionStatus.phase === 'running'
+              ? 'The Hebrew speech model is creating timed, editable text locally.'
+              : transcriptionStatus.message}
+          </span>
+          {transcriptionStatus.phase === 'running' ? (
+            <progress max={1} value={transcriptionStatus.progress} />
+          ) : null}
+        </div>
+      ) : null}
       {open ? (
         <>
           <textarea
             autoFocus
+            dir="auto"
             value={value}
-            rows={5}
+            rows={16}
             aria-label="Transcript text editor"
             placeholder="Type or paste the spoken words…"
             onChange={(event) => onChange(event.currentTarget.value)}
@@ -896,7 +1047,9 @@ function TranscriptTextEditor({
             <span>
               {nextWordCount === originalWordCount
                 ? 'Existing word timing will be preserved.'
-                : 'Changing the word count redistributes timing across the transcript.'}
+                : nextWordCount < originalWordCount
+                  ? `${originalWordCount - nextWordCount} deleted word${originalWordCount - nextWordCount === 1 ? '' : 's'} will be cut from the audio and video.`
+                  : 'New words will be timed between their neighboring words.'}
             </span>
             <div>
               <button type="button" onClick={onCancel}>Cancel</button>
@@ -904,7 +1057,7 @@ function TranscriptTextEditor({
                 type="button"
                 className="primary"
                 disabled={value.trim().length === 0}
-                onClick={() => onSave(updateTranscriptText(document, value, durationFrames))}
+                onClick={() => onSave(value)}
               >
                 Save transcript
               </button>
@@ -917,57 +1070,31 @@ function TranscriptTextEditor({
 }
 
 function transcriptText(document: ProjectDocument) {
+  const words = document.transcript?.words ?? [];
   const paragraphs = document.transcript?.paragraphs ?? [];
-  if (paragraphs.length > 0) return paragraphs.map((paragraph) => paragraph.text).join('\n');
-  return (document.transcript?.words ?? []).map((word) => word.word).join(' ');
+  if (words.length === 0) return '';
+  if (paragraphs.length === 0) return words.map((word) => word.word).join(' ');
+  const lines: string[] = [];
+  let wordIndex = 0;
+  for (const paragraph of paragraphs) {
+    const line: string[] = [];
+    while (
+      wordIndex < words.length
+      && words[wordIndex]!.startFrame < paragraph.endFrame
+    ) {
+      line.push(words[wordIndex]!.word);
+      wordIndex += 1;
+    }
+    if (line.length > 0) lines.push(line.join(' '));
+  }
+  if (wordIndex < words.length) {
+    lines.push(words.slice(wordIndex).map((word) => word.word).join(' '));
+  }
+  return lines.join('\n');
 }
 
 function tokenizeTranscript(value: string) {
   return value.trim().split(/\s+/).filter(Boolean);
-}
-
-function updateTranscriptText(
-  document: ProjectDocument,
-  value: string,
-  durationFrames: number,
-): ProjectDocument {
-  const tokens = tokenizeTranscript(value);
-  const previousWords = document.transcript?.words ?? [];
-  const firstFrame = previousWords[0]?.startFrame ?? 0;
-  const lastFrame = previousWords.at(-1)?.endFrame ?? Math.max(firstFrame + 1, durationFrames);
-  const span = Math.max(1, lastFrame - firstFrame);
-  const preserveTiming = tokens.length === previousWords.length;
-  const words = tokens.map((word, index) => {
-    const previous = preserveTiming ? previousWords[index] : undefined;
-    const startFrame = previous?.startFrame ?? Math.round(firstFrame + (span * index) / Math.max(1, tokens.length));
-    const endFrame = previous?.endFrame ?? Math.max(startFrame + 1, Math.round(firstFrame + (span * (index + 1)) / Math.max(1, tokens.length)));
-    return {
-      word,
-      startFrame,
-      endFrame,
-      confidence: previous?.confidence ?? 0.5,
-    };
-  });
-  const lines = value.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  let wordOffset = 0;
-  const paragraphs = lines.map((line, index) => {
-    const lineWordCount = tokenizeTranscript(line).length;
-    const lineWords = words.slice(wordOffset, wordOffset + lineWordCount);
-    wordOffset += lineWordCount;
-    return {
-      text: line,
-      startFrame: lineWords[0]?.startFrame ?? Math.round(firstFrame + (span * index) / Math.max(1, lines.length)),
-      endFrame: lineWords.at(-1)?.endFrame ?? Math.max(firstFrame + 1, Math.round(firstFrame + (span * (index + 1)) / Math.max(1, lines.length))),
-    };
-  });
-  return {
-    ...document,
-    transcript: {
-      words,
-      paragraphs,
-      nonSpeech: document.transcript?.nonSpeech ?? [],
-    },
-  };
 }
 
 function WindowedTranscriptWords({
@@ -1013,6 +1140,8 @@ function WindowedTranscriptWords({
   }, [chunks.length, measuredHeights]);
   const activeChunkIndex =
     activeWordIndex === null ? null : Math.floor(activeWordIndex / 120);
+  const activeChunkTop =
+    activeChunkIndex === null ? null : offsets[activeChunkIndex];
   const visibleStart = chunkIndexAtOffset(offsets, viewport.top);
   const visibleEnd = chunkIndexAtOffset(
     offsets,
@@ -1085,7 +1214,7 @@ function WindowedTranscriptWords({
     if (followPlayback) {
       activeRef.current?.scrollIntoView({ block: 'nearest' });
     }
-  }, [activeWordIndex, followPlayback]);
+  }, [activeChunkTop, activeWordIndex, followPlayback]);
 
   React.useLayoutEffect(() => {
     if (focusedWordIndex === null) return;

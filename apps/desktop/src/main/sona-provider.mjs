@@ -8,6 +8,7 @@ import { runTranscriptionProcess } from './whisper-cpp-provider.mjs';
 
 const MIN_SILENCE_MS = 500;
 const INTERPOLATED_WORD_CONFIDENCE = 0.6;
+const DETECTED_PAUSE_MIN_SECONDS = 0.18;
 
 function abortError() {
   return new DOMException('Transcription cancelled', 'AbortError');
@@ -15,6 +16,143 @@ function abortError() {
 
 function frameAt(milliseconds, fps) {
   return Math.max(0, Math.round((milliseconds / 1_000) * fps));
+}
+
+function wavContainsSamples(buffer) {
+  if (
+    buffer.length < 12
+    || buffer.toString('ascii', 0, 4) !== 'RIFF'
+    || buffer.toString('ascii', 8, 12) !== 'WAVE'
+  ) {
+    return false;
+  }
+  let offset = 12;
+  while (offset + 8 <= buffer.length) {
+    const chunkId = buffer.toString('ascii', offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    if (chunkId === 'data') return chunkSize > 0 && offset + 8 < buffer.length;
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  return false;
+}
+
+function silentChunk(startMs, endMs, fps) {
+  return {
+    words: [],
+    paragraphs: [],
+    nonSpeech: [{
+      kind: 'silence',
+      startFrame: frameAt(startMs, fps),
+      endFrame: frameAt(endMs, fps),
+    }],
+  };
+}
+
+function detectAudioPauses(ffmpegPath, audioPath, { signal } = {}) {
+  if (signal?.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, [
+      '-hide_banner',
+      '-nostats',
+      '-i',
+      audioPath,
+      '-af',
+      `silencedetect=noise=-42dB:d=${DETECTED_PAUSE_MIN_SECONDS}`,
+      '-f',
+      'null',
+      '-',
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    const abort = () => child.kill('SIGTERM');
+    signal?.addEventListener('abort', abort, { once: true });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      stderr = `${stderr}${chunk}`;
+    });
+    child.once('error', reject);
+    child.once('close', (code) => {
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) {
+        reject(abortError());
+        return;
+      }
+      if (code !== 0) {
+        reject(new Error(`ffmpeg silence detection exited ${code}`));
+        return;
+      }
+      const starts = [
+        ...stderr.matchAll(/silence_start:\s*([0-9.]+)/gu),
+      ].map((match) => Number(match[1]));
+      const ends = [
+        ...stderr.matchAll(/silence_end:\s*([0-9.]+)/gu),
+      ].map((match) => Number(match[1]));
+      resolve(
+        starts.flatMap((start, index) => {
+          const end = ends[index];
+          return Number.isFinite(start) && Number.isFinite(end) && end > start
+            ? [{ startSeconds: start, endSeconds: end }]
+            : [];
+        }),
+      );
+    });
+  });
+}
+
+export function applyDetectedPauses(
+  transcript,
+  pauses,
+  { startMs, fps },
+) {
+  const pauseRanges = pauses.map((pause) => ({
+    startFrame: frameAt(startMs + pause.startSeconds * 1_000, fps),
+    endFrame: frameAt(startMs + pause.endSeconds * 1_000, fps),
+  }));
+  const splitSegments = transcript.nonSpeech.flatMap((segment) => {
+    if (segment.kind !== 'unrecognized') return [segment];
+    const boundaries = [
+      segment.startFrame,
+      segment.endFrame,
+      ...pauseRanges.flatMap((pause) =>
+        pause.startFrame < segment.endFrame &&
+        pause.endFrame > segment.startFrame
+          ? [
+              Math.max(segment.startFrame, pause.startFrame),
+              Math.min(segment.endFrame, pause.endFrame),
+            ]
+          : [],
+      ),
+    ]
+      .sort((left, right) => left - right)
+      .filter((frame, index, values) => index === 0 || frame !== values[index - 1]);
+    return boundaries.slice(0, -1).map((startFrame, index) => {
+      const endFrame = boundaries[index + 1];
+      const midpoint = startFrame + (endFrame - startFrame) / 2;
+      const isPause = pauseRanges.some(
+        (pause) => midpoint >= pause.startFrame && midpoint < pause.endFrame,
+      );
+      return {
+        kind: isPause ? 'silence' : 'unrecognized',
+        startFrame,
+        endFrame,
+      };
+    });
+  });
+  const nonSpeech = [...splitSegments];
+  for (const pause of pauseRanges) {
+    if (pause.endFrame <= pause.startFrame) continue;
+    const alreadyCovered = nonSpeech.some(
+      (segment) =>
+        segment.kind === 'silence' &&
+        segment.startFrame <= pause.startFrame &&
+        segment.endFrame >= pause.endFrame,
+    );
+    if (!alreadyCovered) nonSpeech.push({ kind: 'silence', ...pause });
+  }
+  nonSpeech.sort(
+    (left, right) =>
+      left.startFrame - right.startFrame || left.endFrame - right.endFrame,
+  );
+  return { ...transcript, nonSpeech };
 }
 
 function wordsFromSegment(segment, startMs, fps) {
@@ -84,6 +222,51 @@ function exactWords(payload, startMs, fps) {
   });
 }
 
+function comparableWord(value) {
+  return String(value)
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, '');
+}
+
+function mergeTimedWords(interpolatedWords, preciseWords) {
+  if (preciseWords.length === 0) return interpolatedWords;
+  if (interpolatedWords.length === 0) return preciseWords;
+  const merged = [...interpolatedWords];
+  const replacedIndexes = new Set();
+  for (const precise of preciseWords) {
+    const comparable = comparableWord(precise.word);
+    const preciseCenter = (precise.startFrame + precise.endFrame) / 2;
+    let matchIndex = -1;
+    let matchDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < merged.length; index += 1) {
+      if (
+        replacedIndexes.has(index)
+        || comparableWord(merged[index].word) !== comparable
+      ) {
+        continue;
+      }
+      const candidateCenter =
+        (merged[index].startFrame + merged[index].endFrame) / 2;
+      const distance = Math.abs(candidateCenter - preciseCenter);
+      if (distance < matchDistance) {
+        matchIndex = index;
+        matchDistance = distance;
+      }
+    }
+    if (matchIndex >= 0) {
+      merged[matchIndex] = precise;
+      replacedIndexes.add(matchIndex);
+    } else {
+      merged.push(precise);
+    }
+  }
+  return merged.sort(
+    (left, right) =>
+      left.startFrame - right.startFrame || left.endFrame - right.endFrame,
+  );
+}
+
 export function parseSonaTranscript(payload, { startMs, endMs, fps }) {
   const segments = Array.isArray(payload?.segments) ? payload.segments : [];
   const paragraphs = [];
@@ -105,7 +288,7 @@ export function parseSonaTranscript(payload, { startMs, endMs, fps }) {
     }
     if (segmentStartMs - cursorMs >= MIN_SILENCE_MS) {
       nonSpeech.push({
-        kind: 'silence',
+        kind: 'unrecognized',
         startFrame: frameAt(cursorMs, fps),
         endFrame: frameAt(segmentStartMs, fps),
       });
@@ -115,23 +298,22 @@ export function parseSonaTranscript(payload, { startMs, endMs, fps }) {
       startFrame: frameAt(segmentStartMs, fps),
       endFrame: frameAt(segmentEndMs, fps),
     });
-    if (preciseWords.length === 0) {
-      words.push(...wordsFromSegment(segment, startMs, fps));
-    }
+    words.push(...wordsFromSegment(segment, startMs, fps));
     cursorMs = Math.max(cursorMs, segmentEndMs);
   }
   if (endMs - cursorMs >= MIN_SILENCE_MS) {
     nonSpeech.push({
-      kind: 'silence',
+      kind: 'unrecognized',
       startFrame: frameAt(cursorMs, fps),
       endFrame: frameAt(endMs, fps),
     });
   }
-  if (paragraphs.length > 0 && preciseWords.length === 0 && words.length === 0) {
+  const mergedWords = mergeTimedWords(words, preciseWords);
+  if (paragraphs.length > 0 && mergedWords.length === 0) {
     throw new Error('Sona output did not include usable timed speech segments');
   }
   return {
-    words: preciseWords.length > 0 ? preciseWords : words,
+    words: mergedWords,
     paragraphs,
     nonSpeech,
   };
@@ -274,8 +456,10 @@ export async function createSonaProvider({
           ],
           { signal },
         );
+        const audio = await readFile(audioPath);
+        if (!wavContainsSamples(audio)) return silentChunk(startMs, endMs, fps);
         const form = new FormData();
-        form.append('file', new Blob([await readFile(audioPath)]), 'chunk.wav');
+        form.append('file', new Blob([audio]), 'chunk.wav');
         form.append('response_format', 'verbose_json');
         form.append('word_timestamps', 'true');
         if (language === 'auto') form.append('detect_language', 'true');
@@ -285,9 +469,23 @@ export async function createSonaProvider({
           { method: 'POST', body: form, signal },
         );
         if (!response.ok) {
-          throw new Error(`Sona transcription failed with HTTP ${response.status}`);
+          const details = String(await response.text()).trim();
+          throw new Error(
+            `Sona transcription failed with HTTP ${response.status}${details ? `: ${details}` : ''}`,
+          );
         }
-        return parseSonaTranscript(await response.json(), { startMs, endMs, fps });
+        const transcript = parseSonaTranscript(await response.json(), {
+          startMs,
+          endMs,
+          fps,
+        });
+        try {
+          const pauses = await detectAudioPauses(ffmpegPath, audioPath, { signal });
+          return applyDetectedPauses(transcript, pauses, { startMs, fps });
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          return transcript;
+        }
       } finally {
         await rm(workDir, { recursive: true, force: true });
       }

@@ -4387,13 +4387,13 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
  * ──────────────────────────────────────────────────────────────────────── */
 
 /* App-level view-tab strip. Lives at the .shell level, not inside .editorShell —
- * it's app navigation, not editor chrome. Pinned to the bottom of the viewport,
- * full-bleed, distinct visual stratum so the user reads it as load-bearing chrome.
+ * it's app navigation, not editor chrome. Positioned above the workspace so it
+ * stays clear of desktop docks and reads as load-bearing chrome.
  * Active state combines color + an accent indicator (no color-only signal). */
 .appViewTabStrip {
   align-items: center;
   background: #0a0a0e;
-  border-top: 1px solid var(--strong-line);
+  border-bottom: 1px solid var(--strong-line);
   display: flex;
   flex: 0 0 auto;
   gap: 0.15rem;
@@ -4458,7 +4458,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   left: 0.95rem;
   position: absolute;
   right: 0.95rem;
-  top: 0;
+  bottom: 0;
 }
 .appViewTabLabel { font-feature-settings: 'tnum'; }
 
@@ -4692,6 +4692,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   justify-content: space-between;
   margin-bottom: 0.55rem;
   min-width: 0;
+  position: relative;
 }
 .nleTimelineTopbar strong {
   color: rgb(241 245 249 / 0.9);
@@ -4721,6 +4722,24 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   background: rgb(248 113 113 / 0.12);
   border-color: rgb(248 113 113 / 0.42);
   color: rgb(252 165 165);
+}
+.nleTimelineTopbar > .nleCommandError {
+  background: rgb(20 8 12 / 0.96);
+  border: 1px solid rgb(248 113 113 / 0.42);
+  border-radius: 5px;
+  color: rgb(254 202 202);
+  font-size: 0.64rem;
+  left: 50%;
+  max-width: min(38rem, 72%);
+  overflow: hidden;
+  padding: 0.3rem 0.5rem;
+  pointer-events: none;
+  position: absolute;
+  text-overflow: ellipsis;
+  top: calc(100% + 5px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  z-index: 12;
 }
 /* Timeline structure: a 2-column grid at the top level. Left column
  * holds the lane headers; right column holds the lane bodies plus the
@@ -4775,6 +4794,19 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   flex: 1 1 52%;
   grid-template-columns: 250px minmax(0, 1fr) minmax(0, 1.25fr) 252px;
   min-height: 0;
+}
+.ev2Root[data-browser-tab='transcript'] .ev2Upper {
+  grid-template-columns: minmax(640px, 1.15fr) minmax(480px, 0.85fr);
+}
+.ev2Root:has(.ev2Transcript[data-text-editor-open='true']) .ev2Upper {
+  flex-basis: 68%;
+}
+.ev2Root:has(.ev2Transcript[data-text-editor-open='true']) .ev2TimelineDeck {
+  flex-basis: 32%;
+}
+.ev2Root[data-browser-tab='transcript'] .ev2Source,
+.ev2Root[data-browser-tab='transcript'] .ev2Inspector {
+  display: none;
 }
 .ev2ActionBar {
   align-items: center;
@@ -4890,7 +4922,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   color: var(--subtle);
   display: flex;
   flex: 0 0 32px;
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   justify-content: space-between;
   padding: 0 0.7rem;
 }
@@ -4945,7 +4977,164 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border-bottom: 1px solid var(--line);
   display: grid;
   gap: 0.45rem;
-  padding: 0.55rem 0.65rem;
+  padding: 0.8rem 0.9rem;
+}
+.ev2Transcript[data-advanced-tools='false'] > .ev2EditMap,
+.ev2Transcript[data-advanced-tools='false'] > .ev2CleanupReview,
+.ev2Transcript[data-advanced-tools='false'] > .ev2Landmarks,
+.ev2Transcript[data-advanced-tools='false'] > .ev2TranscriptEditBar,
+.ev2Transcript[data-advanced-tools='false'] > .ev2TranscriptWords {
+  display: none;
+}
+.ev2Transcript[data-advanced-tools='false'] > .ev2TranscriptStatus .ev2ReviewSpeed {
+  display: none;
+}
+.ev2TranscriptReading {
+  display: grid;
+  flex: 1;
+  gap: 0.7rem;
+  min-height: 0;
+  padding: 1rem;
+}
+.ev2TranscriptReading > div {
+  background: #101015;
+  border: 1px solid var(--strong-line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.75;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  white-space: pre-wrap;
+}
+.ev2TranscriptReading > button {
+  justify-self: end;
+}
+.ev2TranscriptCoverageEditor {
+  background: var(--surface);
+  display: grid;
+  flex: 1;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.ev2TranscriptCoverageHeader,
+.ev2TranscriptCoverageFooter {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.75rem 0.9rem;
+}
+.ev2TranscriptCoverageHeader {
+  border-bottom: 1px solid var(--line);
+}
+.ev2TranscriptCoverageHeader > div {
+  display: grid;
+  gap: 0.2rem;
+}
+.ev2TranscriptCoverageHeader strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.ev2TranscriptCoverageHeader span,
+.ev2TranscriptCoverageFooter > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.ev2TranscriptCoverageHeader button,
+.ev2TranscriptCoverageFooter button {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  min-height: 2rem;
+  white-space: nowrap;
+}
+.ev2TranscriptCoverageSummary {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel) 82%, var(--accent));
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.68rem;
+  gap: 0.35rem 1rem;
+  padding: 0.5rem 0.9rem;
+}
+.ev2TranscriptCoverageSummary .needsReview {
+  color: #fbbf24;
+}
+.ev2TranscriptCoverageBlocks {
+  align-content: flex-start;
+  direction: rtl;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.18rem;
+  justify-content: flex-start;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  text-align: right;
+}
+.ev2TranscriptCoverageBlock {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  box-shadow: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.6;
+  min-height: 2rem;
+  padding: 0.08rem 0.18rem;
+  unicode-bidi: isolate;
+}
+.ev2TranscriptCoverageBlock:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: none;
+}
+.ev2TranscriptCoverageBlock[aria-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 32%, var(--panel));
+  border-color: var(--accent-hover);
+  color: white;
+}
+.ev2TranscriptCoverageBlock[aria-current='true'] {
+  box-shadow: inset 0 -2px 0 var(--accent-hover);
+}
+.ev2TranscriptCoverageBlock.pause,
+.ev2TranscriptCoverageBlock.music,
+.ev2TranscriptCoverageBlock.noise,
+.ev2TranscriptCoverageBlock.unrecognized {
+  align-self: center;
+  border-color: var(--strong-line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  min-height: 1.7rem;
+  padding: 0.08rem 0.55rem;
+  direction: ltr;
+}
+.ev2TranscriptCoverageBlock.pause {
+  background: var(--panel);
+}
+.ev2TranscriptCoverageBlock.unrecognized {
+  background: color-mix(in srgb, #f59e0b 13%, var(--panel));
+  border-color: color-mix(in srgb, #f59e0b 45%, var(--strong-line));
+  color: #fcd34d;
+}
+.ev2TranscriptCoverageFooter {
+  background: var(--chrome);
+  border-top: 1px solid var(--strong-line);
+}
+.ev2TranscriptCoverageFooter > div {
+  display: flex;
+  gap: 0.45rem;
+}
+.ev2TranscriptCoverageFooter button.danger:not(:disabled) {
+  background: color-mix(in srgb, var(--record) 22%, var(--panel));
+  border-color: color-mix(in srgb, var(--record) 55%, var(--line));
+  color: #fecdd3;
 }
 .ev2TranscriptTextEditorHeader,
 .ev2TranscriptTextEditorFooter {
@@ -4960,12 +5149,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 .ev2TranscriptTextEditorHeader strong {
   color: var(--text);
-  font-size: 0.68rem;
+  font-size: 0.82rem;
 }
 .ev2TranscriptTextEditorHeader span,
 .ev2TranscriptTextEditorFooter span {
   color: var(--muted);
-  font-size: 0.58rem;
+  font-size: 0.68rem;
 }
 .ev2TranscriptTextEditorHeader button,
 .ev2TranscriptTextEditorFooter button {
@@ -4988,6 +5177,38 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   display: flex;
   gap: 0.35rem;
 }
+.ev2TranscriptTextEditorActions {
+  display: flex;
+  gap: 0.45rem;
+}
+.ev2TranscriptTextEditorHeader button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.ev2TranscriptTranscriptionState {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem 0.8rem;
+}
+.ev2TranscriptTranscriptionState strong {
+  color: var(--text);
+  font-size: 0.76rem;
+}
+.ev2TranscriptTranscriptionState span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+.ev2TranscriptTranscriptionState.error {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--line));
+}
+.ev2TranscriptTranscriptionState progress {
+  accent-color: var(--accent);
+  width: 100%;
+}
 .ev2TranscriptTextEditorFooter button.primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -5002,7 +5223,21 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   min-height: 7rem;
   padding: 0.55rem 0.65rem;
   resize: vertical;
+  text-align: start;
+  unicode-bidi: plaintext;
   width: 100%;
+}
+.ev2Transcript[data-text-editor-open='true'] .ev2TranscriptTextEditor textarea {
+  font-size: 1rem;
+  height: 100%;
+  line-height: 1.75;
+  min-height: 0;
+  padding: 1rem 1.1rem;
+}
+.ev2Transcript[data-text-editor-open='true'] .ev2TranscriptTextEditor {
+  flex: 1;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
 }
 .ev2TranscriptTextEditor textarea:focus-visible {
   border-color: var(--accent-hover);
@@ -5832,7 +6067,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 /* Full-bleed deck: the timeline is a region of the editor, not a card. */
 .ev2TimelineDeck .nleTimeline {
-  --nle-lane-header-width: 150px;
+  --nle-lane-header-width: 182px;
   background: var(--surface);
   border: none;
   border-radius: 0;
@@ -5873,6 +6108,18 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border-bottom: 1px solid var(--line);
   flex: 0 0 26px;
   height: auto;
+}
+.ev2TimelineDeck .nleTrackSectionHeader,
+.ev2TimelineDeck .nleTrackSectionBand {
+  min-height: 20px;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+.ev2TimelineDeck .nleTrackSectionHeader {
+  background: rgb(15 23 42 / 0.18);
+}
+.ev2TimelineDeck .nleTrackSectionBand {
+  background: linear-gradient(90deg, rgb(15 23 42 / 0.55), rgb(15 23 42 / 0.08));
 }
 .ev2TimelineDeck .nleTimelineRulerTick {
   background: rgb(226 232 240 / 0.16);
@@ -6092,7 +6339,54 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   outline-offset: 1px;
 }
 .nleTimelineRulerSpacer {
+  align-items: flex-start;
+  border-bottom: 1px solid rgb(148 163 184 / 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
   height: 28px;
+  justify-content: center;
+}
+.nleTimelineRulerSpacer span {
+  color: var(--text);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.nleTimelineRulerSpacer small {
+  color: var(--subtle);
+  font-size: 0.56rem;
+  letter-spacing: 0.03em;
+}
+.nleTrackSectionHeader,
+.nleTrackSectionBand {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-height: 22px;
+  padding: 0 0.5rem;
+}
+.nleTrackSectionHeader {
+  border-bottom: 1px solid rgb(148 163 184 / 0.09);
+  color: var(--muted);
+}
+.nleTrackSectionHeader strong,
+.nleTrackSectionBand strong {
+  color: var(--text);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.nleTrackSectionHeader span,
+.nleTrackSectionBand span {
+  color: var(--subtle);
+  font-size: 0.56rem;
+}
+.nleTrackSectionBand {
+  background: linear-gradient(90deg, rgb(15 23 42 / 0.82), rgb(15 23 42 / 0.24));
+  border-bottom: 1px solid rgb(148 163 184 / 0.08);
 }
 .nleTimelineRuler {
   background: linear-gradient(180deg, rgb(15 23 42 / 0.72), rgb(8 13 22 / 0.8));
@@ -6152,11 +6446,14 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border: 1px solid rgb(148 163 184 / 0.08);
   border-radius: 6px;
   color: rgb(226 232 240 / 0.7);
-  display: flex;
-  flex-direction: row;
+  display: grid;
   font-size: 0.66rem;
   font-weight: 600;
-  gap: 0.4rem;
+  gap: 0 0.42rem;
+  grid-template-areas:
+    'tag label controls'
+    'tag stats controls';
+  grid-template-columns: auto minmax(0, 1fr) auto;
   height: var(--nle-track-height, 60px);
   letter-spacing: 0.02em;
   line-height: 1.15;
@@ -6179,6 +6476,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   letter-spacing: 0.02em;
   min-width: 24px;
   padding: 0 0.2rem;
+  grid-area: tag;
 }
 .nleTrackLaneHeader[data-track-disabled] .nleTrackLaneLabel,
 .nleTrackLaneHeader[data-track-disabled] .nleTrackTag {
@@ -6188,18 +6486,62 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
  * reads as a multi-track editor, not as placeholders. */
 .nleTrackLaneHeader.ghost {
   background: rgb(15 23 42 / 0.3);
-  border-color: rgb(148 163 184 / 0.05);
+  border-bottom-style: dashed;
+  border-color: rgb(148 163 184 / 0.09);
+  height: 30px;
 }
 .nleTrackLaneHeader.ghost .nleTrackTag,
 .nleTrackLaneHeader.ghost .nleTrackLaneLabel {
   opacity: 0.55;
 }
+.nleAddTrackButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 0 0.32rem;
+  grid-area: label / label / stats / controls;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+}
+.nleAddTrackButton svg {
+  height: 11px;
+  width: 11px;
+}
+.nleAddTrackButton span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nleAddTrackButton:hover,
+.nleAddTrackButton:focus-visible {
+  color: var(--text);
+}
+.nleAddTrackButton:focus-visible {
+  outline: 2px solid rgb(96 165 250 / 0.95);
+  outline-offset: 2px;
+}
 .nleTrackLaneLabel {
   flex: 1;
+  grid-area: label;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.nleTrackLaneStats {
+  color: var(--subtle);
+  flex: 0 0 auto;
+  font-size: 0.54rem;
+  font-variant-numeric: tabular-nums;
+  grid-area: stats;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .nleTrackLaneHeader.empty {
   color: rgb(226 232 240 / 0.42);
@@ -6214,6 +6556,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   display: flex;
   flex: 0 0 auto;
   gap: 0.18rem;
+  grid-area: controls;
 }
 .nleTrackControls button {
   align-items: center;
@@ -6275,7 +6618,9 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   background:
     linear-gradient(90deg, rgb(148 163 184 / 0.02) 1px, transparent 1px) 0 0 / 8.333% 100%,
     rgb(4 9 18 / 0.3);
-  border-color: rgb(148 163 184 / 0.05);
+  border-bottom-style: dashed;
+  border-color: rgb(148 163 184 / 0.09);
+  height: 30px;
   justify-content: flex-start;
   padding: 0 0.9rem;
 }
@@ -6316,7 +6661,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0 0.48rem;
   position: absolute;
   top: 6px;
-  transition: border-color 150ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 150ms cubic-bezier(0.23, 1, 0.32, 1), left 90ms ease-out, width 90ms ease-out, transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: border-color 150ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 150ms cubic-bezier(0.23, 1, 0.32, 1), transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
   z-index: 3;
 }
 .nleClipBlock:active { cursor: grabbing; transform: translateY(1px); }
@@ -6751,4 +7096,46 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.5rem;
   justify-content: center;
   margin-top: 0.75rem;
+}
+
+.freecutEditorEntry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin: 0 auto;
+  max-width: 48rem;
+  padding: 2.5rem 1.5rem;
+  width: 100%;
+}
+.freecutEditorEntryHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+.freecutEditorEntry h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 0;
+}
+.freecutEditorEntryProject {
+  color: var(--muted);
+  margin: 0;
+}
+.freecutStatus {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  padding: 0.25rem 0.5rem;
+}
+.freecutStatus.available {
+  border-color: rgb(96 165 250 / 0.45);
+  color: var(--accent-hover);
+}
+.freecutEditorEntryMessage {
+  color: #fca5a5;
+  margin: 0;
+  max-width: 42rem;
 }

@@ -11,9 +11,15 @@ import { transcriptionFeatureEnabled } from './transcription-policy.mjs';
 import { createTranscriptionService } from './transcription-service.mjs';
 import { createWhisperCppProvider } from './whisper-cpp-provider.mjs';
 import { createSonaProvider } from './sona-provider.mjs';
+import { createFasterWhisperProvider } from './faster-whisper-provider.mjs';
 import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const fasterWhisperHelperPath = fileURLToPath(
+  new URL('./faster-whisper-worker.py', import.meta.url),
+);
 
 async function firstReadable(paths) {
   for (const path of paths) {
@@ -52,7 +58,9 @@ export async function createTranscriptionRuntime({
   environment = process.env,
   userDataDir,
   onLog = () => undefined,
+  onStateChange = () => undefined,
   persistTranscript = null,
+  createVerbatimProvider = createFasterWhisperProvider,
   createLocalProvider = createWhisperCppProvider,
   createFallbackProvider = createSonaProvider,
   resolveFallbackModel = resolveSonaModelPath,
@@ -82,6 +90,31 @@ export async function createTranscriptionRuntime({
   }
 
   let localProvider = fixtureProvider;
+  const fasterWhisperPython = environment.ROUGH_CUT_FASTER_WHISPER_PYTHON;
+  const fasterWhisperModelPath =
+    environment.ROUGH_CUT_FASTER_WHISPER_MODEL_PATH;
+  if (!localProvider && fasterWhisperPython && fasterWhisperModelPath) {
+    try {
+      localProvider = await createVerbatimProvider({
+        pythonPath: fasterWhisperPython,
+        helperPath:
+          environment.ROUGH_CUT_FASTER_WHISPER_HELPER_PATH
+          || fasterWhisperHelperPath,
+        modelPath: fasterWhisperModelPath,
+        ffmpegPath: environment.ROUGH_CUT_FFMPEG_COMMAND || 'ffmpeg',
+        language: environment.ROUGH_CUT_TRANSCRIPTION_LANGUAGE || 'he',
+        device: environment.ROUGH_CUT_FASTER_WHISPER_DEVICE || 'cuda',
+        computeType:
+          environment.ROUGH_CUT_FASTER_WHISPER_COMPUTE_TYPE || 'int8_float16',
+        libraryPath:
+          environment.ROUGH_CUT_FASTER_WHISPER_LIBRARY_PATH || '',
+      });
+    } catch (error) {
+      onLog(
+        `[transcription] faster-whisper unavailable: ${error?.message ?? error}`,
+      );
+    }
+  }
   const modelPath = environment.ROUGH_CUT_WHISPER_MODEL_PATH;
   if (!localProvider && modelPath) {
     try {
@@ -117,15 +150,18 @@ export async function createTranscriptionRuntime({
   });
   const runner = createTranscriptionJobRunner({
     store,
+    chunkDurationMs: 30_000,
     transcribeChunk:
       localProvider?.transcribeChunk ??
       (async () => {
         throw new Error('No local transcription provider is available');
       }),
-    onStateChange: (job) =>
+    onStateChange: (job) => {
       onLog(
         `[transcription] job=${job.id} status=${job.status} checkpointMs=${job.checkpointMs}`,
-      ),
+      );
+      onStateChange(job);
+    },
   });
   const service = createTranscriptionService({
     enabled: true,

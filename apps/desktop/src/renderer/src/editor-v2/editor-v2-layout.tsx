@@ -13,6 +13,7 @@ import {
   setSourceStabilization,
   timelineFrameForDraftFrame,
   type CleanupDraftProjection,
+  type CleanupDraftRemoval,
   type ProjectDocument,
 } from '@rough-cut/project-model';
 import { MediaPool } from './media-pool';
@@ -160,10 +161,25 @@ export function EditorV2Layout({
     setCleanupDraft(EMPTY_CLEANUP_DRAFT);
     onProjectChange(next, { history: true, persist: true });
   }, [onProjectChange, project]);
-
-  React.useEffect(() => {
-    if (transcriptWordCount === 0 && browserTab === 'transcript') setBrowserTab('media');
-  }, [browserTab, transcriptWordCount]);
+  const commitTranscriptEdit = React.useCallback((
+    document: ProjectDocument,
+    removals: readonly CleanupDraftRemoval[],
+  ) => {
+    if (!onProjectChange) return;
+    const editedProject = {
+      ...project,
+      document,
+    } as unknown as NleProject;
+    const next = removals.length > 0
+      ? finalizeCleanupDraftProject(editedProject, {
+          removals,
+          compressions: [],
+        })
+      : editedProject;
+    cleanupDraftRef.current = EMPTY_CLEANUP_DRAFT;
+    setCleanupDraft(EMPTY_CLEANUP_DRAFT);
+    onProjectChange(next, { history: true, persist: true });
+  }, [onProjectChange, project]);
 
   React.useEffect(() => window.roughCut.onStabilizationProgress((progress) => {
     setStabilizationStatus((current) => ({
@@ -285,6 +301,7 @@ export function EditorV2Layout({
     <div
       className="ev2Root"
       data-ui-region="editor-v2"
+      data-browser-tab={browserTab}
       data-cleanup-draft-removals={cleanupDraft.removals.length}
       data-cleanup-draft-duration={draftDurationFrames}
     >
@@ -328,6 +345,7 @@ export function EditorV2Layout({
               onPlaybackRateChange={onPlaybackRateChange}
               onDraftProjectionChange={updateCleanupDraft}
               onFinalizeDraft={finalizeCleanupDraft}
+              onTranscriptEdit={commitTranscriptEdit}
               onDocumentChange={
                 onProjectChange
                   ? (nextDocument) =>

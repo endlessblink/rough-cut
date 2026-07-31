@@ -150,12 +150,24 @@ export function addGeneratedAssetToNewTrack(project, asset, kind, timelineIn) {
   const targetKind = sourceKindForGeneratedAsset(asset);
   if (targetKind !== kind) return project;
 
+  const withTrack = addEmptyTrackToProject(project, kind);
+  if (withTrack === project) return project;
+  const document = canonicalizeProjectDocument(withTrack.document);
+  const newTrack = document.timeline?.tracks?.find((track) => track.kind === kind && (track.clips?.length ?? 0) === 0) ?? null;
+  if (!newTrack) return project;
+  const next = addGeneratedAssetToTrack(withTrack, asset, newTrack.id, timelineIn);
+  // Don't leave an empty track behind if the clip placement failed.
+  return next === withTrack ? project : next;
+}
+
+export function addEmptyTrackToProject(project, kind) {
+  if (!project?.document || (kind !== 'video' && kind !== 'audio')) return project;
   const document = canonicalizeProjectDocument(project.document);
   const tracks = Array.isArray(document.timeline?.tracks) ? document.timeline.tracks : [];
   const kindCount = tracks.filter((track) => track.kind === kind).length;
-  const maxIndex = tracks.reduce((max, track) => Math.max(max, Number(track.index) || 0), -1);
   const shiftForAudio = kind === 'audio';
-  const newTrack = {
+  const maxIndex = tracks.reduce((max, track) => Math.max(max, Number(track.index) || 0), -1);
+  const nextTrack = {
     id: newClipId(`track-${kind}`),
     kind,
     index: shiftForAudio ? 0 : maxIndex + 1,
@@ -165,19 +177,25 @@ export function addGeneratedAssetToNewTrack(project, asset, kind, timelineIn) {
     muted: false,
     clips: [],
   };
-  const nextTracks = shiftForAudio
-    ? [...tracks.map((track) => ({ ...track, index: Number(track.index) + 1 })), newTrack]
-    : [...tracks, newTrack];
-  const withTrack = {
-    ...project,
-    document: {
-      ...document,
-      timeline: { ...document.timeline, tracks: nextTracks },
+  const nextTimelineTracks = shiftForAudio
+    ? [...tracks.map((track) => ({ ...track, index: Number(track.index) + 1 })), nextTrack]
+    : [...tracks, nextTrack];
+  const nextDocument = {
+    ...document,
+    timeline: {
+      ...document.timeline,
+      tracks: nextTimelineTracks,
     },
   };
-  const next = addGeneratedAssetToTrack(withTrack, asset, newTrack.id, timelineIn);
-  // Don't leave an empty track behind if the clip placement failed.
-  return next === withTrack ? project : next;
+  if (Array.isArray(document.tracks)) {
+    nextDocument.tracks = shiftForAudio
+      ? [...document.tracks.map((track) => ({ ...track, index: Number(track.index) + 1 })), nextTrack]
+      : [...document.tracks, nextTrack];
+  }
+  return {
+    ...project,
+    document: nextDocument,
+  };
 }
 
 export function addGeneratedAssetToTrack(project, asset, trackId, timelineIn) {

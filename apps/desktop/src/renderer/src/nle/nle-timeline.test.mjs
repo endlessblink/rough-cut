@@ -116,6 +116,28 @@ test('NLE timeline ships Editor v2 deck affordances (ghost channels, tags, zoom 
   assert.match(source, /topbarExtras/);
 });
 
+test('NLE timeline groups tracks into visible sections with real metadata, not placeholder controls', () => {
+  const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
+  const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
+
+  assert.match(source, /const trackSections = React\.useMemo/);
+  assert.match(source, /nleTrackSectionHeader/);
+  assert.match(source, /nleTrackSectionBand/);
+  assert.match(source, /section\.tracks\.length === 1 \? 'track' : 'tracks'/);
+  assert.match(source, /track\.blocks\.length === 1 \? 'clip' : 'clips'/);
+  assert.match(source, /nleTrackLaneStats/);
+  assert.match(source, /addEmptyTrackToProject/);
+  assert.match(source, /aria-label=\{`Add \$\{section\.label\.toLowerCase\(\)\} track`\}/);
+  assert.match(source, /Drop media here to create/);
+
+  assert.match(css, /\.nleTrackSectionHeader\s*{/);
+  assert.match(css, /\.nleTrackSectionBand\s*{/);
+  assert.match(css, /\.nleTrackLaneStats\s*{/);
+  assert.match(css, /\.nleAddTrackButton\s*{/);
+
+  assert.doesNotMatch(source, /toggleTrackSolo|toggleTrackSyncLock/);
+});
+
 test('NLE toolbar stays premium: centered timecode, no noise, dataset clips', () => {
   const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
   const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
@@ -170,6 +192,13 @@ test('NLE shell ships the Ctrl+Shift+D debug state dump (TASK-228)', () => {
     assert.ok(source.includes(field), `dump includes ${field}`);
   }
   assert.match(source, /nleDebugDumpNotice/);
+});
+
+test('NLE playback follows the preview media clock instead of a second free-running clock', () => {
+  const source = readFileSync(join(here, 'nle-shell.tsx'), 'utf8');
+
+  assert.doesNotMatch(source, /const deltaFrames = \(\(nowMs - lastMs\) \/ 1000\) \* fps \* playbackRate/);
+  assert.doesNotMatch(source, /window\.requestAnimationFrame\(tick\)/);
 });
 
 test('NLE shell wires undo and redo through shared edit history controls (TASK-229)', () => {

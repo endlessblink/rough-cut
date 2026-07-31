@@ -6,7 +6,9 @@ const source = await readFile(new URL('./index.mjs', import.meta.url), 'utf8');
 
 test('main process wires transcription through every recording lifecycle path', () => {
   assert.match(source, /createTranscriptionRuntime\(\{/);
-  assert.match(source, /createRecordingTranscriptionBridge\(\{/);
+assert.match(source, /createRecordingTranscriptionBridge\(\{/);
+assert.match(source, /IPC_CHANNELS\.TRANSCRIPTION_TRANSCRIBE_PROJECT/);
+assert.match(source, /IPC_CHANNELS\.TRANSCRIPTION_PROGRESS/);
   assert.match(source, /createRecordingTranscriptionLifecycle\(\{/);
   assert.match(source, /recordingTranscriptionLifecycle\.recordingStarted\(status\)/);
   assert.match(source, /recordingTranscriptionLifecycle\.recordingProgress\(status\)/);

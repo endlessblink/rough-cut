@@ -6,3 +6,5 @@ dist/
 .watchpost/
 recordings/
 .omx/
+.venv-transcription/
+.transcription-model

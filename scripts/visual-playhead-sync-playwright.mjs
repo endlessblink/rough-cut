@@ -3,10 +3,14 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
+import {
+  saveProjectFile,
+  saveProjectForRecording,
+} from '../apps/desktop/src/main/project-files.mjs';
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-visual-playhead-sync-'));
 const mediaPath = join(root, 'playhead-sync-source.mp4');
+const userDataPath = join(root, 'electron-user-data');
 
 await mkdir(root, { recursive: true });
 run('ffmpeg', [
@@ -27,7 +31,7 @@ run('ffmpeg', [
 ]);
 
 const startedAt = new Date('2026-01-01T00:00:00.000Z');
-const project = await saveProjectForRecording({
+let project = await saveProjectForRecording({
   startedAt: startedAt.toISOString(),
   stoppedAt: new Date(startedAt.getTime() + 20000).toISOString(),
   rawPath: mediaPath,
@@ -36,11 +40,34 @@ const project = await saveProjectForRecording({
   height: 540,
   fps: 30,
 });
+const transcriptWords = Array.from({ length: 200 }, (_, index) => ({
+  word: `sync-${String(index).padStart(3, '0')}`,
+  startFrame: index * 3,
+  endFrame: index * 3 + 2,
+  confidence: 1,
+}));
+project = await saveProjectFile(project.path, {
+  ...project.document,
+  transcript: {
+    words: transcriptWords,
+    paragraphs: [{
+      text: transcriptWords.map(({ word }) => word).join(' '),
+      startFrame: 0,
+      endFrame: 599,
+    }],
+    nonSpeech: [],
+  },
+});
 
 const { _electron: electron } = loadPlaywright();
 const app = await electron.launch({
   executablePath: join(process.cwd(), 'apps/desktop/node_modules/.bin/electron'),
-  args: ['--no-sandbox', '--force-color-profile=srgb', '.'],
+  args: [
+    '--no-sandbox',
+    '--force-color-profile=srgb',
+    `--user-data-dir=${userDataPath}`,
+    '.',
+  ],
   cwd: join(process.cwd(), 'apps/desktop'),
   env: {
     ...process.env,
@@ -108,7 +135,7 @@ async function openRecordingEdit(page) {
 async function openNle(page) {
   await page.locator('[data-ui-region="app-view-tabstrip"] button[title="Editor"]').click({ force: true });
   await page.waitForSelector('[data-ui-region="nle-workspace"]', { timeout: 15000 });
-  await page.waitForSelector('.nlePlayhead', { timeout: 15000 });
+  await page.waitForSelector('.nlePlayhead:visible', { timeout: 15000 });
 }
 
 async function dismissPreRecordOverlay(page) {
@@ -132,7 +159,7 @@ async function seekRecordingRatio(page, ratio) {
 }
 
 async function seekNleRatio(page, ratio) {
-  const ruler = await page.locator('[data-ui-region="nle-time-ruler"]').boundingBox();
+  const ruler = await page.locator('[data-ui-region="nle-time-ruler"]:visible').boundingBox();
   if (!ruler) throw new Error('NLE time ruler bounding box was unavailable.');
   await page.mouse.click(ruler.x + ruler.width * ratio, ruler.y + ruler.height / 2);
   await page.waitForTimeout(350);
@@ -149,7 +176,11 @@ async function readRecordingPlayhead(page) {
 
 async function readNlePlayhead(page) {
   return page.evaluate(() => {
-    const playhead = document.querySelector('.nlePlayhead');
+    const playhead = [...document.querySelectorAll('.nlePlayhead')]
+      .find((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }) ?? null;
     const left = playhead instanceof HTMLElement ? Number.parseFloat(playhead.style.left) : Number.NaN;
     return {
       view: 'nle',
@@ -180,19 +211,29 @@ async function proveRecordingTimelineFollow(page) {
 
 async function proveNleTimelineFollow(page) {
   await openNle(page);
+  await page.getByRole('tab', { name: 'Edit transcript' }).click();
+  await page.waitForSelector('[data-ui-region="transcript-panel"]', { timeout: 15000 });
   await seekNleRatio(page, 0.6);
-  await clickZoomIn(page, '[data-ui-region="nle-timeline"] button[aria-label="Zoom timeline in"]', 5);
+  await clickZoomIn(page, '[data-ui-region="nle-timeline"]:visible button[aria-label="Zoom timeline in"]', 5);
   const before = await resetTimelineScrollAndRead(page, '[data-ui-region="nle-lane-bodies"]', '.nlePlayhead');
-  await page.locator('section[aria-label="Timeline viewer"] button[aria-label="Play"]').click();
+  await page.locator('section[aria-label="Timeline viewer"]:visible button[aria-label="Play"]').click();
   const samples = await collectTimelineFollowSamples(page, '[data-ui-region="nle-lane-bodies"]', '.nlePlayhead', before.scrollLeft + 20);
   const after = samples.at(-1);
-  await page.locator('section[aria-label="Timeline viewer"] button[aria-label="Pause"]').click().catch(() => undefined);
+  const canonicalSync = summarizeCanonicalSync(samples, 600);
+  const screenshotPath = join(root, 'nle-transcript-playhead-sync.png');
+  await page.screenshot({ path: screenshotPath });
+  await page.locator('section[aria-label="Timeline viewer"]:visible button[aria-label="Pause"]').click().catch(() => undefined);
   return {
     view: 'nle',
-    ok: after.scrollLeft > before.scrollLeft + 20 && after.playheadVisible && timelineFollowIsFluent(samples),
+    ok: after.scrollLeft > before.scrollLeft + 20
+      && after.playheadVisible
+      && timelineFollowIsFluent(samples)
+      && canonicalSync.ok,
     before,
     after,
     sampleSummary: summarizeFollowSamples(samples),
+    canonicalSync,
+    screenshotPath,
   };
 }
 
@@ -224,7 +265,7 @@ async function collectTimelineFollowSamples(page, viewportSelector, playheadSele
       const state = window.__roughCutReadTimelineFollowState(viewportSelector, playheadSelector);
       samples.push({ ...state, frame });
       frame += 1;
-      if ((state.scrollLeft >= minScrollLeft && state.playheadVisible && samples.length >= 4) || samples.length >= 36) {
+      if ((state.scrollLeft >= minScrollLeft && state.playheadVisible && samples.length >= 24) || samples.length >= 36) {
         resolve(samples);
         return;
       }
@@ -263,6 +304,40 @@ function summarizeFollowSamples(samples) {
   };
 }
 
+function summarizeCanonicalSync(samples, durationFrames) {
+  const aligned = samples.filter(
+    (sample) => Number.isFinite(sample.playheadLeftPct) && Number.isInteger(sample.activeWordIndex),
+  );
+  const frameErrors = aligned.map((sample) => {
+    const indicatorFrame = sample.playheadLeftPct / 100 * durationFrames;
+    const activeWordStartFrame = sample.activeWordIndex * 3;
+    const activeWordEndFrame = activeWordStartFrame + 2;
+    if (indicatorFrame < activeWordStartFrame) return activeWordStartFrame - indicatorFrame;
+    if (indicatorFrame > activeWordEndFrame) return indicatorFrame - activeWordEndFrame;
+    return 0;
+  });
+  const uniqueIndicatorPositions = new Set(
+    aligned.map((sample) => sample.playheadLeftPct.toFixed(3)),
+  ).size;
+  const uniqueActiveWords = new Set(aligned.map((sample) => sample.activeWordIndex)).size;
+  const visibleActiveWordSamples = aligned.filter((sample) => sample.activeWordVisible).length;
+  const maxFrameError = frameErrors.length > 0 ? Math.max(...frameErrors) : Number.POSITIVE_INFINITY;
+  return {
+    ok: aligned.length >= 8
+      && uniqueIndicatorPositions >= 4
+      && uniqueActiveWords >= 3
+      && visibleActiveWordSamples >= Math.floor(aligned.length * 0.75)
+      && maxFrameError <= 2,
+    alignedSampleCount: aligned.length,
+    uniqueIndicatorPositions,
+    uniqueActiveWords,
+    visibleActiveWordSamples,
+    maxFrameError,
+    first: aligned.at(0) ?? null,
+    last: aligned.at(-1) ?? null,
+  };
+}
+
 function ratioMatches(left, right, tolerance = 0.025) {
   return Number.isFinite(left?.ratio)
     && Number.isFinite(right?.ratio)
@@ -281,18 +356,63 @@ function buildFilter() {
 }
 
 function readTimelineFollowState(viewportSelector, playheadSelector) {
-  const viewport = document.querySelector(viewportSelector);
-  const playhead = document.querySelector(playheadSelector);
+  const visibleElement = (selector) => [...document.querySelectorAll(selector)]
+    .find((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }) ?? null;
+  const viewport = visibleElement(viewportSelector);
+  const playhead = visibleElement(playheadSelector);
   if (!(viewport instanceof HTMLElement)) throw new Error(`Missing viewport ${viewportSelector}`);
   if (!(playhead instanceof HTMLElement)) throw new Error(`Missing playhead ${playheadSelector}`);
   const viewportRect = viewport.getBoundingClientRect();
   const playheadRect = playhead.getBoundingClientRect();
   const playheadCenterX = playheadRect.left + playheadRect.width / 2;
+  const playheadLeftPct = Number.parseFloat(playhead.style.left);
+  const activeWord = [...document.querySelectorAll(
+    '.ev2TranscriptCoverageBlock[aria-current="true"], .ev2TranscriptWord[aria-current="true"]',
+  )]
+    .find((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }) ?? null;
+  const activeWordLabel = activeWord?.getAttribute('aria-label')
+    ?? activeWord?.textContent?.trim()
+    ?? null;
+  const activeWordMatch = activeWordLabel?.match(/sync-(\d+)/);
+  const transcriptViewport = [...document.querySelectorAll(
+    '.ev2TranscriptCoverageBlocks, .ev2TranscriptWords',
+  )]
+    .find((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }) ?? null;
+  const activeWordRect = activeWord instanceof HTMLElement ? activeWord.getBoundingClientRect() : null;
+  const transcriptViewportRect = transcriptViewport instanceof HTMLElement
+    ? transcriptViewport.getBoundingClientRect()
+    : null;
+  const activeWordVisible = activeWordRect !== null
+    && transcriptViewportRect !== null
+    && activeWordRect.top >= transcriptViewportRect.top
+    && activeWordRect.bottom <= transcriptViewportRect.bottom;
   return {
     scrollLeft: viewport.scrollLeft,
     scrollWidth: viewport.scrollWidth,
     clientWidth: viewport.clientWidth,
     playheadVisible: playheadCenterX >= viewportRect.left && playheadCenterX <= viewportRect.right,
+    playheadLeftPct: Number.isFinite(playheadLeftPct) ? playheadLeftPct : null,
+    activeWordIndex: activeWordMatch ? Number(activeWordMatch[1]) : null,
+    activeWordLabel,
+    activeWordVisible,
+    transcriptScrollTop: transcriptViewport instanceof HTMLElement
+      ? transcriptViewport.scrollTop
+      : null,
+    activeWordRect: activeWordRect
+      ? { top: activeWordRect.top, bottom: activeWordRect.bottom }
+      : null,
+    transcriptViewportRect: transcriptViewportRect
+      ? { top: transcriptViewportRect.top, bottom: transcriptViewportRect.bottom }
+      : null,
     viewport: { left: viewportRect.left, right: viewportRect.right, width: viewportRect.width },
     playhead: { left: playheadRect.left, right: playheadRect.right, width: playheadRect.width, centerX: playheadCenterX },
   };
@@ -302,6 +422,17 @@ function loadPlaywright() {
   try {
     return createRequire(import.meta.url)('playwright');
   } catch {
+    for (const candidate of [
+      join(process.cwd(), 'node_modules/playwright/package.json'),
+      join(process.cwd(), 'apps/desktop/node_modules/playwright/package.json'),
+      '/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json',
+    ]) {
+      try {
+        return createRequire(candidate)('playwright');
+      } catch {
+        // Try the next known workspace/global install location.
+      }
+    }
     const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
     return createRequire(join(globalRoot, 'playwright/package.json'))('playwright');
   }

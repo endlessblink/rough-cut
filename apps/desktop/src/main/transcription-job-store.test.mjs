@@ -89,13 +89,17 @@ test('incremental transcript progress survives reload', async () => {
         { word: 'value', startFrame: 9, endFrame: 18, confidence: 0.98 },
       ],
       paragraphs: [{ text: 'const value', startFrame: 0, endFrame: 18 }],
-      nonSpeech: [{ kind: 'silence', startFrame: 19, endFrame: 30 }],
+      nonSpeech: [
+        { kind: 'unrecognized', startFrame: 19, endFrame: 24 },
+        { kind: 'silence', startFrame: 24, endFrame: 30 },
+      ],
     });
 
     assert.equal(updated.status, 'running');
     assert.equal(updated.checkpointMs, 4_000);
     assert.equal(updated.totalMs, 60_000);
     assert.equal(updated.transcript.words.length, 2);
+    assert.equal(updated.transcript.nonSpeech[0].kind, 'unrecognized');
     assert.equal(updated.updatedAt, 2_000);
 
     const reloaded = createTranscriptionJobStore({ filePath });

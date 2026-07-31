@@ -115,7 +115,7 @@ function validateTranscriptItems(progress) {
   for (const segment of progress.nonSpeech ?? []) {
     if (
       !validFrameRange(segment) ||
-      !['silence', 'music', 'noise'].includes(segment.kind)
+      !['silence', 'music', 'noise', 'unrecognized'].includes(segment.kind)
     ) {
       throw new Error('Invalid non-speech segment in transcription progress');
     }

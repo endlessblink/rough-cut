@@ -357,6 +357,57 @@ test('completed transcript is embedded in its project and marked persisted', asy
   assert.deepEqual(harness.calls.at(-1), ['markProjectPersisted', started.job.id]);
 });
 
+test('existing recordings can be transcribed and persisted on demand', async () => {
+  const harness = createHarness();
+  const persisted = [];
+  harness.runner.run = async (jobId, options) => {
+    harness.calls.push(['run', jobId, options]);
+    return {
+      ...harness.store,
+      id: jobId,
+      status: 'completed',
+      projectPath: '/projects/existing.roughcut',
+      provider: { kind: 'local', id: 'whisper-local', model: 'small' },
+      fps: 30,
+      transcript: {
+        words: [{ word: 'existing', startFrame: 0, endFrame: 12, confidence: 1 }],
+        paragraphs: [],
+        nonSpeech: [],
+      },
+    };
+  };
+  const service = createTranscriptionService({
+    enabled: true,
+    ...harness,
+    localProvider,
+    persistTranscript: async (input) => persisted.push(input),
+  });
+
+  const result = await service.transcribeExisting({
+    sourcePath: '/recordings/existing.mkv',
+    projectPath: '/projects/existing.roughcut',
+    fps: 30,
+    totalMs: 42_000,
+  });
+
+  assert.equal(result.state, 'completed');
+  assert.equal(result.job.transcript.words[0].word, 'existing');
+  assert.equal(persisted.length, 1);
+  assert.deepEqual(
+    harness.calls.filter((call) => ['create', 'attachProject', 'run'].includes(call[0])),
+    [
+      ['create', {
+        sourcePath: '/recordings/existing.mkv',
+        projectPath: null,
+        provider: { kind: 'local', id: 'whisper-local', model: 'small' },
+        fps: 30,
+      }],
+      ['attachProject', 'job-1', '/projects/existing.roughcut', 42_000],
+      ['run', 'job-1', { totalMs: 42_000, finalize: true }],
+    ],
+  );
+});
+
 test('startup retries a completed transcript whose project write was interrupted', async () => {
   const harness = createHarness();
   const completed = {

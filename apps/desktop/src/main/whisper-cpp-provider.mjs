@@ -129,7 +129,7 @@ export function parseWhisperCppTranscript(payload, { startMs, endMs, fps }) {
     if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
     if (from - cursorMs >= MIN_SILENCE_MS) {
       nonSpeech.push({
-        kind: 'silence',
+        kind: 'unrecognized',
         startFrame: frameAt(cursorMs, fps),
         endFrame: frameAt(from, fps),
       });
@@ -138,7 +138,7 @@ export function parseWhisperCppTranscript(payload, { startMs, endMs, fps }) {
   }
   if (endMs - cursorMs >= MIN_SILENCE_MS) {
     nonSpeech.push({
-      kind: 'silence',
+      kind: 'unrecognized',
       startFrame: frameAt(cursorMs, fps),
       endFrame: frameAt(endMs, fps),
     });

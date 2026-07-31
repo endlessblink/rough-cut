@@ -8,5 +8,6 @@ export function rippleTrimClipById<T>(project: T, clipId: string, edge: 'left' |
 export function moveClipById<T>(project: T, clipId: string, timelineIn: number, targetTrackId?: string): T;
 export function updateTrackById<T>(project: T, trackId: string, patch: Record<string, unknown>): T;
 export function reorderTrackById<T>(project: T, trackId: string, direction: 'up' | 'down'): T;
+export function addEmptyTrackToProject<T>(project: T, kind: 'video' | 'audio'): T;
 export function addGeneratedAssetToTrack<T>(project: T, asset: Record<string, unknown>, trackId: string, timelineIn: number): T;
 export function addGeneratedAssetToNewTrack<T>(project: T, asset: Record<string, unknown>, kind: 'video' | 'audio', timelineIn: number): T;

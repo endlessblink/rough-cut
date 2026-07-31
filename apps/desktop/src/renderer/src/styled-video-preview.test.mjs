@@ -93,7 +93,8 @@ test('styled video preview plays timeline gaps as black timeline time under cont
   assert.match(source, /if \(timelineClockGapFrame !== null\) \{\n\s+activeTimelineSegmentRef\.current = null;\n\s+timelineFrameFallbackRef\.current = timelineClockGapFrame;\n\s+pausePreviewVideo\(screenVideo\);\n\s+cameraVideo\?\.pause\(\);/);
   assert.match(source, /: timelineClockGapFrame !== null\n\s+\? null\n\s+: timeMode === 'timeline' && isPlaying\n\s+\? handleTimelineDecodedFrame\(sourceFrame\)/);
   assert.match(source, /const playingGapFrame = timeMode === 'timeline' && isPlaying && !timelineDecoded && !activeTimelineSegmentRef\.current\n\s+\? timelineClockGapFrame \?\? Math\.max\(0, Math\.round\(currentTimeRef\.current \* fps\)\)/);
-  assert.match(source, /notify: controlledPlaying === true \? false : undefined/);
+  assert.doesNotMatch(source, /notify: controlledPlaying === true \? false : undefined/);
+  assert.match(source, /updateCurrentTime\(Math\.min\(timelineDuration, currentFrame \/ fps\), \{\n\s+immediate: playingGapFrame !== null,\n\s+\}\)/);
   assert.doesNotMatch(source, /timelineSegmentAtFrame\(segments, currentTimelineFrame\) \?\? nextTimelineSegmentAfterFrame\(segments, currentTimelineFrame\)/);
 });
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
+import { createProjectForImport, createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
 import { buildBackgroundExpression, buildCensorSourceFilters, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
@@ -136,6 +136,39 @@ test('raw stabilized trim export args apply vidstab transform and re-encode', ()
   assert(joined.includes('smoothing=33'));
   assert.deepEqual(args.slice(args.indexOf('-c:v'), args.indexOf('-c:v') + 6), ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18']);
   assert(joined.includes('-c:a copy'));
+});
+
+test('imported single-video timeline remains exportable after stabilization is enabled', () => {
+  const project = createProjectForImport({
+    importedFilePath: '/tmp/imported.mp4',
+    mimeType: 'video/mp4',
+    probe: { durationFrames: 150, durationSeconds: 5, width: 960, height: 540, fps: 30 },
+    now: new Date('2026-07-30T00:00:00.000Z'),
+  });
+  const assetId = project.assets[0].id;
+  const sourceId = project.timeline.sources.find((source) => source.assetId === assetId).id;
+  project.timeline.effects.push({
+    id: `effect:${sourceId}:stabilization`,
+    kind: 'stabilization',
+    ownerId: sourceId,
+    ownerType: 'source',
+    enabled: true,
+    params: { strength: 50, methodVersion: 1 },
+  });
+
+  assert.equal(sourceId, `source:${assetId}`);
+  assert.equal(isSingleUneditedTimelineRecording(project, assetId), true);
+  assert.deepEqual(resolveTimelineExportRecording(project, getPrimaryRecording(project)), {
+    ...getPrimaryRecording(project),
+    sourceIn: 0,
+    sourceOut: 150,
+    trimmedDuration: 150,
+    timelineDurationFrames: 150,
+    timelineSegments: [],
+    cursorEvents: [],
+    zoomMarkers: [],
+    cutRanges: [],
+  });
 });
 
 test('raw timeline export args compact canonical edit segments with aligned audio', () => {

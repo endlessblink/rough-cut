@@ -27,7 +27,7 @@ const output = {
   ],
 };
 
-test('maps whisper.cpp full JSON into absolute transcript frames and silence', () => {
+test('maps ASR gaps as unrecognized audio instead of inventing silence', () => {
   assert.deepEqual(
     parseWhisperCppTranscript(output, { startMs: 2_000, endMs: 4_000, fps: 30 }),
     {
@@ -37,8 +37,8 @@ test('maps whisper.cpp full JSON into absolute transcript frames and silence', (
       ],
       paragraphs: [{ text: 'hello world', startFrame: 78, endFrame: 104 }],
       nonSpeech: [
-        { kind: 'silence', startFrame: 60, endFrame: 78 },
-        { kind: 'silence', startFrame: 104, endFrame: 120 },
+      { kind: 'unrecognized', startFrame: 60, endFrame: 78 },
+      { kind: 'unrecognized', startFrame: 104, endFrame: 120 },
       ],
     },
   );
@@ -65,7 +65,7 @@ test('rejects spoken output without the word timing required by transcript editi
     {
       words: [],
       paragraphs: [],
-      nonSpeech: [{ kind: 'silence', startFrame: 0, endFrame: 15 }],
+    nonSpeech: [{ kind: 'unrecognized', startFrame: 0, endFrame: 15 }],
     },
   );
 });

@@ -58,6 +58,12 @@ test('Editor v2 exposes transcript words as canonical timeline seeks', () => {
   assert.match(transcriptSource, /aria-label="Transcript text editing"/);
   assert.match(transcriptSource, /aria-label="Transcript text editor"/);
   assert.match(transcriptSource, /Save transcript/);
+  assert.match(transcriptSource, /Transcribe recording/);
+  assert.match(transcriptSource, /Re-transcribe recording/);
+  assert.doesNotMatch(transcriptSource, /Sona is converting/);
+  assert.match(transcriptSource, /onTranscriptionProgress/);
+  assert.match(transcriptSource, /transcribeProject/);
+  assert.match(transcriptSource, /Paste transcript/);
   assert.match(transcriptSource, /Existing word timing will be preserved/);
   assert.match(transcriptSource, /className="ev2LandmarkEvidence"/);
   assert.match(transcriptSource, /evidenceSourceLabel\(evidence\.source\)/);
@@ -73,6 +79,20 @@ test('Editor v2 exposes transcript words as canonical timeline seeks', () => {
   assert.doesNotMatch(source, /disabled=\{!hasTranscript\}/);
   const shellSource = readFileSync(join(here, '../nle/nle-shell.tsx'), 'utf8');
   assert.match(shellSource, /function readEditorV2Preference\(\): boolean \{[\s\S]*?return true;/);
+});
+
+test('empty transcripts stay open in a comfortable editing workspace', () => {
+  const source = readFileSync(join(here, 'editor-v2-layout.tsx'), 'utf8');
+  const styles = readFileSync(join(here, '../styles.css'), 'utf8');
+
+  assert.doesNotMatch(
+    source,
+    /transcriptWordCount === 0 && browserTab === 'transcript'/,
+  );
+  assert.match(source, /data-browser-tab=\{browserTab\}/);
+  assert.match(styles, /data-browser-tab='transcript'/);
+  assert.match(styles, /grid-template-rows: auto minmax\(0, 1fr\) auto/);
+  assert.match(styles, /data-advanced-tools='false'/);
 });
 
 test('cleanup draft persistence stays outside history until one finalize commit', () => {
@@ -104,5 +124,18 @@ test('transcript review exposes fixed speeds and verifies each manual cut before
     'utf8',
   );
   assert.match(cleanupReview, /if \(!review\.playing\) return/);
-  assert.match(shell, /deltaFrames = \(\(nowMs - lastMs\) \/ 1000\) \* fps \* playbackRate/);
+  assert.doesNotMatch(shell, /deltaFrames = \(\(nowMs - lastMs\) \/ 1000\) \* fps \* playbackRate/);
+});
+
+test('transcript follow repositions the active word after virtualized chunk heights settle', () => {
+  const transcript = readFileSync(join(here, 'transcript-panel.tsx'), 'utf8');
+
+  assert.match(
+    transcript,
+    /const activeChunkTop =\s+activeChunkIndex === null \? null : offsets\[activeChunkIndex\]/,
+  );
+  assert.match(
+    transcript,
+    /\}, \[activeChunkTop, activeWordIndex, followPlayback\]\);/,
+  );
 });

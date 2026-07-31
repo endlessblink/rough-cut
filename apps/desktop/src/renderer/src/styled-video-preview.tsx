@@ -35,6 +35,7 @@ import { resolveCensorRectAtFrame } from '../../shared/censor-regions.mjs';
 import { canvasPointToSourceNormalized, sourceRectToCanvasRect, type CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
 import { moveCensorRect, resizeCensorRect } from '../../shared/censor-regions.mjs';
 import { timelineJoinGain } from '../../shared/timeline-audio-envelope.mjs';
+import { shouldPublishTimelinePlayhead } from './timeline-playhead-publish.mjs';
 import {
   cameraCoversSourceTime,
   clampedCameraTime,
@@ -792,16 +793,17 @@ export function StyledVideoPreview({
     if (options.notify === false) return;
 
     const last = lastPublishedTimeRef.current;
-    const nearStart = nextTime <= 0;
-    const nearEnd = nextTime >= displayDuration - 1 / fps;
-    const wholeSecondChanged = Math.floor(nextTime) !== Math.floor(last.timeSec);
-    const shouldThrottle = timeMode === 'timeline' && isPlaying && !options.immediate;
-    if (
-      !shouldThrottle ||
-      nearStart ||
-      nearEnd ||
-      wholeSecondChanged
-    ) {
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (shouldPublishTimelinePlayhead({
+      timeMode,
+      isPlaying,
+      immediate: options.immediate,
+      nextTime,
+      displayDuration,
+      fps,
+      nowMs,
+      lastPublishedAtMs: last.atMs,
+    })) {
       publishCurrentTime(nextTime);
     }
   }
@@ -1543,7 +1545,6 @@ export function StyledVideoPreview({
         timelineFrameFallbackRef.current = currentFrame;
         updateCurrentTime(Math.min(timelineDuration, currentFrame / fps), {
           immediate: playingGapFrame !== null,
-          notify: controlledPlaying === true ? false : undefined,
         });
         (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
           phase: playingGapFrame !== null ? 'gap-frame' : 'decoded-frame',

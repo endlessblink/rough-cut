@@ -178,3 +178,46 @@ test('enabled runtime selects a configured whisper.cpp provider', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('enabled runtime prefers configured Hebrew verbatim word timing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rough-cut-transcription-runtime-'));
+  try {
+    const calls = [];
+    const runtime = await createTranscriptionRuntime({
+      environment: {
+        ROUGH_CUT_FASTER_WHISPER_PYTHON: '/venv/bin/python',
+        ROUGH_CUT_FASTER_WHISPER_MODEL_PATH: '/models/ivrit-hebrew',
+        ROUGH_CUT_TRANSCRIPTION_LANGUAGE: 'he',
+      },
+      userDataDir: dir,
+      createVerbatimProvider: async (input) => {
+        calls.push(input);
+        return {
+          descriptor: {
+            id: 'faster-whisper-hebrew',
+            model: 'ivrit-hebrew',
+          },
+          incrementalDuringCapture: false,
+          transcribeChunk: async () => ({
+            words: [],
+            paragraphs: [],
+            nonSpeech: [],
+          }),
+        };
+      },
+      resolveFallbackModel: async () => {
+        throw new Error('Sona must not be selected');
+      },
+    });
+
+    assert.equal(runtime.available, true);
+    assert.equal(runtime.incrementalDuringCapture, false);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].pythonPath, '/venv/bin/python');
+    assert.equal(calls[0].modelPath, '/models/ivrit-hebrew');
+    assert.equal(calls[0].language, 'he');
+    assert.match(calls[0].helperPath, /faster-whisper-worker\.py$/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

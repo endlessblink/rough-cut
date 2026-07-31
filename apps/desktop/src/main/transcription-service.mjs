@@ -39,7 +39,11 @@ export function createTranscriptionService({
       provider: job.provider,
       fps: job.fps,
     });
-    return await store.markProjectPersisted(job.id);
+    const persisted = await store.markProjectPersisted(job.id);
+    return {
+      ...job,
+      projectPersistedAt: persisted.projectPersistedAt,
+    };
   }
 
   function runOnce(jobId, options) {
@@ -133,6 +137,30 @@ export function createTranscriptionService({
     return await persistCompletedJob(await runOnce(jobId, { totalMs, finalize: true }));
   }
 
+  async function transcribeExisting({ sourcePath, projectPath, fps, totalMs }) {
+    if (
+      typeof sourcePath !== 'string' || !sourcePath ||
+      typeof projectPath !== 'string' || !projectPath ||
+      !Number.isFinite(fps) || fps <= 0 ||
+      !Number.isFinite(totalMs) || totalMs <= 0
+    ) {
+      throw new Error('Existing transcription requires a recording, project, frame rate, and duration');
+    }
+    const started = await beginRecording({ sourcePath, fps });
+    if (!started.job) return started;
+    await prepareRecordingFinalization({
+      jobId: started.job.id,
+      projectPath,
+      totalMs,
+    });
+    const job = await finishRecording({
+      jobId: started.job.id,
+      projectPath,
+      totalMs,
+    });
+    return { state: job?.status ?? 'failed', job };
+  }
+
   async function cancelRecording(jobId) {
     if (!enabled) return null;
     captureSuspended = false;
@@ -151,6 +179,7 @@ export function createTranscriptionService({
     updateCaptureHealth,
     prepareRecordingFinalization,
     finishRecording,
+    transcribeExisting,
     cancelRecording,
     isCaptureSuspended() {
       return captureSuspended;

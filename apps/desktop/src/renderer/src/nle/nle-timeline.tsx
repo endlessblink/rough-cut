@@ -1,6 +1,6 @@
 import React from 'react';
 import { buildTimelineTracks } from './timeline-clips.mjs';
-import { addGeneratedAssetToNewTrack, addGeneratedAssetToTrack, canSplitClipById, consumeLastCommandError, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, rippleTrimClipById, splitClipById, updateTrackById } from './clip-mutations.mjs';
+import { addEmptyTrackToProject, addGeneratedAssetToNewTrack, addGeneratedAssetToTrack, canSplitClipById, consumeLastCommandError, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, rippleTrimClipById, splitClipById, updateTrackById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { NleModeToolbar } from './mode-toolbar';
 import { ArrowsVertical, CaretDown, CaretUp, CornersIn, Eye, EyeSlash, LockSimple, Minus, Plus, SpeakerSimpleSlash } from '@phosphor-icons/react';
@@ -25,6 +25,22 @@ import {
 import type { NleProject } from './types';
 import type { TrimEdge, TrimSession } from './trim-session.mjs';
 
+export type NleTimelineProps = {
+  project: NleProject | null;
+  playheadFrame: number;
+  durationFrames: number;
+  fps: number;
+  isPlaying?: boolean;
+  selectedClipId: string | null;
+  editMode: NleEditMode;
+  onEditModeChange: (mode: NleEditMode) => void;
+  onPlayheadFrameChange: (frame: number) => void;
+  onSelectedClipChange: (clipId: string | null) => void;
+  onProjectChange?: (next: NleProject) => void;
+  onSplit: () => void;
+  topbarExtras?: React.ReactNode;
+};
+
 export function NleTimeline({
   project,
   playheadFrame,
@@ -39,21 +55,7 @@ export function NleTimeline({
   onProjectChange,
   onSplit,
   topbarExtras,
-}: {
-  project: NleProject | null;
-  playheadFrame: number;
-  durationFrames: number;
-  fps: number;
-  isPlaying?: boolean;
-  selectedClipId: string | null;
-  editMode: NleEditMode;
-  onEditModeChange: (mode: NleEditMode) => void;
-  onPlayheadFrameChange: (frame: number) => void;
-  onSelectedClipChange: (clipId: string | null) => void;
-  onProjectChange?: (next: NleProject) => void;
-  onSplit: () => void;
-  topbarExtras?: React.ReactNode;
-}) {
+}: NleTimelineProps) {
   // The "bodies column" is the body-only strip (no headers) and the
   // horizontal-scroll container. Inside it, the content strip is sized to
   // durationFrames * pixelsPerFrame; clip/tick/playhead percentages resolve
@@ -193,6 +195,19 @@ export function NleTimeline({
   const timelineContentWidth = contentWidthPx(durationFrames, pixelsPerFrame);
   const zoomedIn = zoomPpf !== null && timelineContentWidth > viewWidthPx + 1;
   const trackRows = React.useMemo(() => project ? buildTimelineTracks(project) : [], [project]);
+  const trackSections = React.useMemo(() => {
+    const specs: ReadonlyArray<{ kind: string; label: string }> = [
+      { kind: 'video', label: 'Video' },
+      { kind: 'audio', label: 'Audio' },
+      { kind: 'captions', label: 'Captions' },
+      { kind: 'motion-graphics', label: 'Motion' },
+    ];
+    const sections = specs
+      .map((spec) => ({ ...spec, tracks: trackRows.filter((track) => track.kind === spec.kind) }))
+      .filter((section) => section.tracks.length > 0);
+    return sections.length > 0 ? sections : [{ kind: 'empty', label: 'Tracks', tracks: [] }];
+  }, [trackRows]);
+  const showTrackSections = trackSections.filter((section) => section.tracks.length > 0).length > 1;
   const playheadFollowContentXRef = React.useRef(0);
   playheadFollowContentXRef.current = Math.max(0, Math.min(durationFrames, playheadFrame)) * pixelsPerFrame;
 
@@ -562,6 +577,10 @@ export function NleTimeline({
         { kind: 'video', tag: `V${trackRows.filter((track) => track.kind === 'video').length + 1}`, label: 'Video' },
         { kind: 'audio', tag: `A${trackRows.filter((track) => track.kind === 'audio').length + 1}`, label: 'Audio' },
       ];
+  const ghostChannelsByKind = React.useMemo(
+    () => new Map(ghostChannels.map((ghost) => [ghost.kind, ghost])),
+    [ghostChannels],
+  );
   const selectedBlock = trackRows.flatMap((track) => track.blocks.map((block) => ({ ...block, trackLabel: track.label, trackKind: track.kind }))).find((block) => block.id === selectedClipId) ?? null;
 
   function edgeLimitState(block: { sourceIn?: number | null; sourceOut?: number | null; sourceDurationFrames?: number | null }, edge: 'left' | 'right') {
@@ -617,40 +636,64 @@ export function NleTimeline({
         </div>
         {topbarExtras}
       </div>
-      <div className="nleTimelineLanes">
-        <div className="nleLaneHeaders">
-          <div className="nleTimelineRulerSpacer" />
-          {trackRows.length === 0 ? (
-            <div className="nleTrackLaneHeader empty" data-track-kind="empty">
-              Empty
+        <div className="nleTimelineLanes">
+          <div className="nleLaneHeaders">
+            <div className="nleTimelineRulerSpacer">
+              <span>Tracks</span>
+              <small>{trackRows.length} {trackRows.length === 1 ? 'lane' : 'lanes'}</small>
             </div>
-          ) : trackRows.map((track) => (
-            <div key={track.id} className="nleTrackLaneHeader" data-track-kind={track.kind} data-track-disabled={track.enabled ? undefined : 'true'} style={{ '--nle-track-height': `${track.height}px` } as React.CSSProperties}>
-              <span className="nleTrackTag">{trackTags.get(track.id) ?? track.kind.charAt(0).toUpperCase()}</span>
-              <span className="nleTrackLaneLabel" title={track.label}>{track.label}</span>
-              <span className="nleTrackControls">
-                {/* Reorder + height are secondary: revealed on hover/focus so
-                    the track name keeps its room (mockup grammar). */}
-                <span className="nleTrackControlsSecondary">
-                  <button type="button" aria-label={`Move ${track.label} up`} title="Move track up" onClick={() => commitTrackReorder(track.id, 'up')}><CaretUp aria-hidden="true" /></button>
-                  <button type="button" aria-label={`Move ${track.label} down`} title="Move track down" onClick={() => commitTrackReorder(track.id, 'down')}><CaretDown aria-hidden="true" /></button>
-                  <button type="button" aria-label={`Cycle ${track.label} height`} title="Cycle track height" onClick={() => commitTrackPatch(track.id, { height: nextTrackHeight(track) })}><ArrowsVertical aria-hidden="true" /></button>
-                </span>
-                <button type="button" aria-label={`${track.enabled ? 'Hide' : 'Show'} ${track.label}`} aria-pressed={!track.enabled} title={track.enabled ? 'Hide track' : 'Show track'} onClick={() => commitTrackPatch(track.id, { enabled: !track.enabled })}>{track.enabled ? <Eye aria-hidden="true" /> : <EyeSlash aria-hidden="true" />}</button>
-                <button type="button" aria-label={`${track.locked ? 'Unlock' : 'Lock'} ${track.label}`} aria-pressed={track.locked} title={track.locked ? 'Unlock track' : 'Lock track'} onClick={() => commitTrackPatch(track.id, { locked: !track.locked })}><LockSimple aria-hidden="true" /></button>
-                {track.kind === 'audio' ? <button type="button" aria-label={`${track.muted ? 'Unmute' : 'Mute'} ${track.label}`} aria-pressed={track.muted} title={track.muted ? 'Unmute track' : 'Mute track'} onClick={() => commitTrackPatch(track.id, { muted: !track.muted })}><SpeakerSimpleSlash aria-hidden="true" /></button> : null}
-              </span>
-            </div>
-          ))}
-          {ghostChannels.map((ghost) => (
-            <div key={`ghost-head-${ghost.kind}`} className="nleTrackLaneHeader ghost" data-track-kind={ghost.kind}>
-              <span className="nleTrackTag">{ghost.tag}</span>
-              <span className="nleTrackLaneLabel">{ghost.label}</span>
-            </div>
-          ))}
-        </div>
-        <div
-          ref={bodiesRef}
+            {trackRows.length === 0 ? (
+              <div className="nleTrackLaneHeader empty" data-track-kind="empty">
+                Empty
+              </div>
+            ) : trackSections.map((section) => (
+              <React.Fragment key={`head-${section.kind}`}>
+                {showTrackSections ? (
+                  <div className="nleTrackSectionHeader" data-track-section={section.kind}>
+                    <strong>{section.label}</strong>
+                    <span>{section.tracks.length} {section.tracks.length === 1 ? 'track' : 'tracks'}</span>
+                  </div>
+                ) : null}
+                {section.tracks.map((track) => (
+                  <div key={track.id} className="nleTrackLaneHeader" data-track-kind={track.kind} data-track-disabled={track.enabled ? undefined : 'true'} style={{ '--nle-track-height': `${track.height}px` } as React.CSSProperties}>
+                    <span className="nleTrackTag">{trackTags.get(track.id) ?? track.kind.charAt(0).toUpperCase()}</span>
+                    <span className="nleTrackLaneLabel" title={track.label}>{track.label}</span>
+                    <span className="nleTrackLaneStats">{track.blocks.length} {track.blocks.length === 1 ? 'clip' : 'clips'}</span>
+                    <span className="nleTrackControls">
+                      {/* Reorder + height are secondary: revealed on hover/focus so
+                          the track name keeps its room (mockup grammar). */}
+                      <span className="nleTrackControlsSecondary">
+                        <button type="button" aria-label={`Move ${track.label} up`} title="Move track up" onClick={() => commitTrackReorder(track.id, 'up')}><CaretUp aria-hidden="true" /></button>
+                        <button type="button" aria-label={`Move ${track.label} down`} title="Move track down" onClick={() => commitTrackReorder(track.id, 'down')}><CaretDown aria-hidden="true" /></button>
+                        <button type="button" aria-label={`Cycle ${track.label} height`} title="Cycle track height" onClick={() => commitTrackPatch(track.id, { height: nextTrackHeight(track) })}><ArrowsVertical aria-hidden="true" /></button>
+                      </span>
+                      <button type="button" aria-label={`${track.enabled ? 'Hide' : 'Show'} ${track.label}`} aria-pressed={!track.enabled} title={track.enabled ? 'Hide track' : 'Show track'} onClick={() => commitTrackPatch(track.id, { enabled: !track.enabled })}>{track.enabled ? <Eye aria-hidden="true" /> : <EyeSlash aria-hidden="true" />}</button>
+                      <button type="button" aria-label={`${track.locked ? 'Unlock' : 'Lock'} ${track.label}`} aria-pressed={track.locked} title={track.locked ? 'Unlock track' : 'Lock track'} onClick={() => commitTrackPatch(track.id, { locked: !track.locked })}><LockSimple aria-hidden="true" /></button>
+                      {track.kind === 'audio' ? <button type="button" aria-label={`${track.muted ? 'Unmute' : 'Mute'} ${track.label}`} aria-pressed={track.muted} title={track.muted ? 'Unmute track' : 'Mute track'} onClick={() => commitTrackPatch(track.id, { muted: !track.muted })}><SpeakerSimpleSlash aria-hidden="true" /></button> : null}
+                    </span>
+                  </div>
+                ))}
+                {ghostChannelsByKind.get(section.kind as 'video' | 'audio') ? (
+                  <div key={`ghost-head-${section.kind}`} className="nleTrackLaneHeader ghost" data-track-kind={section.kind}>
+                    <span className="nleTrackTag">{ghostChannelsByKind.get(section.kind as 'video' | 'audio')?.tag}</span>
+                    <button
+                      type="button"
+                      className="nleAddTrackButton"
+                      aria-label={`Add ${section.label.toLowerCase()} track`}
+                      onClick={() => {
+                        if (project) commitOrSurface(addEmptyTrackToProject(project, section.kind as 'video' | 'audio'));
+                      }}
+                    >
+                      <Plus aria-hidden="true" />
+                      <span>Add {ghostChannelsByKind.get(section.kind as 'video' | 'audio')?.tag} track</span>
+                    </button>
+                  </div>
+                ) : null}
+              </React.Fragment>
+            ))}
+          </div>
+          <div
+            ref={bodiesRef}
           className="nleLaneBodies"
           data-ui-region="nle-lane-bodies"
           data-edit-mode={editMode}
@@ -672,122 +715,132 @@ export function NleTimeline({
             <div className="nleTrackLaneBody empty" data-track-kind="empty">
               <span className="nleTrackLaneEmpty">Import media or generate an asset to start building the timeline</span>
             </div>
-          ) : trackRows.map((track) => (
-            <div
-              key={track.id}
-              className={`nleTrackLaneBody ${generatedDropTarget?.trackId === track.id ? generatedDropTarget.valid ? 'generatedDropValid' : 'generatedDropInvalid' : ''}`}
-              data-track-kind={track.kind}
-              data-track-id={track.id}
-              style={{ '--nle-track-height': `${track.height}px` } as React.CSSProperties}
-              onDragOver={(event) => handleGeneratedDragOver(event, track)}
-              onDragLeave={() => setGeneratedDropTarget((target) => target?.trackId === track.id ? null : target)}
-              onDrop={(event) => handleGeneratedDrop(event, track)}
-            >
-              {track.blocks.length === 0 ? (
-                <span className="nleTrackLaneEmpty">No clips yet</span>
-              ) : (
-                track.blocks.map((block, index) => {
-                  const selected = block.id !== null && block.id === selectedClipId;
-                  const trimPreview = block.id !== null ? (trimSession?.previews?.[block.id] ?? null) : null;
-                  const dragPreview = block.id !== null && block.id === dragSession?.clipId ? dragSession.preview : null;
-                  const activePreview = trimPreview ?? (dragPreview?.trackId === track.id ? dragPreview : null);
-                  const isDraggingSource = dragPreview && dragPreview.trackId !== track.id;
-                  const leftPct = activePreview && durationFrames > 0 ? Math.max(0, Math.min(100, (activePreview.timelineIn / durationFrames) * 100)) : block.leftPct;
-                  const widthPct = activePreview && durationFrames > 0 ? Math.max(0, Math.min(100 - leftPct, ((activePreview.timelineOut - activePreview.timelineIn) / durationFrames) * 100)) : block.widthPct;
-                  const leftLimit = edgeLimitState(block, 'left');
-                  const rightLimit = edgeLimitState(block, 'right');
-                  return (
-                    <div
-                      key={block.id ?? `${track.id}-${index}`}
-                      className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''} ${trimPreview ? 'trimming' : ''} ${dragPreview ? 'dragging' : ''} ${isDraggingSource ? 'draggingSource' : ''} ${dragSession?.invalidReason ? 'invalidDrop' : ''}`}
-                      data-clip-id={block.id ?? ''}
-                      data-asset-id={block.assetId ?? ''}
-                      data-timeline-in={Math.round(block.timelineIn)}
-                      data-timeline-out={Math.round(block.timelineOut)}
-                      data-selected={selected ? 'true' : undefined}
-                      data-trim-edge={block.id === trimSession?.clipId ? trimSession?.edge : undefined}
-                      style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                      title={block.name ?? undefined}
-                      onPointerDown={(e) => startClipDrag(e, block.id)}
-                    >
-                      {selected && editMode !== 'blade' ? (
-                        <button
-                          type="button"
-                          role="slider"
-                          className="nleClipTrimHandle left"
-                          data-edge-limit={leftLimit}
-                          aria-label="Trim selected clip start"
-                          title={leftLimit === 'source-start' ? 'Start of source: drag right to trim, cannot extend left' : 'Trim clip start'}
-                          aria-valuemin={0}
-                          aria-valuemax={Math.max(0, block.timelineOut - 1)}
-                          aria-valuenow={Math.round(trimPreview?.timelineIn ?? block.timelineIn)}
-                          onPointerDown={(e) => startTrim(e, block.id, 'left')}
-                        />
-                      ) : null}
-                      {(() => {
-                        const visualKind = track.kind === 'audio' ? 'waveform' : track.kind === 'video' ? 'filmstrip' : null;
-                        if (!visualKind) return null;
-                        const sourcePath = clipSourceFilePath(project, block.mediaId);
-                        if (!sourcePath) return null;
-                        const blockDurationSec = Math.max(1, Number(block.sourceDurationFrames ?? durationFrames) / fps);
-                        const bucket = visualKind === 'filmstrip'
-                          ? filmstripTileBucket(blockDurationSec, fps, pixelsPerFrame)
-                          : waveformWidthBucket(blockDurationSec, fps, pixelsPerFrame);
-                        const meta = pickVisual(clipVisuals, visualKind, sourcePath, bucket);
-                        if (!meta) return null;
-                        // Live-slide the strip while trimming the left edge.
-                        const liveSourceIn = (trimPreview as { sourceIn?: number } | null)?.sourceIn ?? block.sourceIn ?? 0;
-                        const view = { sourceInFrames: liveSourceIn, fps, pixelsPerFrame };
-                        const style = visualKind === 'filmstrip' ? filmstripBackground(meta, view) : waveformBackground(meta, view);
-                        return style ? <span className={`nleClipMedia ${visualKind}`} style={style as React.CSSProperties} aria-hidden="true" /> : null;
-                      })()}
-                      <span className="nleClipBlockBody" aria-hidden="true" />
-                      <span className="nleClipNameBar" aria-hidden="true" />
-                      <span className="nleClipBlockLabel">{block.name ?? 'Clip'}</span>
-                      {selected && editMode !== 'blade' ? (
-                        <button
-                          type="button"
-                          role="slider"
-                          className="nleClipTrimHandle right"
-                          data-edge-limit={rightLimit}
-                          aria-label="Trim selected clip end"
-                          title={rightLimit === 'source-end' ? 'End of source: drag left to trim, cannot extend right' : 'Trim clip end'}
-                          aria-valuemin={block.timelineIn + 1}
-                          aria-valuemax={durationFrames}
-                          aria-valuenow={Math.round(trimPreview?.timelineOut ?? block.timelineOut)}
-                          onPointerDown={(e) => startTrim(e, block.id, 'right')}
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })
-              )}
-              {dragSession?.preview.trackId === track.id && !track.blocks.some((block) => block.id === dragSession.clipId) ? (
-                <div
-                  className={`nleClipBlock selected dragging ${dragSession.valid ? '' : 'invalidDrop'}`}
-                  data-clip-id={dragSession.clipId}
-                  style={{
-                    left: `${Math.max(0, Math.min(100, (dragSession.preview.timelineIn / durationFrames) * 100))}%`,
-                    width: `${Math.max(0, Math.min(100, ((dragSession.preview.timelineOut - dragSession.preview.timelineIn) / durationFrames) * 100))}%`,
-                  }}
-                >
-                  <span className="nleClipBlockLabel">Clip</span>
+          ) : trackSections.map((section) => (
+            <React.Fragment key={`body-${section.kind}`}>
+              {showTrackSections ? (
+                <div className="nleTrackSectionBand" data-track-section={section.kind}>
+                  <strong>{section.label}</strong>
+                  <span>{section.tracks.length} {section.tracks.length === 1 ? 'track' : 'tracks'}</span>
                 </div>
               ) : null}
-            </div>
-          ))}
-          {ghostChannels.map((ghost) => (
-            <div
-              key={`ghost-body-${ghost.kind}`}
-              className={`nleTrackLaneBody ghost ${generatedDropTarget?.trackId === `ghost-${ghost.kind}` ? generatedDropTarget.valid ? 'generatedDropValid' : 'generatedDropInvalid' : ''}`}
-              data-track-kind={ghost.kind}
-              data-track-id={`ghost-${ghost.kind}`}
-              onDragOver={(event) => handleGhostDragOver(event, ghost.kind)}
-              onDragLeave={() => setGeneratedDropTarget((target) => target?.trackId === `ghost-${ghost.kind}` ? null : target)}
-              onDrop={(event) => handleGhostDrop(event, ghost.kind)}
-            >
-              <span className="nleTrackLaneEmpty">Drop to create {ghost.label.toLowerCase()} track</span>
-            </div>
+              {section.tracks.map((track) => (
+                <div
+                  key={track.id}
+                  className={`nleTrackLaneBody ${generatedDropTarget?.trackId === track.id ? generatedDropTarget.valid ? 'generatedDropValid' : 'generatedDropInvalid' : ''}`}
+                  data-track-kind={track.kind}
+                  data-track-id={track.id}
+                  style={{ '--nle-track-height': `${track.height}px` } as React.CSSProperties}
+                  onDragOver={(event) => handleGeneratedDragOver(event, track)}
+                  onDragLeave={() => setGeneratedDropTarget((target) => target?.trackId === track.id ? null : target)}
+                  onDrop={(event) => handleGeneratedDrop(event, track)}
+                >
+                  {track.blocks.length === 0 ? (
+                    <span className="nleTrackLaneEmpty">No clips yet</span>
+                  ) : (
+                    track.blocks.map((block, index) => {
+                      const selected = block.id !== null && block.id === selectedClipId;
+                      const trimPreview = block.id !== null ? (trimSession?.previews?.[block.id] ?? null) : null;
+                      const dragPreview = block.id !== null && block.id === dragSession?.clipId ? dragSession.preview : null;
+                      const activePreview = trimPreview ?? (dragPreview?.trackId === track.id ? dragPreview : null);
+                      const isDraggingSource = dragPreview && dragPreview.trackId !== track.id;
+                      const leftPct = activePreview && durationFrames > 0 ? Math.max(0, Math.min(100, (activePreview.timelineIn / durationFrames) * 100)) : block.leftPct;
+                      const widthPct = activePreview && durationFrames > 0 ? Math.max(0, Math.min(100 - leftPct, ((activePreview.timelineOut - activePreview.timelineIn) / durationFrames) * 100)) : block.widthPct;
+                      const leftLimit = edgeLimitState(block, 'left');
+                      const rightLimit = edgeLimitState(block, 'right');
+                      return (
+                        <div
+                          key={block.id ?? `${track.id}-${index}`}
+                          className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''} ${trimPreview ? 'trimming' : ''} ${dragPreview ? 'dragging' : ''} ${isDraggingSource ? 'draggingSource' : ''} ${dragSession?.invalidReason ? 'invalidDrop' : ''}`}
+                          data-clip-id={block.id ?? ''}
+                          data-asset-id={block.assetId ?? ''}
+                          data-timeline-in={Math.round(block.timelineIn)}
+                          data-timeline-out={Math.round(block.timelineOut)}
+                          data-selected={selected ? 'true' : undefined}
+                          data-trim-edge={block.id === trimSession?.clipId ? trimSession?.edge : undefined}
+                          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                          title={block.name ?? undefined}
+                          onPointerDown={(e) => startClipDrag(e, block.id)}
+                        >
+                          {selected && editMode !== 'blade' ? (
+                            <button
+                              type="button"
+                              role="slider"
+                              className="nleClipTrimHandle left"
+                              data-edge-limit={leftLimit}
+                              aria-label="Trim selected clip start"
+                              title={leftLimit === 'source-start' ? 'Start of source: drag right to trim, cannot extend left' : 'Trim clip start'}
+                              aria-valuemin={0}
+                              aria-valuemax={Math.max(0, block.timelineOut - 1)}
+                              aria-valuenow={Math.round(trimPreview?.timelineIn ?? block.timelineIn)}
+                              onPointerDown={(e) => startTrim(e, block.id, 'left')}
+                            />
+                          ) : null}
+                          {(() => {
+                            const visualKind = track.kind === 'audio' ? 'waveform' : track.kind === 'video' ? 'filmstrip' : null;
+                            if (!visualKind) return null;
+                            const sourcePath = clipSourceFilePath(project, block.mediaId);
+                            if (!sourcePath) return null;
+                            const blockDurationSec = Math.max(1, Number(block.sourceDurationFrames ?? durationFrames) / fps);
+                            const bucket = visualKind === 'filmstrip'
+                              ? filmstripTileBucket(blockDurationSec, fps, pixelsPerFrame)
+                              : waveformWidthBucket(blockDurationSec, fps, pixelsPerFrame);
+                            const meta = pickVisual(clipVisuals, visualKind, sourcePath, bucket);
+                            if (!meta) return null;
+                            // Live-slide the strip while trimming the left edge.
+                            const liveSourceIn = (trimPreview as { sourceIn?: number } | null)?.sourceIn ?? block.sourceIn ?? 0;
+                            const view = { sourceInFrames: liveSourceIn, fps, pixelsPerFrame };
+                            const style = visualKind === 'filmstrip' ? filmstripBackground(meta, view) : waveformBackground(meta, view);
+                            return style ? <span className={`nleClipMedia ${visualKind}`} style={style as React.CSSProperties} aria-hidden="true" /> : null;
+                          })()}
+                          <span className="nleClipBlockBody" aria-hidden="true" />
+                          <span className="nleClipNameBar" aria-hidden="true" />
+                          <span className="nleClipBlockLabel">{block.name ?? 'Clip'}</span>
+                          {selected && editMode !== 'blade' ? (
+                            <button
+                              type="button"
+                              role="slider"
+                              className="nleClipTrimHandle right"
+                              data-edge-limit={rightLimit}
+                              aria-label="Trim selected clip end"
+                              title={rightLimit === 'source-end' ? 'End of source: drag left to trim, cannot extend right' : 'Trim clip end'}
+                              aria-valuemin={block.timelineIn + 1}
+                              aria-valuemax={durationFrames}
+                              aria-valuenow={Math.round(trimPreview?.timelineOut ?? block.timelineOut)}
+                              onPointerDown={(e) => startTrim(e, block.id, 'right')}
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })
+                  )}
+                  {dragSession?.preview.trackId === track.id && !track.blocks.some((block) => block.id === dragSession.clipId) ? (
+                    <div
+                      className={`nleClipBlock selected dragging ${dragSession.valid ? '' : 'invalidDrop'}`}
+                      data-clip-id={dragSession.clipId}
+                      style={{
+                        left: `${Math.max(0, Math.min(100, (dragSession.preview.timelineIn / durationFrames) * 100))}%`,
+                        width: `${Math.max(0, Math.min(100, ((dragSession.preview.timelineOut - dragSession.preview.timelineIn) / durationFrames) * 100))}%`,
+                      }}
+                    >
+                      <span className="nleClipBlockLabel">Clip</span>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+              {ghostChannelsByKind.get(section.kind as 'video' | 'audio') ? (
+                <div
+                  key={`ghost-body-${section.kind}`}
+                  className={`nleTrackLaneBody ghost ${generatedDropTarget?.trackId === `ghost-${section.kind}` ? generatedDropTarget.valid ? 'generatedDropValid' : 'generatedDropInvalid' : ''}`}
+                  data-track-kind={section.kind}
+                  data-track-id={`ghost-${section.kind}`}
+                  onDragOver={(event) => handleGhostDragOver(event, section.kind as 'video' | 'audio')}
+                  onDragLeave={() => setGeneratedDropTarget((target) => target?.trackId === `ghost-${section.kind}` ? null : target)}
+                  onDrop={(event) => handleGhostDrop(event, section.kind as 'video' | 'audio')}
+                >
+                  <span className="nleTrackLaneEmpty">Drop media here to create {ghostChannelsByKind.get(section.kind as 'video' | 'audio')?.tag}</span>
+                </div>
+              ) : null}
+            </React.Fragment>
           ))}
           <div
             className="nlePlayhead"

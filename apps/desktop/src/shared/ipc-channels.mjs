@@ -90,6 +90,8 @@ export const IPC_CHANNELS = {
   RECORDING_RESTART: 'recording:restart',
   RECORDING_CANCEL: 'recording:cancel',
   RECORDING_STATUS: 'recording:status',
+  TRANSCRIPTION_TRANSCRIBE_PROJECT: 'transcription:transcribe-project',
+  TRANSCRIPTION_PROGRESS: 'transcription:progress',
 
   // Recording Session (floating toolbar flow)
   RECORDING_SESSION_START: 'recording-session:start',
@@ -125,6 +127,8 @@ export const IPC_CHANNELS = {
   APP_GET_VERSION: 'app:get-version',
   APP_GET_RUNTIME_LOG_PATH: 'app:get-runtime-log-path',
   APP_OPEN_EDITOR: 'app:open-editor',
+  APP_GET_FREECUT_STATUS: 'app:get-freecut-status',
+  APP_OPEN_FREECUT_EDITOR: 'app:open-freecut-editor',
   APP_SET_WINDOW_PROFILE: 'app:set-window-profile',
   APP_WRITE_PLAYBACK_DEBUG_REPORT: 'app:write-playback-debug-report',
   SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',

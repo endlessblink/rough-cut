@@ -123,31 +123,6 @@ export function NleShell({
     });
   }
 
-  React.useEffect(() => {
-    if (!isPlaying) return undefined;
-    let rafId = 0;
-    let lastMs: number | null = null;
-
-    function tick(nowMs: number) {
-      if (lastMs === null) {
-        lastMs = nowMs;
-        rafId = window.requestAnimationFrame(tick);
-        return;
-      }
-      const deltaFrames = ((nowMs - lastMs) / 1000) * fps * playbackRate;
-      lastMs = nowMs;
-      setPlayheadFrame((frame) => {
-        const next = clampFrame(frame + deltaFrames, durationFrames);
-        if (next >= durationFrames) setIsPlaying(false);
-        return next;
-      });
-      rafId = window.requestAnimationFrame(tick);
-    }
-
-    rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [isPlaying, durationFrames, fps, playbackRate, setPlayheadFrame]);
-
   function splitSelectedClip() {
     if (!selectedClipId || !onProjectChange) return;
     const next = splitClipById(project, selectedClipId, clampedPlayhead);

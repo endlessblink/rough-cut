@@ -4,6 +4,8 @@ const IPC_CHANNELS = {
   APP_GET_VERSION: 'app:get-version',
   APP_GET_RUNTIME_LOG_PATH: 'app:get-runtime-log-path',
   APP_OPEN_EDITOR: 'app:open-editor',
+  APP_GET_FREECUT_STATUS: 'app:get-freecut-status',
+  APP_OPEN_FREECUT_EDITOR: 'app:open-freecut-editor',
   APP_SET_WINDOW_PROFILE: 'app:set-window-profile',
   APP_WRITE_PLAYBACK_DEBUG_REPORT: 'app:write-playback-debug-report',
   SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
@@ -43,6 +45,8 @@ const IPC_CHANNELS = {
   RECORDING_RESTART: 'recording:restart',
   RECORDING_CANCEL: 'recording:cancel',
   RECORDING_STATUS: 'recording:status',
+  TRANSCRIPTION_TRANSCRIBE_PROJECT: 'transcription:transcribe-project',
+  TRANSCRIPTION_PROGRESS: 'transcription:progress',
   RECORDING_RECOVERY_GET: 'recording:recovery-get',
   RECORDING_RECOVERY_RECOVER: 'recording:recovery-recover',
   RECORDING_RECOVERY_DISMISS: 'recording:recovery-dismiss',
@@ -73,6 +77,8 @@ contextBridge.exposeInMainWorld('roughCut', {
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
   getRuntimeLogPath: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_RUNTIME_LOG_PATH),
   openEditor: (projectPath) => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_EDITOR, projectPath),
+  getFreecutStatus: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_FREECUT_STATUS),
+  openFreecutEditor: () => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_FREECUT_EDITOR),
   setWindowProfile: (profile) => ipcRenderer.invoke(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, profile),
   writePlaybackDebugReport: (report) => ipcRenderer.invoke(IPC_CHANNELS.APP_WRITE_PLAYBACK_DEBUG_REPORT, report),
   showItemInFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, path),
@@ -104,6 +110,12 @@ contextBridge.exposeInMainWorld('roughCut', {
   restartRecording: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RESTART, options ?? null),
   cancelRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CANCEL),
   getRecordingStatus: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STATUS),
+  transcribeProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.TRANSCRIPTION_TRANSCRIBE_PROJECT, payload),
+  onTranscriptionProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.TRANSCRIPTION_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TRANSCRIPTION_PROGRESS, listener);
+  },
   getRecoveryState: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_GET),
   recoverLastRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER),
   dismissRecovery: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS, options ?? {}),

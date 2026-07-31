@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAsset, createProject } from '@rough-cut/project-model';
-import { addGeneratedAssetToTrack, canSplitClipById, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, rippleTrimClipById, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
+import { addEmptyTrackToProject, addGeneratedAssetToTrack, canSplitClipById, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, rippleTrimClipById, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
 
 const asset = createAsset('video', '/tmp/a1.mp4', { id: 'a1', duration: 600 });
 const cameraAsset = createAsset('video', '/tmp/cam.mp4', { id: 'cam1', duration: 600 });
@@ -184,6 +184,22 @@ test('updateTrackById and reorderTrackById mutate track state through commands',
   assert.equal(locked.document.timeline.tracks[0].locked, true);
   assert.equal(locked.document.timeline.tracks[0].height, 84);
   assert.equal(reordered.document.timeline.tracks.find((item) => item.id === 'v1').index, 1);
+});
+
+test('addEmptyTrackToProject creates real canonical video and audio tracks', () => {
+  const project = makeProject([track({ id: 'v1' })]);
+  const withVideo = addEmptyTrackToProject(project, 'video');
+  const withAudio = addEmptyTrackToProject(withVideo, 'audio');
+
+  assert.notEqual(withVideo, project);
+  assert.equal(withVideo.document.timeline.tracks.find((item) => item.label === 'Video 2')?.clips.length, 0);
+  assert.equal(withAudio.document.timeline.tracks.find((item) => item.label === 'Audio 1')?.index, 0);
+  assert.equal(withAudio.document.timeline.tracks.find((item) => item.id === 'v1')?.index, 1);
+});
+
+test('addEmptyTrackToProject rejects unsupported kinds without mutating', () => {
+  const project = makeProject();
+  assert.equal(addEmptyTrackToProject(project, 'captions'), project);
 });
 
 test('addGeneratedAssetToTrack creates an AI asset clip reference on a compatible video track', () => {
