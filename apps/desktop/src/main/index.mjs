@@ -1342,16 +1342,16 @@ async function runMainProcessHeadlessExportSmoke() {
 }
 
 async function openDockStartup({ startupMode, startupProjectPath }) {
-  if (startupMode !== 'freecut') {
-    createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
+  if (startupMode === 'freecut') {
+    const result = await openFreecutEditor({ app });
+    if (!result.ok) {
+      console.error(`[startup] FreeCut unavailable: ${result.reason}`);
+      createMainWindow({ mode: 'editor', projectPath: startupProjectPath });
+    }
     return;
   }
 
-  const result = await openFreecutEditor({ app });
-  if (!result.ok) {
-    console.error(`[startup] FreeCut unavailable: ${result.reason}`);
-    createMainWindow({ mode: 'editor', projectPath: startupProjectPath });
-  }
+  createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
 }
 
 app.whenReady().then(() => {
