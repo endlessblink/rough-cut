@@ -12,15 +12,13 @@ let freecutServerRoot = null;
 export async function resolveFreecutRoot({ app, env = process.env } = {}) {
   const candidates = [];
   if (env.ROUGH_CUT_FREECUT_DIST) candidates.push(resolve(env.ROUGH_CUT_FREECUT_DIST));
-  if (app?.isPackaged) {
-    // The Linux dock artifact is an unpacked Electron app. Depending on how
-    // Electron was launched, getAppPath() may point at an app root that is
-    // resolved differently from resourcesPath; check both package layouts.
-    if (app.getAppPath) candidates.push(join(app.getAppPath(), 'freecut'));
-    if (process.resourcesPath) {
-      candidates.push(join(process.resourcesPath, 'app', 'freecut'));
-      candidates.push(join(process.resourcesPath, 'freecut'));
-    }
+  // The Linux dock artifact is an unpacked Electron app. Depending on how
+  // Electron was launched, getAppPath() may point at an app root that is
+  // resolved differently from resourcesPath; check both package layouts.
+  if (app?.getAppPath) candidates.push(join(app.getAppPath(), 'freecut'));
+  if (process.resourcesPath) {
+    candidates.push(join(process.resourcesPath, 'app', 'freecut'));
+    candidates.push(join(process.resourcesPath, 'freecut'));
   }
 
   for (const candidate of candidates) {

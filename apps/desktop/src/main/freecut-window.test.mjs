@@ -29,6 +29,18 @@ test('FreeCut status stays unavailable when no packaged dist exists', async () =
   }
 });
 
+test('FreeCut status recognizes the dock app layout before Electron marks it packaged', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-freecut-dock-layout-'));
+  try {
+    await mkdir(join(root, 'freecut'), { recursive: true });
+    await writeFile(join(root, 'freecut', 'index.html'), '<!doctype html>');
+    const app = { isPackaged: false, getAppPath: () => root };
+    assert.equal(await resolveFreecutRoot({ app, env: {} }), join(root, 'freecut'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('FreeCut server serves the editor route from the bundled app shell', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-freecut-server-'));
   try {
