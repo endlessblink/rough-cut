@@ -1,4 +1,5 @@
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, relative, resolve } from 'node:path';
 import electron from 'electron';
@@ -43,18 +44,18 @@ export async function getFreecutEditorUrl(options = {}) {
   if (!root) {
     return {
       ok: false,
-      reason: 'FreeCut is not packaged. Set ROUGH_CUT_FREECUT_DIST to a built FreeCut dist folder before packaging.',
+      reason: 'FreeCut is not included in this Rough Cut package.',
     };
   }
-  return { ok: true, url: await startFreecutServer(root) };
+  return { ok: true, url: await startFreecutServer(root, options.host) };
 }
 
-export async function openFreecutEditor({ app, parent = null, env = process.env } = {}) {
+export async function openFreecutEditor({ app, parent = null, env = process.env, host = null } = {}) {
   const root = await resolveFreecutRoot({ app, env });
   if (!root) {
     return {
       ok: false,
-      reason: 'FreeCut is not packaged. Set ROUGH_CUT_FREECUT_DIST to a built FreeCut dist folder before packaging.',
+      reason: 'FreeCut is not included in this Rough Cut package.',
     };
   }
 
@@ -64,7 +65,7 @@ export async function openFreecutEditor({ app, parent = null, env = process.env 
     return { ok: true, reused: true };
   }
 
-  const freecutUrl = await startFreecutServer(root);
+  const freecutUrl = await startFreecutServer(root, host);
 
   freecutWindow = new BrowserWindow({
     width: 1440,
@@ -104,7 +105,7 @@ export function closeFreecutEditor() {
   }
 }
 
-export async function startFreecutServer(root) {
+export async function startFreecutServer(root, host = null) {
   if (freecutServer && freecutServerRoot === root) {
     const address = freecutServer.address();
     if (address && typeof address === 'object') return `http://127.0.0.1:${address.port}/projects`;
@@ -119,6 +120,30 @@ export async function startFreecutServer(root) {
   freecutServer = createServer(async (request, response) => {
     try {
       const requestPath = decodeURIComponent(new URL(request.url ?? '/', 'http://freecut.local').pathname);
+      if (requestPath === '/__rough_cut__/snapshot' && host?.getSnapshot) {
+        const snapshot = await host.getSnapshot();
+        response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        response.end(JSON.stringify(snapshot));
+        return;
+      }
+      if (requestPath === '/__rough_cut__/save' && request.method === 'POST' && host?.saveProject) {
+        const body = await readRequestBody(request);
+        const saved = await host.saveProject(JSON.parse(body));
+        response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        response.end(JSON.stringify({ ok: true, path: saved.path }));
+        return;
+      }
+      if (requestPath.startsWith('/__rough_cut__/media/') && host?.resolveMedia) {
+        const [, , , projectId, assetId] = requestPath.split('/');
+        const media = await host.resolveMedia(projectId, assetId);
+        if (!media) {
+          response.writeHead(404);
+          response.end('Media not found');
+          return;
+        }
+        await serveMedia(media, request, response);
+        return;
+      }
       const relativePath = requestPath === '/' ? 'index.html' : requestPath.replace(/^\/+/, '');
       let filePath = resolve(root, relativePath);
       const insideRoot = relative(root, filePath) && !relative(root, filePath).startsWith('..');
@@ -162,4 +187,43 @@ function contentType(filePath) {
     '.wasm': 'application/wasm',
     '.webmanifest': 'application/manifest+json',
   }[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+}
+
+async function serveMedia(media, request, response) {
+  const info = await stat(media.path);
+  const range = parseRange(request.headers.range, info.size);
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'no-store',
+    'Content-Type': media.mimeType,
+  };
+  if (!range) {
+    response.writeHead(200, { ...headers, 'Content-Length': String(info.size) });
+    createReadStream(media.path).pipe(response);
+    return;
+  }
+  response.writeHead(206, {
+    ...headers,
+    'Content-Length': String(range.end - range.start + 1),
+    'Content-Range': `bytes ${range.start}-${range.end}/${info.size}`,
+  });
+  createReadStream(media.path, { start: range.start, end: range.end }).pipe(response);
+}
+
+function parseRange(value, size) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(value ?? '');
+  if (!match || size <= 0) return null;
+  const start = match[1] === '' ? Math.max(0, size - Number(match[2])) : Number(match[1]);
+  const end = match[2] === '' ? size - 1 : Number(match[2]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size) return null;
+  return { start, end: Math.min(end, size - 1) };
+}
+
+function readRequestBody(request) {
+  return new Promise((resolveBody, rejectBody) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => resolveBody(Buffer.concat(chunks).toString('utf8')));
+    request.on('error', rejectBody);
+  });
 }

@@ -1,11 +1,16 @@
-import { cp, lstat, mkdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { join } from 'node:path';
+
+const execFileAsync = promisify(execFile);
 
 const root = process.cwd();
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appRoot = join(artifactRoot, 'resources', 'app');
 const scopedPackageRoot = join(appRoot, 'node_modules', '@rough-cut');
 const workspacePackages = ['project-model', 'timeline-engine', 'effect-registry', 'frame-resolver'];
+const freecutDist = await ensureFreecutDist();
 
 await rm(artifactRoot, { recursive: true, force: true });
 await mkdir(appRoot, { recursive: true });
@@ -16,9 +21,7 @@ await cp(join(root, 'apps/desktop/src/main'), join(appRoot, 'apps/desktop/src/ma
 await cp(join(root, 'apps/desktop/src/preload'), join(appRoot, 'apps/desktop/src/preload'), { recursive: true });
 await cp(join(root, 'apps/desktop/src/shared'), join(appRoot, 'apps/desktop/src/shared'), { recursive: true });
 await cp(join(root, 'apps/desktop/dist/renderer'), join(appRoot, 'apps/desktop/dist/renderer'), { recursive: true });
-if (process.env.ROUGH_CUT_FREECUT_DIST) {
-  await cp(process.env.ROUGH_CUT_FREECUT_DIST, join(appRoot, 'freecut'), { recursive: true });
-}
+await cp(freecutDist, join(appRoot, 'freecut'), { recursive: true });
 await mkdir(scopedPackageRoot, { recursive: true });
 for (const packageName of workspacePackages) {
   await cpWorkspacePackage(packageName);
@@ -81,4 +84,20 @@ async function configureSandboxHelper() {
   }
 
   await lstat(packagedHelper);
+}
+
+async function ensureFreecutDist() {
+  if (process.env.ROUGH_CUT_FREECUT_DIST) return process.env.ROUGH_CUT_FREECUT_DIST;
+  const sourceRoot = join(root, 'vendor', 'freecut');
+  const distRoot = join(sourceRoot, 'dist');
+  try {
+    await access(join(distRoot, 'index.html'));
+    return distRoot;
+  } catch {
+    // Build the vendored upstream editor exactly once for packaging.
+    await execFileAsync('npm', ['ci', '--ignore-scripts'], { cwd: sourceRoot, stdio: 'inherit' });
+    await execFileAsync('npm', ['run', 'build'], { cwd: sourceRoot, stdio: 'inherit' });
+    await access(join(distRoot, 'index.html'));
+    return distRoot;
+  }
 }

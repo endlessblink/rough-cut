@@ -32,6 +32,7 @@ import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import { createStabilizationService } from './stabilization-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
 import { getFreecutEditorUrl, getFreecutStatus, openFreecutEditor } from './freecut-window.mjs';
+import { createFreecutHost } from './freecut-host.mjs';
 import { persistTranscriptToProject } from './transcription-project-persistence.mjs';
 import { createTranscriptionRuntime } from './transcription-runtime.mjs';
 import {
@@ -63,6 +64,7 @@ protocol.registerSchemesAsPrivileged([
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const recordingsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'recordings');
+const freecutHost = createFreecutHost({ recordingsDir, allowedRoots: [recordingsDir] });
 
 function quitSmokeApp(exitCode = process.exitCode ?? 0) {
   app.quit();
@@ -611,10 +613,10 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   loadRenderer(senderWindow, { mode: 'editor', projectPath });
 });
 ipcMain.handle(IPC_CHANNELS.APP_GET_FREECUT_STATUS, () => getFreecutStatus({ app }));
-ipcMain.handle(IPC_CHANNELS.APP_GET_FREECUT_URL, () => getFreecutEditorUrl({ app }));
+ipcMain.handle(IPC_CHANNELS.APP_GET_FREECUT_URL, () => getFreecutEditorUrl({ app, host: freecutHost }));
 ipcMain.handle(IPC_CHANNELS.APP_OPEN_FREECUT_EDITOR, (event) => {
   const parent = BrowserWindow.fromWebContents(event.sender);
-  return openFreecutEditor({ app, parent });
+  return openFreecutEditor({ app, parent, host: freecutHost });
 });
 ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);

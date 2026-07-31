@@ -1,0 +1,249 @@
+import { useEffect, useState } from 'react'
+import {
+  useCompositionsStore,
+  useItemsStore,
+  useTransitionsStore,
+  type SubComposition,
+} from '@/features/preview/deps/timeline-store'
+import { usePlaybackStore } from '@/shared/state/playback'
+import { useGizmoStore } from '@/features/preview/stores/gizmo-store'
+import type { ItemEffect } from '@/types/effects'
+import type { TimelineItem } from '@/types/timeline'
+import type { Transition } from '@/types/transition'
+import { resolveTransitionWindows } from '@/shared/timeline/transitions/transition-planner'
+import { hasCornerPin } from '@/features/preview/deps/composition-runtime'
+import { isTextMotionActive } from '@/shared/typography/text-motion'
+
+function hasEnabledGpuEffect(effects: ItemEffect[] | undefined): boolean {
+  return effects?.some((e) => e.enabled && e.effect.type === 'gpu-effect') ?? false
+}
+
+function hasRenderableBlendMode(item: TimelineItem): boolean {
+  if (item.type === 'shape' && item.isMask) return false
+  return item.blendMode !== undefined && item.blendMode !== 'normal'
+}
+
+/**
+ * Motion text (per-glyph animation) can only render through the canvas/GPU
+ * path, never the DOM Player — so any text item carrying a `textMotion` slot
+ * must keep the continuous overlay on. Frame-independent (presence-based):
+ * used for sub-composition items where mapping the outer frame to the inner
+ * timeline is non-trivial; the top-level scan below refines this to the active
+ * motion window via {@link isTextMotionActive}.
+ */
+function hasTextMotionSpec(item: TimelineItem): boolean {
+  return (
+    item.type === 'text' &&
+    item.textMotion !== undefined &&
+    (item.textMotion.in !== undefined ||
+      item.textMotion.out !== undefined ||
+      item.textMotion.loop !== undefined)
+  )
+}
+
+function needsRenderedOverlayPath(item: TimelineItem): boolean {
+  return (
+    hasEnabledGpuEffect(item.effects) ||
+    hasRenderableBlendMode(item) ||
+    hasCornerPin(item.cornerPin) ||
+    hasTextMotionSpec(item)
+  )
+}
+
+function subCompositionNeedsRenderedOverlayPath(
+  subComp: SubComposition,
+  compositionById?: Record<string, SubComposition>,
+  visited: Set<string> = new Set(),
+): boolean {
+  if (visited.has(subComp.id)) return false
+  visited.add(subComp.id)
+  return subComp.items.some((subItem) => {
+    if (needsRenderedOverlayPath(subItem)) return true
+    if (subItem.type === 'composition' && compositionById) {
+      const nested = compositionById[subItem.compositionId]
+      if (nested && subCompositionNeedsRenderedOverlayPath(nested, compositionById, visited)) {
+        return true
+      }
+    }
+    return false
+  })
+}
+
+/**
+ * Frame-independent scan: does the timeline contain ANY content that can only
+ * be shown through the GPU overlay (enabled GPU effects, non-normal blend modes,
+ * corner pin, text motion) — anywhere, on any clip, at any time?
+ *
+ * When true, the caller keeps the overlay active for the whole session instead
+ * of flipping it on per-frame as the playhead enters each such clip. The
+ * per-frame flip is a reactive React-state round-trip, so effects would
+ * otherwise pop in a few frames late on every skim/playback entry. Trading a
+ * ~1-2ms GPU composite over non-effect clips for instant effects is worth it;
+ * projects with no such content keep the fast DOM path (this returns false).
+ */
+export function timelineHasContinuousOverlayContent(
+  items: TimelineItem[],
+  compositionById?: Record<string, SubComposition>,
+): boolean {
+  return items.some((item) => {
+    if (needsRenderedOverlayPath(item)) return true
+    if (item.type === 'composition' && compositionById) {
+      const subComp = compositionById[item.compositionId]
+      if (subComp && subCompositionNeedsRenderedOverlayPath(subComp, compositionById)) return true
+    }
+    return false
+  })
+}
+
+/**
+ * Detects whether the composition renderer overlay should stay active
+ * outside of scrub-driven updates.
+ *
+ * Returns true when any of these conditions exist:
+ * - GPU effects enabled on any item
+ * - Non-normal blend modes
+ * - An active compound clip whose sub-composition contains GPU effects,
+ *   adjustment-layer GPU effects, or non-normal blend modes
+ */
+export function shouldForceContinuousPreviewOverlay(
+  items: TimelineItem[],
+  transitionsOrCount: Transition[] | number,
+  frame: number,
+  previewEffectsByItemId?: ReadonlyMap<string, ItemEffect[]>,
+  compositionById?: Record<string, SubComposition>,
+  options: { forceTransitionFrames?: boolean } = {},
+): boolean {
+  if (!Number.isFinite(frame)) {
+    return false
+  }
+
+  if (Array.isArray(transitionsOrCount) && transitionsOrCount.length > 0) {
+    const clipMap = new Map<string, TimelineItem>()
+    for (const item of items) {
+      clipMap.set(item.id, item)
+    }
+
+    for (const window of resolveTransitionWindows(transitionsOrCount, clipMap)) {
+      if (frame >= window.startFrame && frame < window.endFrame) {
+        if (options.forceTransitionFrames) {
+          return true
+        }
+        if (window.leftClip.type === 'composition' || window.rightClip.type === 'composition') {
+          return true
+        }
+        if (hasCornerPin(window.leftClip.cornerPin) || hasCornerPin(window.rightClip.cornerPin)) {
+          return true
+        }
+        // Multiple transitions on different tracks can cover the same
+        // frame; keep checking later windows so a corner-pinned or
+        // composition participant on a sibling track still wins.
+        continue
+      }
+    }
+  }
+
+  return items.some((item) => {
+    if (frame < item.from || frame >= item.from + item.durationInFrames) {
+      return false
+    }
+    const effectiveEffects = previewEffectsByItemId?.get(item.id) ?? item.effects
+    if (hasEnabledGpuEffect(effectiveEffects)) return true
+    if (hasRenderableBlendMode(item)) return true
+    if (hasCornerPin(item.cornerPin)) return true
+    // Keep the continuous GPU overlay on while a text clip's motion window is
+    // active — otherwise playback falls to the DOM Player, which cannot render
+    // per-glyph motion (fps is unused by isTextMotionActive).
+    if (
+      item.type === 'text' &&
+      item.textMotion !== undefined &&
+      isTextMotionActive(item.textMotion, frame - item.from, 0, item.durationInFrames)
+    ) {
+      return true
+    }
+    if (item.type === 'composition' && compositionById) {
+      const subComp = compositionById[item.compositionId]
+      if (subComp && subCompositionNeedsRenderedOverlayPath(subComp, compositionById)) return true
+    }
+    return false
+  })
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function useGpuEffectsOverlay(..._args: unknown[]) {
+  const [needsOverlay, setNeedsOverlay] = useState(false)
+
+  useEffect(() => {
+    const check = () => {
+      const items = useItemsStore.getState().items
+      const transitions = useTransitionsStore.getState().transitions
+      const compositionById = useCompositionsStore.getState().compositionById
+      const playback = usePlaybackStore.getState()
+      const frame = playback.previewFrame ?? playback.currentFrame
+      const preview = useGizmoStore.getState().preview
+      const previewEffectsByItemId = preview
+        ? new Map(
+            Object.entries(preview)
+              .filter(([, itemPreview]) => Array.isArray(itemPreview.effects))
+              .map(([itemId, itemPreview]) => [itemId, itemPreview.effects!]),
+          )
+        : undefined
+
+      setNeedsOverlay((prev) => {
+        // Option 1: if the timeline contains any overlay-only content anywhere,
+        // keep the overlay warm for the whole session so effects/blend/corner-pin
+        // are instant on skim + playback instead of lagging the reactive per-frame
+        // flag. Otherwise fall back to the frame-based decision (transitions etc.).
+        const next =
+          timelineHasContinuousOverlayContent(items, compositionById) ||
+          shouldForceContinuousPreviewOverlay(
+            items,
+            transitions,
+            frame,
+            previewEffectsByItemId,
+            compositionById,
+            // Keep the continuous (fast-scrub) overlay forced across an active
+            // transition window during playback as well as scrubbing — not only
+            // when a participant has GPU effects/blend/corner-pin. Otherwise a
+            // plain transition can drop the continuous overlay mid-window (e.g.
+            // when an unrelated effected/composition item that happened to be
+            // keeping it on ends at the cut), switching to the buffered overlay
+            // path which can leave frames un-rendered and collapse the wipe to
+            // one clip for the rest of the transition. Forcing it for the whole
+            // window keeps every transition on the per-frame render path that
+            // already works for the transitions that look correct today.
+            { forceTransitionFrames: playback.previewFrame !== null || playback.isPlaying },
+          )
+        return prev === next ? prev : next
+      })
+    }
+    check()
+    const unsubItems = useItemsStore.subscribe(check)
+    const unsubTransitions = useTransitionsStore.subscribe(check)
+    const unsubCompositions = useCompositionsStore.subscribe(check)
+    const unsubGizmo = useGizmoStore.subscribe((state, prev) => {
+      if (
+        state.preview === prev.preview &&
+        state.colorGradeBypassed === prev.colorGradeBypassed &&
+        state.colorGradeComparisonMode === prev.colorGradeComparisonMode
+      ) {
+        return
+      }
+      check()
+    })
+    const unsubPlayback = usePlaybackStore.subscribe((state, prev) => {
+      if (state.currentFrame === prev.currentFrame && state.previewFrame === prev.previewFrame) {
+        return
+      }
+      check()
+    })
+    return () => {
+      unsubItems()
+      unsubTransitions()
+      unsubCompositions()
+      unsubGizmo()
+      unsubPlayback()
+    }
+  }, [])
+
+  return needsOverlay
+}

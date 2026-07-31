@@ -1,0 +1,76 @@
+import { memo } from 'react'
+import { useTranslation } from 'react-i18next'
+import { cn } from '@/shared/ui/cn'
+
+interface JoinIndicatorsProps {
+  hasJoinableLeft: boolean
+  hasJoinableRight: boolean
+  trackLocked: boolean
+  dragAffectsJoin: { left: boolean; right: boolean }
+  hoveredEdge: 'start' | 'end' | null
+  isTrimming: boolean
+  isStretching: boolean
+  isBeingDragged: boolean
+}
+
+/**
+ * Join indicators for timeline items
+ * Shows glowing edges when clips can be joined with neighbors
+ */
+export const JoinIndicators = memo(function JoinIndicators({
+  hasJoinableLeft,
+  hasJoinableRight,
+  trackLocked,
+  dragAffectsJoin,
+  hoveredEdge,
+  isTrimming,
+  isStretching,
+  isBeingDragged,
+}: JoinIndicatorsProps) {
+  const { t } = useTranslation()
+  // Hide join indicators when this item is being dragged (anchor or follower)
+  // This ensures indicators don't show when moving to a different track
+  const showLeft =
+    hasJoinableLeft &&
+    !trackLocked &&
+    !dragAffectsJoin.left &&
+    !isBeingDragged &&
+    hoveredEdge !== 'start' &&
+    !isTrimming &&
+    !isStretching
+
+  const showRight =
+    hasJoinableRight &&
+    !trackLocked &&
+    !dragAffectsJoin.right &&
+    !isBeingDragged &&
+    hoveredEdge !== 'end' &&
+    !isTrimming &&
+    !isStretching
+
+  const joinIndicatorStyle = {
+    backgroundColor: 'var(--color-timeline-join)',
+    boxShadow: '0 0 3px 0 var(--color-timeline-join)',
+  } as const
+
+  return (
+    <>
+      <div
+        className={cn(
+          'absolute left-0 top-0 bottom-0 w-px pointer-events-none transition-opacity duration-75',
+          showLeft ? 'opacity-100' : 'opacity-0',
+        )}
+        style={joinIndicatorStyle}
+        title={t('timeline.joinIndicators.canJoinPrevious')}
+      />
+      <div
+        className={cn(
+          'absolute right-0 top-0 bottom-0 w-px pointer-events-none transition-opacity duration-75',
+          showRight ? 'opacity-100' : 'opacity-0',
+        )}
+        style={joinIndicatorStyle}
+        title={t('timeline.joinIndicators.canJoinNext')}
+      />
+    </>
+  )
+})

@@ -10,10 +10,6 @@ ICON_PATH="$ROOT_DIR/apps/desktop/assets/rough-cut-mvp-icon.png"
 
 cd "$ROOT_DIR"
 bash scripts/setup-hebrew-transcription.sh
-if [[ -z "${ROUGH_CUT_FREECUT_DIST:-}" ]]; then
-  printf 'ROUGH_CUT_FREECUT_DIST must point to a built FreeCut dist folder before preparing the dock package.\n' >&2
-  exit 1
-fi
 pnpm package:linux
 
 if [[ "$(stat -Lc '%U:%G %a' "$HELPER" 2>/dev/null || true)" != 'root:root 4755' ]]; then
