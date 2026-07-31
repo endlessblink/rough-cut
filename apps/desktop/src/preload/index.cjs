@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld('roughCut', {
   getRuntimeLogPath: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_RUNTIME_LOG_PATH),
   openEditor: (projectPath) => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_EDITOR, projectPath),
   getFreecutStatus: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_FREECUT_STATUS),
-  getFreecutEditorUrl: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_FREECUT_URL),
+  getFreecutEditorUrl: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_FREECUT_URL, projectId ?? null),
   openFreecutEditor: () => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_FREECUT_EDITOR),
   setWindowProfile: (profile) => ipcRenderer.invoke(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, profile),
   writePlaybackDebugReport: (report) => ipcRenderer.invoke(IPC_CHANNELS.APP_WRITE_PLAYBACK_DEBUG_REPORT, report),

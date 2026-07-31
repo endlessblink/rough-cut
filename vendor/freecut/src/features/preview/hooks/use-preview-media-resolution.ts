@@ -319,6 +319,10 @@ export function usePreviewMediaResolution({
 
     for (const [mediaId, resolvedUrl] of resolvedUrls.entries()) {
       if (!activeMediaIdSet.has(mediaId)) continue
+      // Rough Cut media is streamed from the host server rather than registered
+      // in FreeCut's blob URL manager, so it must not be treated as stale when
+      // the blob cache has no entry for it.
+      if (resolvedUrl.includes('/__rough_cut__/media/')) continue
       const latestBlobUrl = blobUrlManager.get(mediaId)
       if (latestBlobUrl !== resolvedUrl) {
         staleMediaIds.push(mediaId)

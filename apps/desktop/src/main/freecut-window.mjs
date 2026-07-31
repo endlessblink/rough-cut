@@ -47,7 +47,9 @@ export async function getFreecutEditorUrl(options = {}) {
       reason: 'FreeCut is not included in this Rough Cut package.',
     };
   }
-  return { ok: true, url: await startFreecutServer(root, options.host) };
+  const baseUrl = await startFreecutServer(root, options.host);
+  const projectId = typeof options.projectId === 'string' ? options.projectId.trim() : '';
+  return { ok: true, url: projectId ? `${baseUrl}/editor/${encodeURIComponent(projectId)}` : `${baseUrl}/projects` };
 }
 
 export async function openFreecutEditor({ app, parent = null, env = process.env, host = null } = {}) {
@@ -65,7 +67,7 @@ export async function openFreecutEditor({ app, parent = null, env = process.env,
     return { ok: true, reused: true };
   }
 
-  const freecutUrl = await startFreecutServer(root, host);
+  const freecutUrl = `${await startFreecutServer(root, host)}/projects`;
 
   freecutWindow = new BrowserWindow({
     width: 1440,
@@ -108,7 +110,7 @@ export function closeFreecutEditor() {
 export async function startFreecutServer(root, host = null) {
   if (freecutServer && freecutServerRoot === root) {
     const address = freecutServer.address();
-    if (address && typeof address === 'object') return `http://127.0.0.1:${address.port}/projects`;
+    if (address && typeof address === 'object') return `http://127.0.0.1:${address.port}`;
   }
 
   if (freecutServer) {
@@ -173,7 +175,7 @@ export async function startFreecutServer(root, host = null) {
   });
   const address = freecutServer.address();
   if (!address || typeof address !== 'object') throw new Error('FreeCut server did not expose a local port.');
-  return `http://127.0.0.1:${address.port}/projects`;
+  return `http://127.0.0.1:${address.port}`;
 }
 
 function contentType(filePath) {

@@ -6,12 +6,16 @@ type FreecutUrlResult = {
   reason?: string;
 };
 
-export function FreecutEditorSurface() {
+export function FreecutEditorSurface({ projectId }: { projectId: string | null }) {
   const [result, setResult] = React.useState<FreecutUrlResult | null>(null);
 
   React.useEffect(() => {
+    if (!projectId) {
+      setResult(null);
+      return undefined;
+    }
     let cancelled = false;
-    window.roughCut.getFreecutEditorUrl()
+    window.roughCut.getFreecutEditorUrl(projectId)
       .then((next) => {
         if (!cancelled) setResult(next);
       })
@@ -26,7 +30,7 @@ export function FreecutEditorSurface() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectId]);
 
   if (result?.ok && result.url) {
     return (

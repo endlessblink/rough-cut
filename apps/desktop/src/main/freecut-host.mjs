@@ -1,4 +1,4 @@
-import { basename, extname, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { listRecordingProjectPaths } from './project-gallery.mjs';
 import { openProjectFile, saveProjectFile, validateProjectPath } from './project-files.mjs';
@@ -7,30 +7,47 @@ const FREECUT_SCHEMA_VERSION = 1;
 
 export function createFreecutHost({ recordingsDir, allowedRoots = [recordingsDir] } = {}) {
   if (!recordingsDir) throw new Error('FreeCut host requires the Rough Cut recordings directory.');
+  const registeredProjectPaths = new Set();
 
   return {
+    registerProjectPath(projectPath) {
+      if (typeof projectPath === 'string' && projectPath.trim()) registeredProjectPaths.add(resolve(projectPath));
+    },
+
     async getSnapshot() {
-      const paths = await listRecordingProjectPaths(recordingsDir);
+      const paths = [...new Set([
+        ...(await listRecordingProjectPaths(recordingsDir)),
+        ...registeredProjectPaths,
+      ])];
       const projects = [];
+      const transcripts = [];
       for (const path of paths) {
         try {
           const opened = await openProjectFile(path);
-          projects.push(toFreecutProject(opened.document, path));
+          const project = toFreecutProject(opened.document, path);
+          projects.push(project);
+          const transcript = toFreecutTranscript(opened.document, project);
+          if (transcript) transcripts.push(transcript);
         } catch (error) {
           console.warn('[freecut-host] skipping unreadable project', path, error?.message ?? error);
         }
       }
-      return { schemaVersion: FREECUT_SCHEMA_VERSION, projects };
+      return { schemaVersion: FREECUT_SCHEMA_VERSION, projects, transcripts };
     },
 
     async resolveMedia(projectId, assetId) {
-      const paths = await listRecordingProjectPaths(recordingsDir);
+      const paths = [...new Set([
+        ...(await listRecordingProjectPaths(recordingsDir)),
+        ...registeredProjectPaths,
+      ])];
       for (const path of paths) {
         const opened = await openProjectFile(path).catch(() => null);
         if (opened?.document?.id !== projectId) continue;
         const asset = opened.document.assets?.find((candidate) => candidate.id === assetId);
         if (!asset?.filePath) return null;
-        const resolvedPath = resolve(asset.filePath);
+        const resolvedPath = isAbsolute(asset.filePath)
+          ? resolve(asset.filePath)
+          : resolve(dirname(path), asset.filePath);
         const info = await stat(resolvedPath).catch(() => null);
         if (!info?.isFile()) return null;
         return { path: resolvedPath, size: info.size, mimeType: mimeTypeFor(resolvedPath) };
@@ -202,4 +219,35 @@ function mimeTypeFor(filePath = '') {
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
   }[extension] ?? 'application/octet-stream';
+}
+
+function toFreecutTranscript(document, project) {
+  const source = document?.transcript;
+  const mediaId = project?.roughCutAssets?.find((asset) => asset.id)?.id;
+  const words = Array.isArray(source?.words)
+    ? source.words
+        .map((word) => ({
+          text: String(word?.word ?? word?.text ?? '').trim(),
+          start: numberOr(word?.startFrame, 0) / numberOr(project?.metadata?.fps, 30),
+          end: numberOr(word?.endFrame, 0) / numberOr(project?.metadata?.fps, 30),
+        }))
+        .filter((word) => word.text && word.end > word.start)
+    : [];
+  if (!mediaId || words.length === 0) return null;
+  return {
+    id: mediaId,
+    mediaId,
+    model: 'whisper-tiny',
+    language: source.language,
+    quantization: 'fp32',
+    text: words.map((word) => word.text).join(' '),
+    segments: [{
+      text: words.map((word) => word.text).join(' '),
+      start: words[0].start,
+      end: words.at(-1).end,
+      words,
+    }],
+    createdAt: Date.parse(document.createdAt ?? '') || Date.now(),
+    updatedAt: Date.parse(document.modifiedAt ?? '') || Date.now(),
+  };
 }

@@ -1,4 +1,4 @@
-import type { MediaMetadata } from '@/types/storage'
+import type { MediaMetadata, MediaTranscript } from '@/types/storage'
 import type { Project } from '@/types/project'
 import {
   associateMediaWithProject,
@@ -6,6 +6,7 @@ import {
   createProject,
   getMedia,
   getProject,
+  saveTranscript,
   updateMedia,
   updateProject,
 } from '@/infrastructure/storage'
@@ -15,6 +16,7 @@ import { setWorkspaceRoot } from './workspace-fs/root'
 type RoughCutSnapshot = {
   schemaVersion: number
   projects: Array<Project & { media?: MediaMetadata[] }>
+  transcripts?: MediaTranscript[]
 }
 
 export function isRoughCutHost(): boolean {
@@ -39,6 +41,9 @@ export async function activateRoughCutHost(): Promise<void> {
       else await createMedia(media)
       await associateMediaWithProject(incoming.id, media.id)
     }
+  }
+  for (const transcript of snapshot.transcripts ?? []) {
+    await saveTranscript(transcript)
   }
 }
 

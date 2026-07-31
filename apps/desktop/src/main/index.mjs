@@ -432,9 +432,10 @@ function waitForRendererLoad(webContents, timeoutMs = 30000) {
 
 // Editor windows always mount the editor surface; recorder windows keep the
 // dedicated capture surface.
-function rendererInitialView({ mode }) {
+function rendererInitialView({ mode, projectPath = null }) {
   if (mode === 'recorder') return null;
   if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_NLE === '1') return 'nle';
+  if (projectPath) return 'nle';
   return 'editor';
 }
 
@@ -613,7 +614,7 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   loadRenderer(senderWindow, { mode: 'editor', projectPath });
 });
 ipcMain.handle(IPC_CHANNELS.APP_GET_FREECUT_STATUS, () => getFreecutStatus({ app }));
-ipcMain.handle(IPC_CHANNELS.APP_GET_FREECUT_URL, () => getFreecutEditorUrl({ app, host: freecutHost }));
+ipcMain.handle(IPC_CHANNELS.APP_GET_FREECUT_URL, (_event, projectId = null) => getFreecutEditorUrl({ app, host: freecutHost, projectId }));
 ipcMain.handle(IPC_CHANNELS.APP_OPEN_FREECUT_EDITOR, (event) => {
   const parent = BrowserWindow.fromWebContents(event.sender);
   return openFreecutEditor({ app, parent, host: freecutHost });
@@ -876,7 +877,9 @@ ipcMain.handle(IPC_CHANNELS.LIBRARY_CREATE_BLANK_PROJECT, async (_event, payload
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_event, projectPath) => {
   const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });
   try {
-    return formatProject(await openProjectFile(safePath));
+    const opened = await openProjectFile(safePath);
+    freecutHost.registerProjectPath(safePath);
+    return formatProject(opened);
   } catch (err) {
     if (err?.code === 'ENOENT') {
       console.warn('[project:open-path] missing project file', safePath);
