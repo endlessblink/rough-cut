@@ -30,7 +30,7 @@ export function createFreecutHost({ recordingsDir, allowedRoots = [recordingsDir
           // loads; keep the project gallery responsive by deferring expensive
           // program renders for unopened historical projects.
           const styledProgram = registeredProjectPaths.has(resolve(path))
-            ? await ensureStyledProgram(opened.document, path)
+            ? describeStyledProgram(opened.document, path)
             : null;
           const project = toFreecutProject(opened.document, path, styledProgram);
           projects.push(project);
@@ -261,22 +261,12 @@ function mimeTypeFor(filePath = '') {
 }
 
 async function ensureStyledProgram(document, roughCutPath) {
-  const sourceAsset = (document.assets ?? []).find((asset) => asset.type === 'recording' || asset.type === 'video');
-  if (!sourceAsset?.filePath) return null;
-  const mediaId = `${sourceAsset.id}__program`;
-  const fingerprint = createHash('sha256')
-    .update(JSON.stringify({
-      modifiedAt: document.modifiedAt ?? null,
-      sourceAsset,
-      composition: document.composition,
-      settings: document.settings,
-    }))
-    .digest('hex')
-    .slice(0, 16);
-  const cacheDir = join(dirname(roughCutPath), '.roughcut-freecut-cache');
-  const outputPath = join(cacheDir, `${document.id}-${fingerprint}.mp4`);
+  const descriptor = describeStyledProgram(document, roughCutPath);
+  if (!descriptor) return null;
+  const { mediaId, outputPath, sourceAssetId } = descriptor;
+  const cacheDir = dirname(outputPath);
   const cached = await stat(outputPath).catch(() => null);
-  if (cached?.isFile() && cached.size > 0) return { mediaId, path: outputPath, sourceAssetId: sourceAsset.id };
+  if (cached?.isFile() && cached.size > 0) return { mediaId, path: outputPath, sourceAssetId };
 
   const project = {
     ...document,
@@ -291,11 +281,28 @@ async function ensureStyledProgram(document, roughCutPath) {
   try {
     await exportProjectToMp4({ project, outputPath, mode: EXPORT_MODES.STYLED });
     const generated = await stat(outputPath).catch(() => null);
-    if (generated?.isFile() && generated.size > 0) return { mediaId, path: outputPath, sourceAssetId: sourceAsset.id };
+    if (generated?.isFile() && generated.size > 0) return { mediaId, path: outputPath, sourceAssetId };
   } catch (error) {
     console.warn('[freecut-host] styled program generation failed; using raw media', error?.message ?? error);
   }
   return null;
+}
+
+function describeStyledProgram(document, roughCutPath) {
+  const sourceAsset = (document.assets ?? []).find((asset) => asset.type === 'recording' || asset.type === 'video');
+  if (!sourceAsset?.filePath) return null;
+  const mediaId = `${sourceAsset.id}__program`;
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify({
+      modifiedAt: document.modifiedAt ?? null,
+      sourceAsset,
+      composition: document.composition,
+      settings: document.settings,
+    }))
+    .digest('hex')
+    .slice(0, 16);
+  const outputPath = join(dirname(roughCutPath), '.roughcut-freecut-cache', `${document.id}-${fingerprint}.mp4`);
+  return { mediaId, outputPath, sourceAssetId: sourceAsset.id };
 }
 
 function toFreecutTranscript(document, project) {

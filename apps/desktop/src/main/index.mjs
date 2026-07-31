@@ -437,7 +437,7 @@ function rendererInitialView({ mode, projectPath = null }) {
   if (mode === 'recorder') return null;
   if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_NLE === '1') return 'nle';
   if (projectPath) return 'nle';
-  return 'editor';
+  return 'projects';
 }
 
 function webglScreenLayerEnabled() {
