@@ -63,7 +63,7 @@ import './styles.css';
 import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
 import { NleShell } from './nle/nle-shell';
-import { FreecutEditorEntry } from './freecut-editor-entry';
+import { FreecutEditorSurface } from './freecut-editor-surface';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
@@ -110,6 +110,7 @@ declare global {
       getRuntimeLogPath: () => Promise<string>;
       openEditor: (projectPath?: string | null) => Promise<void>;
       getFreecutStatus: () => Promise<{ available: boolean; root: string | null }>;
+      getFreecutEditorUrl: () => Promise<{ ok: boolean; url?: string; reason?: string }>;
       openFreecutEditor: () => Promise<{ ok: boolean; reused?: boolean; reason?: string }>;
       setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
       writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
@@ -522,6 +523,7 @@ function App() {
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
   const [activeAppView, setActiveAppView] = React.useState<AppViewId>(initialAppView);
+  const [editorSurface, setEditorSurface] = React.useState<'freecut' | 'transcript'>('freecut');
   const preRecordSetupVisible = isRecorderMode ? preRecordPanelOpen : activeAppView === 'recording';
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
   const [sharedTimelineTimeSec, setSharedTimelineTimeSec] = React.useState(0);
@@ -1661,33 +1663,52 @@ function App() {
             />
           ) : activeAppView === 'nle' ? (
             <>
-              <FreecutEditorEntry projectName={project?.document?.name} />
-              <NleShell
-                project={project as unknown as Parameters<typeof NleShell>[0]['project']}
-                playheadFrame={sharedTimelineFrame}
-                onPlayheadFrameChange={updateSharedTimelineFrame}
-                onProjectChange={(next, options) => applyProjectChange(
-                  next as unknown as ProjectState,
-                  {
-                    ...(options?.history
-                      ? {
-                          history: true,
-                          previous:
-                            (options.previous as unknown as ProjectState | null) ??
-                            project ??
-                            undefined,
-                        }
-                      : {}),
-                    persist: options?.persist,
-                  },
-                )}
-                canUndo={editHistory.undo.length > 0}
-                canRedo={editHistory.redo.length > 0}
-                onUndo={undoProjectEdit}
-                onRedo={redoProjectEdit}
-                onGoToProjects={() => setActiveAppView('projects')}
-                onCreateBlankProject={() => { void createBlankProject(null); }}
-              />
+              <div className="editorSurfaceSwitcher" role="tablist" aria-label="Editor surface">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={editorSurface === 'freecut'}
+                  onClick={() => setEditorSurface('freecut')}
+                >
+                  FreeCut
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={editorSurface === 'transcript'}
+                  onClick={() => setEditorSurface('transcript')}
+                >
+                  Transcript editor
+                </button>
+              </div>
+              {editorSurface === 'freecut' ? <FreecutEditorSurface /> : (
+                <NleShell
+                  project={project as unknown as Parameters<typeof NleShell>[0]['project']}
+                  playheadFrame={sharedTimelineFrame}
+                  onPlayheadFrameChange={updateSharedTimelineFrame}
+                  onProjectChange={(next, options) => applyProjectChange(
+                    next as unknown as ProjectState,
+                    {
+                      ...(options?.history
+                        ? {
+                            history: true,
+                            previous:
+                              (options.previous as unknown as ProjectState | null) ??
+                              project ??
+                              undefined,
+                          }
+                        : {}),
+                      persist: options?.persist,
+                    },
+                  )}
+                  canUndo={editHistory.undo.length > 0}
+                  canRedo={editHistory.redo.length > 0}
+                  onUndo={undoProjectEdit}
+                  onRedo={redoProjectEdit}
+                  onGoToProjects={() => setActiveAppView('projects')}
+                  onCreateBlankProject={() => { void createBlankProject(null); }}
+                />
+              )}
             </>
           ) : activeAppView === 'ai' ? (
             <AiShell

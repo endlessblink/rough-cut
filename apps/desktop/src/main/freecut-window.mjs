@@ -38,6 +38,17 @@ export async function getFreecutStatus(options = {}) {
   return { available: Boolean(root), root };
 }
 
+export async function getFreecutEditorUrl(options = {}) {
+  const root = await resolveFreecutRoot(options);
+  if (!root) {
+    return {
+      ok: false,
+      reason: 'FreeCut is not packaged. Set ROUGH_CUT_FREECUT_DIST to a built FreeCut dist folder before packaging.',
+    };
+  }
+  return { ok: true, url: await startFreecutServer(root) };
+}
+
 export async function openFreecutEditor({ app, parent = null, env = process.env } = {}) {
   const root = await resolveFreecutRoot({ app, env });
   if (!root) {
