@@ -1,7 +1,9 @@
-import { basename, dirname, extname, isAbsolute, resolve } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
+import { mkdir, stat } from 'node:fs/promises';
 import { listRecordingProjectPaths } from './project-gallery.mjs';
 import { openProjectFile, saveProjectFile, validateProjectPath } from './project-files.mjs';
+import { exportProjectToMp4, EXPORT_MODES } from './export-service.mjs';
 
 const FREECUT_SCHEMA_VERSION = 1;
 
@@ -24,7 +26,13 @@ export function createFreecutHost({ recordingsDir, allowedRoots = [recordingsDir
       for (const path of paths) {
         try {
           const opened = await openProjectFile(path);
-          const project = toFreecutProject(opened.document, path);
+          // The selected project is registered by Rough Cut before the editor
+          // loads; keep the project gallery responsive by deferring expensive
+          // program renders for unopened historical projects.
+          const styledProgram = registeredProjectPaths.has(resolve(path))
+            ? await ensureStyledProgram(opened.document, path)
+            : null;
+          const project = toFreecutProject(opened.document, path, styledProgram);
           projects.push(project);
           const transcript = toFreecutTranscript(opened.document, project);
           if (transcript) transcripts.push(transcript);
@@ -43,6 +51,12 @@ export function createFreecutHost({ recordingsDir, allowedRoots = [recordingsDir
       for (const path of paths) {
         const opened = await openProjectFile(path).catch(() => null);
         if (opened?.document?.id !== projectId) continue;
+        const styledProgram = await ensureStyledProgram(opened.document, path);
+        if (styledProgram?.mediaId === assetId) {
+          const info = await stat(styledProgram.path).catch(() => null);
+          if (!info?.isFile()) return null;
+          return { path: styledProgram.path, size: info.size, mimeType: 'video/mp4' };
+        }
         const asset = opened.document.assets?.find((candidate) => candidate.id === assetId);
         if (!asset?.filePath) return null;
         const resolvedPath = isAbsolute(asset.filePath)
@@ -65,7 +79,7 @@ export function createFreecutHost({ recordingsDir, allowedRoots = [recordingsDir
   };
 }
 
-export function toFreecutProject(document, roughCutPath) {
+export function toFreecutProject(document, roughCutPath, styledProgram = null) {
   const fps = numberOr(document.settings?.frameRate, 30);
   const assets = Array.isArray(document.assets) ? document.assets : [];
   const tracks = Array.isArray(document.composition?.tracks) ? document.composition.tracks : [];
@@ -76,13 +90,14 @@ export function toFreecutProject(document, roughCutPath) {
       const asset = assets.find((candidate) => candidate.id === clip.assetId);
       if (!asset) continue;
       const type = asset.type === 'audio' ? 'audio' : asset.type === 'image' ? 'image' : 'video';
+      const isPrimaryVideo = styledProgram && asset.id === styledProgram.sourceAssetId && type === 'video';
       items.push({
         id: clip.id,
         trackId: track.id,
         from: numberOr(clip.timelineIn, 0),
         durationInFrames: Math.max(1, numberOr(clip.timelineOut, 1) - numberOr(clip.timelineIn, 0)),
         label: clip.name || basename(asset.filePath ?? 'Media'),
-        mediaId: asset.id,
+        mediaId: isPrimaryVideo ? styledProgram.mediaId : asset.id,
         type,
         sourceStart: numberOr(clip.sourceIn, 0),
         sourceEnd: numberOr(clip.sourceOut, numberOr(asset.duration, 1)),
@@ -124,6 +139,26 @@ export function toFreecutProject(document, roughCutPath) {
     updatedAt: Date.parse(document.modifiedAt ?? '') || Date.now(),
   }));
 
+  if (styledProgram) {
+    media.unshift({
+      id: styledProgram.mediaId,
+      storageType: 'workspace',
+      roughCutUrl: `/__rough_cut__/media/${encodeURIComponent(document.id)}/${encodeURIComponent(styledProgram.mediaId)}`,
+      fileName: `${basename(document.name || 'rough-cut')}-program.mp4`,
+      fileSize: 0,
+      mimeType: 'video/mp4',
+      duration: numberOr(document.composition?.duration, 0) / fps,
+      width: numberOr(document.settings?.resolution?.width, 1920),
+      height: numberOr(document.settings?.resolution?.height, 1080),
+      fps,
+      codec: 'h264',
+      bitrate: 0,
+      tags: ['Rough Cut program'],
+      createdAt: Date.parse(document.createdAt ?? '') || Date.now(),
+      updatedAt: Date.parse(document.modifiedAt ?? '') || Date.now(),
+    });
+  }
+
   return {
     id: document.id,
     name: document.name || 'Untitled',
@@ -151,6 +186,8 @@ export function toFreecutProject(document, roughCutPath) {
       zoomLevel: 1,
     },
     roughCutPath,
+    roughCutProgramMediaId: styledProgram?.mediaId ?? null,
+    roughCutProgramSourceAssetId: styledProgram?.sourceAssetId ?? null,
     roughCutAssets: assets.map((asset) => ({ id: asset.id, filePath: asset.filePath })),
     media,
   };
@@ -165,7 +202,9 @@ export function fromFreecutProject(project, original) {
       .map((item) => ({
         ...(originalTrack.clips?.find((candidate) => candidate.id === item.id) ?? {}),
         id: item.id,
-        assetId: item.mediaId,
+        assetId: item.mediaId === project.roughCutProgramMediaId
+          ? project.roughCutProgramSourceAssetId
+          : item.mediaId,
         trackId: track.id,
         name: item.label,
         enabled: true,
@@ -219,6 +258,44 @@ function mimeTypeFor(filePath = '') {
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
   }[extension] ?? 'application/octet-stream';
+}
+
+async function ensureStyledProgram(document, roughCutPath) {
+  const sourceAsset = (document.assets ?? []).find((asset) => asset.type === 'recording' || asset.type === 'video');
+  if (!sourceAsset?.filePath) return null;
+  const mediaId = `${sourceAsset.id}__program`;
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify({
+      modifiedAt: document.modifiedAt ?? null,
+      sourceAsset,
+      composition: document.composition,
+      settings: document.settings,
+    }))
+    .digest('hex')
+    .slice(0, 16);
+  const cacheDir = join(dirname(roughCutPath), '.roughcut-freecut-cache');
+  const outputPath = join(cacheDir, `${document.id}-${fingerprint}.mp4`);
+  const cached = await stat(outputPath).catch(() => null);
+  if (cached?.isFile() && cached.size > 0) return { mediaId, path: outputPath, sourceAssetId: sourceAsset.id };
+
+  const project = {
+    ...document,
+    assets: (document.assets ?? []).map((asset) => ({
+      ...asset,
+      filePath: asset.filePath && !isAbsolute(asset.filePath)
+        ? resolve(dirname(roughCutPath), asset.filePath)
+        : asset.filePath,
+    })),
+  };
+  await mkdir(cacheDir, { recursive: true });
+  try {
+    await exportProjectToMp4({ project, outputPath, mode: EXPORT_MODES.STYLED });
+    const generated = await stat(outputPath).catch(() => null);
+    if (generated?.isFile() && generated.size > 0) return { mediaId, path: outputPath, sourceAssetId: sourceAsset.id };
+  } catch (error) {
+    console.warn('[freecut-host] styled program generation failed; using raw media', error?.message ?? error);
+  }
+  return null;
 }
 
 function toFreecutTranscript(document, project) {

@@ -25,59 +25,56 @@ body.canvas-translate-cursor-not-allowed * {
 
 @layer base {
   :root {
-    /* Professional Video Editor Dark Theme - OKLCH Colors */
-    /* Inspired by Premiere Pro & DaVinci Resolve */
-
-    /* Base - Very dark, reduced eye strain */
-    --background: oklch(0.15 0 0); /* #262626 - Main canvas */
-    --foreground: oklch(0.95 0 0); /* #f2f2f2 - Primary text */
+    /* Rough Cut editor theme: shared dark surfaces, restrained blue accent. */
+    --background: oklch(0.15 0.01 285); /* Rough Cut --bg */
+    --foreground: oklch(0.95 0.01 285); /* Rough Cut --text */
 
     /* Panels - Layered depth */
-    --card: oklch(0.18 0 0); /* #2e2e2e - Panel backgrounds */
-    --card-foreground: oklch(0.92 0 0); /* #ebebeb - Panel text */
+    --card: oklch(0.19 0.015 285); /* Rough Cut --panel */
+    --card-foreground: oklch(0.92 0.01 285);
 
-    --popover: oklch(0.16 0 0); /* #292929 - Dropdowns */
-    --popover-foreground: oklch(0.92 0 0);
+    --popover: oklch(0.16 0.01 285); /* Rough Cut --surface */
+    --popover-foreground: oklch(0.92 0.01 285);
 
-    /* Primary - Orange accent (playback, active states) */
-    --primary: oklch(0.68 0.19 45); /* #FF8C3A - Vibrant orange */
-    --primary-foreground: oklch(0.12 0 0); /* Dark text on primary */
+    /* Primary - Rough Cut blue accent */
+    --primary: oklch(0.55 0.21 260); /* Rough Cut --accent */
+    --primary-foreground: oklch(0.98 0.01 285);
 
     /* Secondary - Subtle panel variation */
-    --secondary: oklch(0.22 0 0); /* #383838 - Secondary surfaces */
-    --secondary-foreground: oklch(0.88 0 0);
+    --secondary: oklch(0.23 0.02 285); /* Rough Cut --panel-alt */
+    --secondary-foreground: oklch(0.88 0.01 285);
 
     /* Muted - Backgrounds and disabled states */
-    --muted: oklch(0.2 0 0); /* #333333 - Muted backgrounds */
-    --muted-foreground: oklch(0.6 0 0); /* #999999 - Muted text */
+    --muted: oklch(0.19 0.015 285);
+    --muted-foreground: oklch(0.7 0.01 285); /* Rough Cut --muted */
 
     /* Accent - Hover states and highlights */
-    --accent: oklch(0.24 0 0); /* #3d3d3d - Hover backgrounds */
-    --accent-foreground: oklch(0.95 0 0);
+    --accent: oklch(0.23 0.02 285); /* Rough Cut --panel-alt */
+    --accent-foreground: oklch(0.95 0.01 285);
 
     /* Destructive - Red for delete/errors */
     --destructive: oklch(0.58 0.22 25); /* #E53E3E - Error red */
     --destructive-foreground: oklch(0.98 0 0);
 
     /* Borders - Subtle separators */
-    --border: oklch(0.25 0 0); /* #404040 - Borders */
-    --input: oklch(0.24 0 0); /* #3d3d3d - Input borders */
-    --ring: oklch(0.68 0.19 45); /* Orange focus ring */
+    --border: oklch(0.25 0.015 285); /* Rough Cut --line */
+    --input: oklch(0.25 0.015 285);
+    --ring: oklch(0.55 0.21 260);
 
     /* Panel system - Layered depth */
-    --panel-bg: oklch(0.18 0 0); /* #2e2e2e - Panels */
-    --panel-header: oklch(0.14 0 0); /* #242424 - Panel headers */
-    --timeline-bg: oklch(0.12 0 0); /* #1f1f1f - Timeline darker */
+    --panel-bg: oklch(0.19 0.015 285); /* Rough Cut --panel */
+    --panel-header: oklch(0.17 0.01 285); /* Rough Cut --chrome */
+    --timeline-bg: oklch(0.15 0.01 285); /* Rough Cut --bg */
 
     /* Sidebar */
-    --sidebar: oklch(0.18 0 0);
-    --sidebar-foreground: oklch(0.92 0 0);
-    --sidebar-primary: oklch(0.68 0.19 45);
-    --sidebar-primary-foreground: oklch(0.12 0 0);
-    --sidebar-accent: oklch(0.22 0 0);
-    --sidebar-accent-foreground: oklch(0.92 0 0);
-    --sidebar-border: oklch(0.25 0 0);
-    --sidebar-ring: oklch(0.68 0.19 45);
+    --sidebar: oklch(0.19 0.015 285);
+    --sidebar-foreground: oklch(0.92 0.01 285);
+    --sidebar-primary: oklch(0.55 0.21 260);
+    --sidebar-primary-foreground: oklch(0.98 0.01 285);
+    --sidebar-accent: oklch(0.23 0.02 285);
+    --sidebar-accent-foreground: oklch(0.92 0.01 285);
+    --sidebar-border: oklch(0.25 0.015 285);
+    --sidebar-ring: oklch(0.55 0.21 260);
 
     --radius: 0.5rem;
   }

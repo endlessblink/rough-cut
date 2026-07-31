@@ -186,6 +186,7 @@ async function listSystemAudioSources() {
 }
 
 function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
+  if (projectPath) freecutHost.registerProjectPath(projectPath);
   const isRecorder = mode === 'recorder';
   const smokeBounds = requestedSmokeWindowBounds();
   const window = new BrowserWindow({
