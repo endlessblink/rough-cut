@@ -1,17 +1,127 @@
 import { createHash } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { listRecordingProjectPaths } from './project-gallery.mjs';
 import { openProjectFile, saveProjectFile, validateProjectPath } from './project-files.mjs';
 import { exportProjectToMp4, EXPORT_MODES } from './export-service.mjs';
 
 const FREECUT_SCHEMA_VERSION = 1;
 
-export function createFreecutHost({ recordingsDir, allowedRoots = [recordingsDir] } = {}) {
+/**
+ * ## Styled program renders are single-flight, and must stay that way
+ *
+ * `resolveMedia` runs on *every* HTTP request for a clip, including every `Range`
+ * request a `<video>` element issues (`freecut-window.mjs` serves 206s). Until the
+ * cache file exists, every one of those requests misses the cache at the same moment.
+ *
+ * Without a guard that means one clip fans out into N identical full 1080p renders.
+ * Observed in production: 9 `ffmpeg` processes spawned within 3 seconds, all writing
+ * the same target, 64GB RSS in 7 minutes, and a second incident that pinned the
+ * machine at 76GB RAM + 31GB swap for 4.6 hours while producing nothing.
+ *
+ * Three layers keep that from recurring, and all three are load-bearing:
+ *
+ * 1. `inFlightStyledPrograms` — concurrent callers in this process share one render.
+ *    This is what collapses the request burst.
+ * 2. A lockfile — a *second app instance* cannot see our in-memory map, and two
+ *    instances running at once is exactly what happened. Stale locks (dead pid) are
+ *    reclaimed so a crash cannot wedge exports forever.
+ * 3. `styledProgramQueue` — a global cap of one render at a time, so two *different*
+ *    clips cannot stack into a second memory bomb. Both incidents included jobs with
+ *    differing fingerprints, i.e. genuinely different renders overlapping.
+ *
+ * The render also writes to a `.partial-<pid>.mp4` sibling and is renamed into place
+ * only on success, so "the cache file exists" means "finished and valid" — a killed
+ * export can never leave a truncated file that a later request reads as a cache hit.
+ * The partial keeps the `.mp4` extension because ffmpeg picks its muxer from it.
+ */
+const inFlightStyledPrograms = new Map();
+let styledProgramQueue = Promise.resolve();
+
+// A caller waiting on *another process*'s render gives up after this and reports the
+// media as unavailable. An unbounded wait would turn a memory hang into a UI hang.
+// Read per call, not at import, so it stays tunable at runtime and in tests.
+const DEFAULT_STYLED_PROGRAM_WAIT_MS = 15 * 60_000;
+const STYLED_PROGRAM_POLL_MS = 500;
+
+function styledProgramWaitMs() {
+  const configured = Number(process.env.ROUGH_CUT_STYLED_WAIT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_STYLED_PROGRAM_WAIT_MS;
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means it exists but belongs to someone else — still alive.
+    return error?.code === 'EPERM';
+  }
+}
+
+async function acquireStyledProgramLock(lockPath) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(lockPath, 'wx');
+      await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+      return handle;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      const owner = await readFile(lockPath, 'utf8').then(JSON.parse).catch(() => null);
+      // A lock with no readable owner, or one whose owner died, is ours to reclaim.
+      if (owner && isProcessAlive(owner.pid)) return null;
+      await unlink(lockPath).catch(() => {});
+    }
+  }
+  return null;
+}
+
+async function waitForStyledProgram(outputPath, timeoutMs = styledProgramWaitMs()) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const info = await stat(outputPath).catch(() => null);
+    if (info?.isFile() && info.size > 0) return true;
+    await new Promise((resolveWait) => setTimeout(resolveWait, STYLED_PROGRAM_POLL_MS));
+  }
+  return false;
+}
+
+// Serialize onto the global queue while de-duplicating by target path. Callers for the
+// same target share one promise; callers for different targets run one after another.
+function runStyledProgramExclusive(outputPath, task) {
+  const existing = inFlightStyledPrograms.get(outputPath);
+  if (existing) return existing;
+
+  const queued = styledProgramQueue.then(task, task);
+  styledProgramQueue = queued.then(() => {}, () => {});
+  inFlightStyledPrograms.set(outputPath, queued);
+  void queued.then(
+    () => { if (inFlightStyledPrograms.get(outputPath) === queued) inFlightStyledPrograms.delete(outputPath); },
+    () => { if (inFlightStyledPrograms.get(outputPath) === queued) inFlightStyledPrograms.delete(outputPath); },
+  );
+  return queued;
+}
+
+export function createFreecutHost({
+  recordingsDir,
+  allowedRoots = [recordingsDir],
+  // Injectable so tests can count renders without shelling out to ffmpeg.
+  exportStyledProgram = exportProjectToMp4,
+} = {}) {
   if (!recordingsDir) throw new Error('FreeCut host requires the Rough Cut recordings directory.');
   const registeredProjectPaths = new Set();
+  const deferStyledRender = exportStyledProgram === exportProjectToMp4;
+  // Aborted on app shutdown so a closing window cannot orphan a render. Both incidents
+  // ended with ffmpeg reparented to `systemd --user`, still burning memory with nobody
+  // reading its progress.
+  const shutdown = new AbortController();
 
   return {
+    dispose() {
+      shutdown.abort();
+    },
+
     registerProjectPath(projectPath) {
       if (typeof projectPath === 'string' && projectPath.trim()) registeredProjectPaths.add(resolve(projectPath));
     },
@@ -51,11 +161,43 @@ export function createFreecutHost({ recordingsDir, allowedRoots = [recordingsDir
       for (const path of paths) {
         const opened = await openProjectFile(path).catch(() => null);
         if (opened?.document?.id !== projectId) continue;
-        const styledProgram = await ensureStyledProgram(opened.document, path);
+        const styledDescriptor = describeStyledProgram(opened.document, path);
+        const isProgramMedia = styledDescriptor?.mediaId === assetId;
+        const styledPath = isProgramMedia
+          ? await findCompletedStyledCache(styledDescriptor.outputPath, opened.document.id)
+          : null;
+        if (isProgramMedia && !styledPath && deferStyledRender) {
+          // Do not make every video range request wait for a full-length export.
+          // The first request gets the source immediately while the styled cache
+          // renders in the background; later requests promote to the finished cache.
+          void ensureStyledProgram(opened.document, path, {
+            signal: shutdown.signal,
+            exportStyledProgram,
+          }).catch((error) => console.warn('[freecut-host] background styled render failed', error?.message ?? error));
+        }
+        const awaitedStyledProgram = isProgramMedia && !styledPath && !deferStyledRender
+          ? await ensureStyledProgram(opened.document, path, { signal: shutdown.signal, exportStyledProgram })
+          : null;
+        const styledProgram = styledPath
+          ? { ...styledDescriptor, path: styledPath }
+          : awaitedStyledProgram;
         if (styledProgram?.mediaId === assetId) {
           const info = await stat(styledProgram.path).catch(() => null);
           if (!info?.isFile()) return null;
           return { path: styledProgram.path, size: info.size, mimeType: 'video/mp4' };
+        }
+        if (assetId.endsWith('__program')) {
+          const sourceAssetId = assetId.slice(0, -'__program'.length);
+          const sourceAsset = opened.document.assets?.find((candidate) => candidate.id === sourceAssetId);
+          if (sourceAsset?.filePath) {
+            const resolvedPath = isAbsolute(sourceAsset.filePath)
+              ? resolve(sourceAsset.filePath)
+              : resolve(dirname(path), sourceAsset.filePath);
+            const info = await stat(resolvedPath).catch(() => null);
+            if (info?.isFile() && info.size > 1024 * 1024) {
+              return { path: resolvedPath, size: info.size, mimeType: mimeTypeFor(resolvedPath) };
+            }
+          }
         }
         const asset = opened.document.assets?.find((candidate) => candidate.id === assetId);
         if (!asset?.filePath) return null;
@@ -260,13 +402,18 @@ function mimeTypeFor(filePath = '') {
   }[extension] ?? 'application/octet-stream';
 }
 
-async function ensureStyledProgram(document, roughCutPath) {
+async function ensureStyledProgram(document, roughCutPath, {
+  signal = undefined,
+  exportStyledProgram = exportProjectToMp4,
+} = {}) {
   const descriptor = describeStyledProgram(document, roughCutPath);
   if (!descriptor) return null;
   const { mediaId, outputPath, sourceAssetId } = descriptor;
-  const cacheDir = dirname(outputPath);
-  const cached = await stat(outputPath).catch(() => null);
-  if (cached?.isFile() && cached.size > 0) return { mediaId, path: outputPath, sourceAssetId };
+  const cachedPath = await findCompletedStyledCache(outputPath, document.id);
+  const hit = { mediaId, path: cachedPath ?? outputPath, sourceAssetId };
+
+  // Fast path, and the one every request takes once the render has landed.
+  if (cachedPath) return hit;
 
   const project = {
     ...document,
@@ -277,15 +424,66 @@ async function ensureStyledProgram(document, roughCutPath) {
         : asset.filePath,
     })),
   };
-  await mkdir(cacheDir, { recursive: true });
-  try {
-    await exportProjectToMp4({ project, outputPath, mode: EXPORT_MODES.STYLED });
-    const generated = await stat(outputPath).catch(() => null);
-    if (generated?.isFile() && generated.size > 0) return { mediaId, path: outputPath, sourceAssetId };
-  } catch (error) {
-    console.warn('[freecut-host] styled program generation failed; using raw media', error?.message ?? error);
+
+  // Everything past here is de-duplicated: concurrent callers for this output share
+  // one render, and renders for different outputs run one at a time. See the comment
+  // on `inFlightStyledPrograms` for why all of that is load-bearing.
+  const produced = await runStyledProgramExclusive(outputPath, async () => {
+    // Re-check under the guard: a caller we queued behind may have just produced it.
+    if (await findCompletedStyledCache(outputPath, document.id)) return true;
+
+    const cacheDir = dirname(outputPath);
+    await mkdir(cacheDir, { recursive: true });
+
+    const lockPath = `${outputPath}.lock`;
+    const lock = await acquireStyledProgramLock(lockPath);
+    if (!lock) {
+      // Another app instance owns this render. Wait for its result rather than
+      // starting a second one; give up eventually so a request cannot hang forever.
+      return waitForStyledProgram(outputPath);
+    }
+
+    // Keep the .mp4 suffix — ffmpeg picks its muxer from the extension.
+    const partialPath = join(cacheDir, `.${basename(outputPath, '.mp4')}.partial-${process.pid}.mp4`);
+    try {
+      await exportStyledProgram({ project, outputPath: partialPath, mode: EXPORT_MODES.STYLED, signal });
+      const generated = await stat(partialPath).catch(() => null);
+      if (!generated?.isFile() || generated.size === 0) return false;
+      // Publish atomically: "the cache file exists" now means "finished and valid".
+      await rename(partialPath, outputPath);
+      return true;
+    } catch (error) {
+      console.warn('[freecut-host] styled program generation failed; using raw media', error?.message ?? error);
+      return false;
+    } finally {
+      await unlink(partialPath).catch(() => {});
+      await lock.close().catch(() => {});
+      await unlink(lockPath).catch(() => {});
+    }
+  }).catch((error) => {
+    console.warn('[freecut-host] styled program render failed', error?.message ?? error);
+    return false;
+  });
+
+  return produced ? hit : null;
+}
+
+async function findCompletedStyledCache(outputPath, projectId) {
+  const exact = await stat(outputPath).catch(() => null);
+  if (exact?.isFile() && exact.size > 0) return outputPath;
+
+  const directory = dirname(outputPath);
+  const prefix = `${projectId}-`;
+  const names = await readdir(directory).catch(() => []);
+  const candidates = [];
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith('-web.mp4') || name.includes('.partial-')) continue;
+    const candidatePath = join(directory, name);
+    const info = await stat(candidatePath).catch(() => null);
+    if (info?.isFile() && info.size > 0) candidates.push({ path: candidatePath, mtimeMs: info.mtimeMs });
   }
-  return null;
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  return candidates[0]?.path ?? null;
 }
 
 function describeStyledProgram(document, roughCutPath) {
@@ -301,7 +499,7 @@ function describeStyledProgram(document, roughCutPath) {
     }))
     .digest('hex')
     .slice(0, 16);
-  const outputPath = join(dirname(roughCutPath), '.roughcut-freecut-cache', `${document.id}-${fingerprint}.mp4`);
+  const outputPath = join(dirname(roughCutPath), '.roughcut-freecut-cache', `${document.id}-${fingerprint}-web.mp4`);
   return { mediaId, outputPath, sourceAssetId: sourceAsset.id };
 }
 

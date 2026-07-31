@@ -1513,7 +1513,7 @@ export function buildStyledExportArgs({
     '[v]',
     ...(useTimelineAudio ? ['-map', '[a]'] : normalizedCutRanges.length === 0 && !useTimelineSegments ? ['-map', '0:a?'] : ['-an']),
     ...buildStyledVideoOutputArgs(videoEncoder),
-    ...(useTimelineAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-c:a', 'copy']),
+    ...(useTimelineAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-c:a', 'aac', '-b:a', '192k', '-ar', '48000']),
     '-movflags',
     '+faststart',
     '-metadata',
@@ -1625,7 +1625,11 @@ export function buildSimpleStyledExportArgs({
     '0:a?',
     ...buildStyledVideoOutputArgs(videoEncoder),
     '-c:a',
-    'copy',
+    'aac',
+    '-b:a',
+    '192k',
+    '-ar',
+    '48000',
     '-movflags',
     '+faststart',
     '-metadata',
@@ -2555,7 +2559,58 @@ async function sourceHasAudioStream(inputPath, signal = null) {
   }
 }
 
-function run(command, args, { onStdout = () => undefined, signal = null } = {}) {
+/**
+ * ## Every ffmpeg render runs inside a memory cap
+ *
+ * The styled graph fans one input into parallel `trim` branches feeding a single
+ * `concat`. ffmpeg has no cross-branch backpressure, so `concat` drains branch 0 while
+ * the other branches queue every frame handed to them. On a long project that queue is
+ * unbounded: measured 2026-08-01, ONE render climbed past 63GB and drove a 78GB machine
+ * to 2GB available with load 21. Fixing the graph itself (per-segment `-ss/-t` inputs,
+ * or rendering segments to temp files) is the real repair and is still outstanding.
+ *
+ * Until then this makes the failure survivable rather than fatal. A transient scope with
+ * `MemoryMax` means the kernel kills the render — and only the render — instead of the
+ * desktop dying. `MemorySwapMax=0` matters just as much: swap thrash is what made the
+ * machine unusable for hours, so failing fast beats degrading slowly.
+ *
+ * The cap sits well above a healthy render (measured 9-31GB on real projects) so it only
+ * catches genuine runaways. Set ROUGH_CUT_EXPORT_MEMORY_MAX=off to disable.
+ */
+const DEFAULT_EXPORT_MEMORY_MAX = '32G';
+
+export function memoryCappedCommand(command, args) {
+  if (command !== 'ffmpeg' || process.platform !== 'linux') return null;
+  const cap = (process.env.ROUGH_CUT_EXPORT_MEMORY_MAX ?? DEFAULT_EXPORT_MEMORY_MAX).trim();
+  if (!cap || cap === '0' || cap.toLowerCase() === 'off') return null;
+  return {
+    command: 'systemd-run',
+    args: [
+      '--user', '--scope', '-q', '--collect',
+      '-p', `MemoryMax=${cap}`,
+      '-p', 'MemorySwapMax=0',
+      command,
+      ...args,
+    ],
+  };
+}
+
+async function run(command, args, options = {}) {
+  const capped = memoryCappedCommand(command, args);
+  if (!capped) return spawnProcess(command, args, options);
+  // No systemd (container, non-systemd session): run uncapped rather than not at all.
+  const scoped = await spawnProcess(capped.command, capped.args, options).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!scoped) return spawnProcess(command, args, options);
+  if (scoped.code === 0 || scoped.cancelled || !/failed to connect to bus|no medium found/i.test(scoped.stderr ?? '')) {
+    return scoped;
+  }
+  return spawnProcess(command, args, options);
+}
+
+function spawnProcess(command, args, { onStdout = () => undefined, signal = null } = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
