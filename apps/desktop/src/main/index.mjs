@@ -1341,6 +1341,19 @@ async function runMainProcessHeadlessExportSmoke() {
   return true;
 }
 
+async function openDockStartup({ startupMode, startupProjectPath }) {
+  if (startupMode !== 'freecut') {
+    createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
+    return;
+  }
+
+  const result = await openFreecutEditor({ app });
+  if (!result.ok) {
+    console.error(`[startup] FreeCut unavailable: ${result.reason}`);
+    createMainWindow({ mode: 'editor', projectPath: startupProjectPath });
+  }
+}
+
 app.whenReady().then(() => {
   registerMediaProtocol();
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -1351,16 +1364,18 @@ app.whenReady().then(() => {
     return;
   }
   const startupProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
-  const startupMode = process.env.ROUGH_CUT_STARTUP_MODE === 'editor'
-    || process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1'
-    || startupProjectPath
-    ? 'editor'
-    : 'recorder';
+  const startupMode = process.env.ROUGH_CUT_STARTUP_MODE === 'freecut'
+    ? 'freecut'
+    : process.env.ROUGH_CUT_STARTUP_MODE === 'editor'
+      || process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1'
+      || startupProjectPath
+      ? 'editor'
+      : 'recorder';
   console.info(`[startup] mode=${startupMode} requested=${process.env.ROUGH_CUT_STARTUP_MODE ?? 'default'}`);
-  createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
+  void openDockStartup({ startupMode, startupProjectPath });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
+    if (BrowserWindow.getAllWindows().length === 0) void openDockStartup({ startupMode, startupProjectPath });
   });
 });
 

@@ -95,6 +95,13 @@ test('linux package copies main-process workspace dependencies', () => {
   assert.match(packageLinuxSource, /join\(appRoot, 'packages', packageName, 'dist'\)/);
 });
 
+test('dock package launches the source-faithful FreeCut editor', () => {
+  assert.match(packageLinuxSource, /join\(appRoot, 'freecut'\)/);
+  assert.match(packageLinuxSource, /export ROUGH_CUT_STARTUP_MODE=freecut/);
+  assert.match(desktopMainSource, /startupMode === 'freecut'/);
+  assert.match(desktopMainSource, /openFreecutEditor\(\{ app \}\)/);
+});
+
 test('GPU-C compositor migration note and task sequence stay in place', () => {
   assert.equal(existsSync(compositorMigrationPath), true);
   const note = readFileSync(compositorMigrationPath, 'utf8');
