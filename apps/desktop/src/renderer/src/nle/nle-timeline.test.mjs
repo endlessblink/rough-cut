@@ -23,6 +23,21 @@ test('NLE timeline exposes selected-clip trim handles wired to trim mutation', (
   assert.match(source, /data-trim-edge/);
 });
 
+test('NLE timeline imports the navigator component instead of its math-only module', () => {
+  const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
+  const navigator = readFileSync(join(here, 'timeline-navigator.tsx'), 'utf8');
+
+  assert.match(
+    source,
+    /import \{ NleTimelineNavigator \} from '\.\/timeline-navigator';/,
+  );
+  assert.match(navigator, /export function NleTimelineNavigator\(/);
+  assert.doesNotMatch(
+    source,
+    /NleTimelineNavigator.*timeline-navigator-math\.mjs/,
+  );
+});
+
 test('NLE timeline trim handles are absolute edge hit-zones, not inline content', () => {
   const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
   assert.match(css, /\.nleClipTrimHandle\s*{[^}]*position: absolute;/s);
@@ -136,6 +151,20 @@ test('NLE timeline groups tracks into visible sections with real metadata, not p
   assert.match(css, /\.nleAddTrackButton\s*{/);
 
   assert.doesNotMatch(source, /toggleTrackSolo|toggleTrackSyncLock/);
+});
+
+test('NLE timeline includes the FreeCut-inspired overview navigator without touching transcript editing', () => {
+  const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
+  const navigator = readFileSync(join(here, 'timeline-navigator.tsx'), 'utf8');
+  const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
+
+  assert.match(source, /NleTimelineNavigator/);
+  assert.match(source, /data-ui-region=\"nle-timeline\"/);
+  assert.match(navigator, /data-ui-region=\"nle-timeline-navigator\"/);
+  assert.match(source, /onSeekFrame=\{onPlayheadFrameChange\}/);
+  assert.match(navigator, /onSeekFrame\(navigatorFrameAtClientX/);
+  assert.match(navigator, /role=\"slider\"/);
+  assert.match(css, /\.nleTimelineNavigatorSurface\s*{/);
 });
 
 test('NLE toolbar stays premium: centered timecode, no noise, dataset clips', () => {

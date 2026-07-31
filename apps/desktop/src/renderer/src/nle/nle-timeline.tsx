@@ -2,6 +2,7 @@ import React from 'react';
 import { buildTimelineTracks } from './timeline-clips.mjs';
 import { addEmptyTrackToProject, addGeneratedAssetToNewTrack, addGeneratedAssetToTrack, canSplitClipById, consumeLastCommandError, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, rippleTrimClipById, splitClipById, updateTrackById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
+import { NleTimelineNavigator } from './timeline-navigator';
 import { NleModeToolbar } from './mode-toolbar';
 import { ArrowsVertical, CaretDown, CaretUp, CornersIn, Eye, EyeSlash, LockSimple, Minus, Plus, SpeakerSimpleSlash } from '@phosphor-icons/react';
 import type { NleEditMode } from './mode-toolbar';
@@ -636,6 +637,13 @@ export function NleTimeline({
         </div>
         {topbarExtras}
       </div>
+      <NleTimelineNavigator
+        tracks={trackRows}
+        durationFrames={durationFrames}
+        playheadFrame={playheadFrame}
+        fps={fps}
+        onSeekFrame={onPlayheadFrameChange}
+      />
         <div className="nleTimelineLanes">
           <div className="nleLaneHeaders">
             <div className="nleTimelineRulerSpacer">
