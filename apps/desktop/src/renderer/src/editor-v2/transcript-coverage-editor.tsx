@@ -145,9 +145,6 @@ export function TranscriptCoverageEditor({
             selectedRange !== null &&
             index >= selectedRange.start &&
             index <= selectedRange.end;
-          const active =
-            playheadFrame >= block.startFrame &&
-            playheadFrame < block.endFrame;
           const active = index === activeBlockIndex;
           return (
             <button
@@ -167,7 +164,6 @@ export function TranscriptCoverageEditor({
               data-kind={block.kind}
               data-start-frame={block.startFrame}
               data-end-frame={block.endFrame}
-              aria-current={active ? 'true' : undefined}
               onPointerDown={(event) => {
                 dragging.current = true;
                 onPlayingChange(false);

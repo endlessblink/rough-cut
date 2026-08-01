@@ -1649,7 +1649,26 @@ function App() {
             />
           ) : activeAppView === 'nle' ? (
             <>
-              <FreecutEditorSurface projectId={project?.document?.id ?? null} />
+            <FreecutEditorSurface
+              projectId={project?.document?.id ?? null}
+              project={project ? {
+                document: project.document,
+                recording: project.recording ? {
+                  duration: project.recording.duration,
+                  width: project.recording.width,
+                  height: project.recording.height,
+                  fps: project.recording.fps,
+                  camera: project.recording.camera,
+                } : null,
+                mediaUrl: project.mediaUrl ?? null,
+                cameraMediaUrl: project.cameraMediaUrl ?? null,
+              } : null}
+              currentTimeSec={clampedSharedTimelineTimeSec}
+              cutRanges={project?.recording
+                ? listCutRanges(project.document as unknown as ProjectDocument, project.document.assets?.find((asset) => asset.type === 'recording')?.id ?? null, project.recording.duration)
+                : []}
+              onCurrentTimeSecChange={updateSharedTimelineTimeSec}
+            />
             </>
           ) : activeAppView === 'ai' ? (
             <AiShell

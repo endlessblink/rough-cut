@@ -1,31 +1,36 @@
-# Rough Cut dropoff — 2026-07-30 17:04 Israel time
+# Dropoff — 2026-08-01 09:09 Saturday (Israel time)
 
-You are continuing work in `rough-cut-mvp` on branch `master`.
+```text
+You are continuing work in rough-cut-mvp on branch master.
 
 ## Current task & next step
-
-Make the dock-launched Rough Cut editor load reliably and make transcript editing comfortable and usable — next: install the packaged Electron sandbox helper, rebuild the dock artifact, then run the exact dock-compatible launch and inspect the transcript text editor.
+Integrate the actual FreeCut editor into Rough Cut as the single advanced editor over Rough Cut's shared project, media, timeline, compositor, transcript, and future AI assets — next: remove the current hybrid Program/Source rendering and trace the smallest live shared-project bridge from Rough Cut's canonical compositor/timeline into FreeCut before editing more UI.
 
 ## Files touched / in flight
-
-The worktree contains broad uncommitted Rough Cut feature-lane changes; preserve unrelated edits. This session additionally changed `apps/desktop/src/renderer/src/editor-v2/transcript-panel.tsx` to add an inline transcript text editor, `apps/desktop/src/renderer/src/editor-v2/editor-v2-layout.tsx` and its test to expose and keep Transcript clickable, `apps/desktop/src/renderer/src/styles.css` for the editor surface, `apps/desktop/src/renderer/src/nle/nle-shell.tsx` to always enter the transcript-capable layout, `scripts/package-linux.mjs` to package the Electron launcher, and `scripts/launch-dev-app.sh` to redirect legacy dock shortcuts to the packaged artifact. The dock desktop entry now points to the packaged artifact; it is outside the repository.
+- Uncommitted/WIP editor integration: FreeCut surface, main renderer, styles, transcript coverage editor, FreeCut host/main-process wiring and tests.
+- Uncommitted/WIP proof enforcement: project agent rules, package scripts, proof recorder/library/hook/tests, and new arm/disarm/verify scripts.
+- Uncommitted/WIP architecture context: CONTEXT.md.
+- Uncommitted/WIP export work also exists: export service, export memory/segment/package tests, packaged-main sync, and export verification scripts. Preserve it; do not treat it as disposable editor work.
 
 ## Key decisions & gotchas
-
-- The dock-launched app is the acceptance surface and verifier; dev commands are supporting checks only.
-- The dock originally launched `pnpm dev`, and a stale development process was still running. The compatibility launcher now hands off to the packaged app.
-- The packaged Electron app initially aborted because `chrome-sandbox` lacked root ownership and mode 4755. The user selected the safer sandbox-helper fix; the privileged command still needs to be run after packaging.
-- Do not use `--no-sandbox` without explicit renewed approval; the safety reviewer rejected persisting that weakening.
-- The transcript action was disabled when no transcript existed. It is now always clickable and opens the transcript panel; the panel can show an empty state and an `Add transcript text` control.
-- Transcript text editing is now an inline textarea with Save/Cancel. Matching word counts preserve timing; changing the count redistributes timing across the transcript and says so in the UI.
-- The new transcript editor has focused source tests and desktop build/typecheck passing before the latest package rebuild. The packaged-app smoke passed before the latest sandbox-helper rebuild; the exact dock-compatible launch was blocked by the sandbox helper.
-- UI changes used the impeccable design skill. A fresh packaged screenshot showed the previous package smoke captured the Recording edit view, not the Editor/transcript surface; the next verification must navigate to Editor and inspect the Transcript control and text editor.
+- One parent task lane with interconnected child workstreams; do not split shared project/timeline/media/proof into competing goals.
+- Rough Cut remains the dock-launched shell and owns recorder, projects, navigation, media library, transcript editor, and AI tab.
+- Recording edit remains the canonical compositor/editor. FreeCut must be the only advanced editor UI and receive the same composed program result, including layout, aspect ratio, zoom, cursor, censor, and other effects.
+- Do not keep or invent the current hybrid Program/Source layout. The user explicitly rejected two merged views and wants FreeCut visually 1:1.
+- FreeCut must load the active Rough Cut project automatically; no separate workspace/project picker and no separate project media manager. It may manage additional shared assets.
+- Synchronization target is one shared project/timeline/command history. FreeCut edits, transcript edits, imported assets, generated AI/Remotion/Hyperframes assets, captions, automatic edits, and effects must be shared, inspectable, undoable, and non-destructive.
+- Current host path is snapshot/load plus save and cached/exported program media; it is not yet a live bidirectional bridge and loses transitions/keyframes/effects in conversion.
+- The visual-proof system now has an explicit completion arm. Normal Stop-hook operation exits silently; `pnpm visual-proof:arm` enables fail-closed blocking. `pnpm visual-proof:disarm` is required while continuing implementation.
+- Final proof must bind current UI source, packaged UI, screenshot hash, disposable visual-review findings, and the full checklist. Do not claim completion from tests or selector smoke alone.
+- The proof gate still needs stronger provenance and broader fingerprint coverage for UI-affecting main/preload/host/packaging changes.
+- Packaged Linux build succeeded. Dock preparation was not run because it would modify the sandbox helper with setuid root. This Codex session had no X display, so it could not capture the dock window.
+- Visual-proof unit tests passed earlier. The idle Stop hook was verified silent and the armed hook produced valid blocking JSON. Do not rerun tests merely for dropoff.
 
 ## Env / run state
+Branch: master | Last commit before this handoff: 7871cd1 fix: keep FreeCut media playable during styled handoff
+Running: no Rough Cut GUI proven; packaged Linux artifact exists. Docker services are unrelated to this lane.
+Goal state: parent goal exists but was reported paused by the goal system; plan state is preserved. Completed: shared contract, proof system, and architecture mapping. Pending: synchronization implementation, dock workflow verification, final armed proof.
+Visual gate: disarmed for continued implementation; proof record is still outdated and must not be accepted.
 
-Branch: `master` | Last commit: `e3c66f1 wip: dropoff handoff — expose editor actions`
-
-Running: no relevant app process after the stale dev process was terminated.
-
-Start by: run `sudo chown root:root /media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp/dist/rough-cut-mvp-linux-x64/chrome-sandbox && sudo chmod 4755 /media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp/dist/rough-cut-mvp-linux-x64/chrome-sandbox`, then launch `scripts/launch-dev-app.sh` under the host display or click the dock icon and verify the packaged Editor → Transcript flow.
-
+Start by: inspect the current FreeCut surface and host conversion together, then write the minimal change that removes the hybrid Program/Source surface while preserving Rough Cut's canonical project/compositor data flow.
+```

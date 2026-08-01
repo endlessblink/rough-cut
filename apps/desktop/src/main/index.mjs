@@ -1392,6 +1392,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  // Aborts any in-progress styled program render. Without this a closing window
+  // leaves ffmpeg orphaned to systemd, still consuming memory with nobody reading it.
+  freecutHost.dispose();
   void recordingTranscriptionBridgePromise.then((bridge) => bridge?.dispose());
   void stopActiveAudioPreview();
   void stopActiveCameraPreview();

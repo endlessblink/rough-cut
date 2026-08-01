@@ -1425,6 +1425,25 @@ export function buildStyledExportArgs({
   const cameraScaleStep = cameraFrame
     ? `${cameraManualCropStep ? `${cameraManualCropStep},` : ''}scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba`
     : null;
+  // Each segment gets its own seeked input so no branch buffers frames on another's
+  // behalf — see the header on `buildTimelineVideoBaseFilters`. Input 0 stays the
+  // unseeked original (audio still reads it) and the camera keeps index 1, so adding
+  // these inputs afterwards leaves every existing index reference correct.
+  // Skipped when stabilization is active: that filter is built off whole-input [0:v].
+  const segmentInputBase = cameraInputPath ? 2 : 1;
+  const useSegmentInputs = useTimelineSegments
+    && normalizedTimelineSegments.length > 1
+    && !sourceStabilizationTransform?.transformPath;
+  const segmentInputLabels = useSegmentInputs
+    ? normalizedTimelineSegments.map((_segment, index) => `[${segmentInputBase + index}:v]`)
+    : null;
+  const segmentInputArgs = useSegmentInputs
+    ? normalizedTimelineSegments.flatMap((segment) => [
+        '-ss', formatFilterNumber(segment.sourceIn / fps),
+        '-t', formatFilterNumber(Math.max(1, segment.sourceOut - segment.sourceIn) / fps),
+        '-i', inputPath,
+      ])
+    : [];
   const sourceBaseFilters = useTimelineSegments
     ? buildTimelineVideoBaseFilters({
         segments: normalizedTimelineSegments,
@@ -1433,6 +1452,7 @@ export function buildStyledExportArgs({
         fps,
         durationFrames: timelineDuration,
         inputLabel: sourceStabilizationTransform?.transformPath ? '[source_stabilized]' : '[0:v]',
+        segmentInputLabels,
         outputLabel: 'base',
       })
     : [`${sourceStabilizationTransform?.transformPath ? '[source_stabilized]' : '[0:v]'}setpts=PTS-STARTPTS${cutFilter}[base]`];
@@ -1507,6 +1527,7 @@ export function buildStyledExportArgs({
     '-i',
     inputPath,
     ...(cameraInputPath ? ['-i', cameraInputPath] : []),
+    ...segmentInputArgs,
     '-filter_complex',
     filter,
     '-map',
@@ -1829,6 +1850,7 @@ function buildTimelineVideoBaseFilters({
   durationFrames,
   inputIndex = 0,
   inputLabel = null,
+  segmentInputLabels = null,
   outputLabel = 'base',
   transparent = false,
 } = {}) {
@@ -1849,7 +1871,13 @@ function buildTimelineVideoBaseFilters({
   segments.forEach((segment, index) => {
     pushGap(segment.timelineIn - cursor);
     const segmentLabel = `${outputLabel}_seg_${index}`;
-    filters.push(`${sourceLabel}trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+    if (segmentInputLabels) {
+      // The input is already seeked to this segment, so there is nothing left to trim
+      // and — crucially — nothing for this branch to buffer while concat drains another.
+      filters.push(`${segmentInputLabels[index]}setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+    } else {
+      filters.push(`${sourceLabel}trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+    }
     labels.push(`[${segmentLabel}]`);
     cursor = segment.timelineOut;
   });
