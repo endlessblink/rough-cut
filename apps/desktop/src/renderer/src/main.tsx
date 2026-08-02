@@ -555,7 +555,9 @@ function App() {
       setProject(status.project);
       setEditHistory(EMPTY_EDIT_HISTORY);
       setExportResult(null);
-      setActiveAppView('nle');
+      // Recording edit is the canonical compositor. The advanced Editor is
+      // opt-in via its tab, never the landing surface for an opened project.
+      setActiveAppView('editor');
     }
   }, []);
 
@@ -581,6 +583,51 @@ function App() {
   }, [isRecorderMode, activeAppView, recording.state]);
 
   React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const shell = document.querySelector<HTMLElement>('[data-ui-shell="recording-studio"]');
+      const surfaces = Array.from(document.querySelectorAll<HTMLElement>('[data-ui-region="freecut-editor-surface"]'));
+      if (surfaces.length > 0) return;
+      void window.roughCut.writePlaybackDebugReport({
+        schemaVersion: 1,
+        kind: 'packaged-renderer-runtime',
+        route: {
+          pathname: window.location.pathname,
+          search: window.location.search,
+          activeAppView,
+        },
+        host: {
+          bundleSignature: document.documentElement.dataset.hostBundleSignature ?? '',
+          shellMarker: shell?.dataset.uiShell ?? null,
+          shellCount: shell ? 1 : 0,
+        },
+        visibleSurface: {
+          freecutSurfaceCount: surfaces.length,
+          freecutFrameCount: 0,
+          freecutBooted: false,
+          freecutError: '',
+          freecutReady: false,
+          freecutProbeReceived: false,
+          freecutProbeSourceMatched: false,
+          freecutFrameLoaded: false,
+          freecutFrameSrc: '',
+          freecutMarkerVersion: '',
+          freecutBuildHash: '',
+          freecutProjectId: '',
+          freecutProjectVersion: '',
+          bodyTextSample: document.body.innerText.slice(0, 600),
+        },
+        project: {
+          id: project?.document?.id ?? null,
+          path: project?.path ?? null,
+          version: projectVersion,
+        },
+        capturedAt: new Date().toISOString(),
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeAppView, project?.document?.id, project?.path, projectVersion]);
+
+  React.useEffect(() => {
     if (!requestedProjectPath) return undefined;
     let cancelled = false;
     window.roughCut.openProjectPath(requestedProjectPath)
@@ -589,7 +636,7 @@ function App() {
         setProject(opened);
         setEditHistory(EMPTY_EDIT_HISTORY);
         setExportResult(null);
-        setActiveAppView('nle');
+        setActiveAppView('editor');
       })
       .catch((err) => setError(appError('project', err, 'Project open failed.')));
     return () => {
@@ -811,7 +858,7 @@ function App() {
         setProject(opened);
         setEditHistory(EMPTY_EDIT_HISTORY);
         setExportResult(null);
-        setActiveAppView('nle');
+        setActiveAppView('editor');
       })
       .catch((err) => {
         if (!cancelled) {
@@ -1135,7 +1182,7 @@ function App() {
       void window.roughCut.openEditor(null);
       return;
     }
-    setActiveAppView('nle');
+    setActiveAppView('editor');
     setPreRecordPanelOpen(false);
   }
 
@@ -1151,7 +1198,7 @@ function App() {
     setProject(opened);
     setEditHistory(EMPTY_EDIT_HISTORY);
     setExportResult(null);
-    setActiveAppView('nle');
+    setActiveAppView('editor');
   }
 
   async function openProject() {

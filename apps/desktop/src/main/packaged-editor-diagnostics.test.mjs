@@ -87,6 +87,27 @@ test('startup lands on Recording edit, and the advanced Editor is opt-in', async
   assert.match(main, /function resolveDockStartupProject/);
 });
 
+// Fixing the main-process route was not enough: the renderer forced the advanced
+// Editor every time a project opened — gallery open, recording saved, file open,
+// startup path — which silently overrode the route. Caught only by launching the
+// packaged app and reading the runtime report, so guard it here.
+test('opening a project lands on Recording edit, not the advanced Editor', async () => {
+  const main = await source('apps/desktop/src/renderer/src/main.tsx');
+  const openTransitions = [
+    // recording saved
+    /status\.state === 'saved'[\s\S]{0,320}?setActiveAppView\('(\w+)'\)/,
+    // opened from the Projects gallery
+    /function openProjectState[\s\S]{0,240}?setActiveAppView\('(\w+)'\)/,
+  ];
+  for (const pattern of openTransitions) {
+    const match = main.match(pattern);
+    assert.ok(match, `expected to find a project-open transition for ${pattern}`);
+    assert.equal(match[1], 'editor');
+  }
+  // The advanced Editor is only ever reached by choosing its tab.
+  assert.doesNotMatch(main, /function openProjectState[\s\S]{0,240}?setActiveAppView\('nle'\)/);
+});
+
 test('the packaged host starts one main window and loads the built renderer', async () => {
   const main = await source('apps/desktop/src/main/index.mjs');
   assert.match(main, /function createMainWindow\(/);
