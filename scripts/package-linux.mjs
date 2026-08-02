@@ -53,6 +53,12 @@ await writeFile(
   { mode: 0o755 },
 );
 
+await writeFile(
+  join(artifactRoot, 'dock-launch.sh'),
+  '#!/usr/bin/env bash\nset -euo pipefail\nexec "$(dirname "$0")/run.sh" "$@"\n',
+  { mode: 0o755 },
+);
+
 console.info(JSON.stringify({ ok: true, artifactRoot, executable: join(artifactRoot, 'electron') }, null, 2));
 
 async function cpWorkspacePackage(packageName) {

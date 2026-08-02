@@ -53,48 +53,10 @@ export async function getFreecutEditorUrl(options = {}) {
 }
 
 export async function openFreecutEditor({ app, parent = null, env = process.env, host = null } = {}) {
-  const root = await resolveFreecutRoot({ app, env });
-  if (!root) {
-    return {
-      ok: false,
-      reason: 'FreeCut is not included in this Rough Cut package.',
-    };
-  }
-
-  if (freecutWindow && !freecutWindow.isDestroyed()) {
-    freecutWindow.show();
-    freecutWindow.focus();
-    return { ok: true, reused: true };
-  }
-
-  const freecutUrl = `${await startFreecutServer(root, host)}/projects`;
-
-  freecutWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1100,
-    minHeight: 700,
-    title: 'FreeCut',
-    backgroundColor: '#111827',
-    parent: parent ?? undefined,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  freecutWindow.on('closed', () => {
-    freecutWindow = null;
-    if (freecutServer) {
-      freecutServer.close();
-      freecutServer = null;
-      freecutServerRoot = null;
-    }
-  });
-
-  await freecutWindow.loadURL(freecutUrl);
-  freecutWindow.show();
-  return { ok: true, reused: false };
+  return {
+    ok: false,
+    reason: 'Standalone FreeCut windows are disabled; use the embedded Editor view.',
+  };
 }
 
 export function closeFreecutEditor() {

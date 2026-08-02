@@ -1,36 +1,44 @@
-# Dropoff — 2026-08-01 09:09 Saturday (Israel time)
+# Dropoff — 2026-08-02 09:39 Sunday (Israel time)
 
 ```text
 You are continuing work in rough-cut-mvp on branch master.
 
 ## Current task & next step
-Integrate the actual FreeCut editor into Rough Cut as the single advanced editor over Rough Cut's shared project, media, timeline, compositor, transcript, and future AI assets — next: remove the current hybrid Program/Source rendering and trace the smallest live shared-project bridge from Rough Cut's canonical compositor/timeline into FreeCut before editing more UI.
+Prove the dock-launched packaged Rough Cut uses one canonical project and one
+editor surface — next: instrument the packaged renderer so the active route,
+host bundle signature, FreeCut readiness, and visible surface are captured in
+one runtime report before changing more UI.
 
 ## Files touched / in flight
-- Uncommitted/WIP editor integration: FreeCut surface, main renderer, styles, transcript coverage editor, FreeCut host/main-process wiring and tests.
-- Uncommitted/WIP proof enforcement: project agent rules, package scripts, proof recorder/library/hook/tests, and new arm/disarm/verify scripts.
-- Uncommitted/WIP architecture context: CONTEXT.md.
-- Uncommitted/WIP export work also exists: export service, export memory/segment/package tests, packaged-main sync, and export verification scripts. Preserve it; do not treat it as disposable editor work.
+WIP changes span the FreeCut host/bridge, renderer routing and styles, packaged
+startup, dock preparation, visual-proof scripts/tests, and vendored FreeCut.
+New helpers: scripts/rough-cut-dock-reset.sh and
+scripts/rough-cut-show-recording-edit.sh. PERPLEXITY_QUERIES.md has queries
+through 69. Preserve export work and all existing WIP.
 
 ## Key decisions & gotchas
-- One parent task lane with interconnected child workstreams; do not split shared project/timeline/media/proof into competing goals.
-- Rough Cut remains the dock-launched shell and owns recorder, projects, navigation, media library, transcript editor, and AI tab.
-- Recording edit remains the canonical compositor/editor. FreeCut must be the only advanced editor UI and receive the same composed program result, including layout, aspect ratio, zoom, cursor, censor, and other effects.
-- Do not keep or invent the current hybrid Program/Source layout. The user explicitly rejected two merged views and wants FreeCut visually 1:1.
-- FreeCut must load the active Rough Cut project automatically; no separate workspace/project picker and no separate project media manager. It may manage additional shared assets.
-- Synchronization target is one shared project/timeline/command history. FreeCut edits, transcript edits, imported assets, generated AI/Remotion/Hyperframes assets, captions, automatic edits, and effects must be shared, inspectable, undoable, and non-destructive.
-- Current host path is snapshot/load plus save and cached/exported program media; it is not yet a live bidirectional bridge and loses transitions/keyframes/effects in conversion.
-- The visual-proof system now has an explicit completion arm. Normal Stop-hook operation exits silently; `pnpm visual-proof:arm` enables fail-closed blocking. `pnpm visual-proof:disarm` is required while continuing implementation.
-- Final proof must bind current UI source, packaged UI, screenshot hash, disposable visual-review findings, and the full checklist. Do not claim completion from tests or selector smoke alone.
-- The proof gate still needs stronger provenance and broader fingerprint coverage for UI-affecting main/preload/host/packaging changes.
-- Packaged Linux build succeeded. Dock preparation was not run because it would modify the sandbox helper with setuid root. This Codex session had no X display, so it could not capture the dock window.
-- Visual-proof unit tests passed earlier. The idle Stop hook was verified silent and the armed hook produced valid blocking JSON. Do not rerun tests merely for dropoff.
+- Recording Edit is the canonical host compositor; FreeCut must be the only
+  advanced Editor view, not a second window or hybrid surface.
+- Standalone FreeCut windows are disabled in source, but runtime proof has not
+  confirmed the packaged process uses that source.
+- Both the dock reset launch and the supposed Recording Edit baseline still show
+  the same contaminated shell: legacy compositor/timeline plus FreeCut loading.
+- The packaged host bundle contains the FreeCut loading strings and the main
+  artifact contains ROUGH_CUT_STARTUP_VIEW, so packaging is not obviously stale.
+- Do not claim a working version. Do not arm visual proof. The current proof is
+  intentionally invalid until a fresh headed dock screenshot and runtime
+  identity report pass together.
+- The previous baseline helper is only a diagnostic route selector; it is not
+  evidence that the advanced editor is correct.
 
 ## Env / run state
-Branch: master | Last commit before this handoff: 7871cd1 fix: keep FreeCut media playable during styled handoff
-Running: no Rough Cut GUI proven; packaged Linux artifact exists. Docker services are unrelated to this lane.
-Goal state: parent goal exists but was reported paused by the goal system; plan state is preserved. Completed: shared contract, proof system, and architecture mapping. Pending: synchronization implementation, dock workflow verification, final armed proof.
-Visual gate: disarmed for continued implementation; proof record is still outdated and must not be accepted.
+Branch: master | Last commit: a96ef00 wip: dropoff handoff — dock surface diagnosis
+Running: no verified Rough Cut GUI proof. `pnpm package:linux` passed after the
+latest startup-view change. Desktop typecheck passed. The working tree is dirty
+with the WIP listed above.
 
-Start by: inspect the current FreeCut surface and host conversion together, then write the minimal change that removes the hybrid Program/Source surface while preserving Rough Cut's canonical project/compositor data flow.
+Start by: add a temporary, machine-readable runtime report at the actual
+packaged renderer boundary, then launch the installed dock entry and compare
+the report's activeAppView/DOM markers against the screenshot before editing
+the route or CSS.
 ```

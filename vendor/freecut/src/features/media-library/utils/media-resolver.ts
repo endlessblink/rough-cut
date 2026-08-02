@@ -168,6 +168,13 @@ export async function resolveMediaUrls(
           item.type === 'image' ||
           item.type === 'lottie')
       ) {
+        // Rough Cut can provide an item-scoped composed preview while keeping
+        // the canonical mediaId pointed at the editable source asset. Do not
+        // replace that host URL with the raw source resolver result.
+        if (typeof item.src === 'string' && item.src.startsWith('/__rough_cut__/')) {
+          if (item.type === 'video') item.audioSrc = item.src
+          continue
+        }
         const promise = resolveMediaUrl(item.mediaId).then((blobUrl) => {
           // For video items in preview mode, prefer proxy URL if available
           if (useProxy && item.type === 'video') {
