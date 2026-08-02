@@ -234,6 +234,12 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
       if (!asset) continue;
       const type = asset.type === 'audio' ? 'audio' : asset.type === 'image' ? 'image' : 'video';
       const isPrimaryVideo = styledProgram && asset.id === styledProgram.sourceAssetId && type === 'video';
+      // The styled program is the finished composite: it already contains the
+      // camera PiP, background, zoom, cursor and the mixed audio. Seeding the
+      // other source clips alongside it draws the camera a second time on top
+      // of itself and doubles the audio. Only the clip carrying the program
+      // survives; the raw assets stay in `media` so they remain reachable.
+      if (styledProgram && !isPrimaryVideo) continue;
       items.push({
         id: clip.id,
         trackId: track.id,

@@ -281,6 +281,64 @@ test('a raw asset requested by its own id still resolves', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// The styled program is the whole composited picture — it already contains the
+// camera PiP, background, zoom and cursor (see the camera_scaled overlay in
+// export-service). Seeding the camera as its own item on top of it draws the
+// camera twice. Measured on a real project: 2 items, the screen one carrying
+// the program src and the camera one falling through to its raw file.
+//
+// Note the shape: mediaId stays the editable source asset and `src` carries the
+// composed preview. FreeCut's resolveMediaUrls explicitly preserves a
+// /__rough_cut__/ src instead of re-resolving it, so this is the supported path
+// and no synthetic media-library entry is needed.
+// ---------------------------------------------------------------------------
+
+test('the Editor is seeded with the program alone, not program plus raw camera', () => {
+  const doc = {
+    id: 'p1',
+    settings: { frameRate: 30 },
+    assets: [
+      { id: 'screen', type: 'recording', filePath: '/tmp/s.mkv', duration: 300 },
+      { id: 'camera', type: 'video', filePath: '/tmp/c.mkv', duration: 300 },
+    ],
+    composition: {
+      duration: 300,
+      tracks: [
+        { id: 't1', type: 'video', clips: [{ id: 'c1', assetId: 'screen', timelineIn: 0, timelineOut: 300 }] },
+        { id: 't2', type: 'video', clips: [{ id: 'c2', assetId: 'camera', timelineIn: 0, timelineOut: 300 }] },
+      ],
+      transitions: [],
+    },
+  };
+  const styled = { mediaId: 'screen__program', outputPath: '/tmp/x.mp4', sourceAssetId: 'screen' };
+  const fc = toFreecutProject(doc, '/tmp/p.roughcut', styled);
+
+  assert.equal(fc.timeline.items.length, 1, 'the camera must not be drawn a second time');
+  assert.equal(fc.timeline.items[0].mediaId, 'screen');
+  assert.match(fc.timeline.items[0].src, /__rough_cut__\/media\/p1\/screen__program/);
+});
+
+test('without a styled program every clip is still seeded', () => {
+  const doc = {
+    id: 'p1',
+    settings: { frameRate: 30 },
+    assets: [
+      { id: 'screen', type: 'recording', filePath: '/tmp/s.mkv', duration: 300 },
+      { id: 'camera', type: 'video', filePath: '/tmp/c.mkv', duration: 300 },
+    ],
+    composition: {
+      duration: 300,
+      tracks: [
+        { id: 't1', type: 'video', clips: [{ id: 'c1', assetId: 'screen', timelineIn: 0, timelineOut: 300 }] },
+        { id: 't2', type: 'video', clips: [{ id: 'c2', assetId: 'camera', timelineIn: 0, timelineOut: 300 }] },
+      ],
+      transitions: [],
+    },
+  };
+  assert.equal(toFreecutProject(doc, '/tmp/p.roughcut', null).timeline.items.length, 2);
+});
+
+// ---------------------------------------------------------------------------
 // Rough Cut's element vocabulary is a closed set (cursor, click, camera-pip,
 // zoom, annotation, stabilization) with no text, title or transition, so
 // rebuilding the timeline from the composition silently deleted anything the
