@@ -262,6 +262,12 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
     console.error(`[renderer] failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
   });
 
+  window.webContents.session.webRequest.onErrorOccurred((details) => {
+    if (details.url.includes('/assets/') || details.url.includes('/editor/')) {
+      console.error(`[renderer] resource request failed ${details.url}: ${details.error}`);
+    }
+  });
+
   window.webContents.on('preload-error', (_event, preloadPath, error) => {
     console.error(`[renderer] preload failed: ${preloadPath}`, error);
   });
@@ -298,6 +304,8 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           ? runRendererRecordingFlowSmoke
           : process.env.ROUGH_CUT_UI_SMOKE_TRANSCRIPT_ONLY === '1'
           ? runRendererTranscriptSmoke
+          : process.env.ROUGH_CUT_UI_SMOKE_FREECUT_ONLY === '1'
+          ? runRendererFreecutRuntimeSmoke
           : process.env.ROUGH_CUT_UI_SMOKE_NLE_ONLY === '1'
           ? runRendererNleSmoke
           : runRendererUiSmoke;
@@ -473,8 +481,10 @@ function waitForRendererLoad(webContents, timeoutMs = 30000) {
   });
 }
 
-// Editor windows always mount the editor surface; recorder windows keep the
-// dedicated capture surface.
+// Recording edit is the canonical compositor and the landing surface whenever a
+// project is open. The advanced Editor (`nle`, the vendored FreeCut surface) is
+// opt-in: explicit `freecut` startup mode, the smoke force flag, or the
+// ROUGH_CUT_STARTUP_VIEW override. Recorder windows keep the capture surface.
 function rendererInitialView({ mode, projectPath = null }) {
   const forcedView = process.env.ROUGH_CUT_STARTUP_VIEW?.trim();
   if (forcedView === 'recording' || forcedView === 'projects' || forcedView === 'editor' || forcedView === 'nle' || forcedView === 'ai') {
@@ -482,8 +492,9 @@ function rendererInitialView({ mode, projectPath = null }) {
   }
   if (mode === 'recorder') return null;
   if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_NLE === '1') return 'nle';
-  if (projectPath) return 'nle';
-  return mode === 'editor' || mode === 'freecut' ? 'nle' : 'projects';
+  if (mode === 'freecut') return 'nle';
+  if (projectPath) return 'editor';
+  return 'projects';
 }
 
 function webglScreenLayerEnabled() {
@@ -630,17 +641,22 @@ async function stopActiveAudioPreview(token = null) {
 
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
 ipcMain.handle(IPC_CHANNELS.APP_GET_RUNTIME_LOG_PATH, () => runtimeLogPath);
-ipcMain.handle(IPC_CHANNELS.APP_WRITE_PLAYBACK_DEBUG_REPORT, async (_event, report = {}) => {
+let playbackDebugReportWrite = Promise.resolve();
+ipcMain.handle(IPC_CHANNELS.APP_WRITE_PLAYBACK_DEBUG_REPORT, (_event, report = {}) => {
   const reportPath = process.env.ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH;
   if (!reportPath) return { ok: false, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH not set' };
-  const payload = {
-    writtenAt: new Date().toISOString(),
-    reportPath,
-    ...report,
-  };
-  await mkdir(dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  return { ok: true, path: reportPath };
+  const write = playbackDebugReportWrite.then(async () => {
+    const payload = {
+      writtenAt: new Date().toISOString(),
+      reportPath,
+      ...report,
+    };
+    await mkdir(dirname(reportPath), { recursive: true });
+    await writeFile(reportPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    return { ok: true, path: reportPath };
+  });
+  playbackDebugReportWrite = write.catch(() => undefined);
+  return write;
 });
 ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, (_event, itemPath) => {
   if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
@@ -1430,16 +1446,12 @@ async function openDockStartup({ startupMode, startupProjectPath }) {
   createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
 }
 
+// Only an explicitly requested project opens at startup. Auto-selecting the most
+// recent recording meant a plain launch always landed inside a project — and,
+// combined with the route above, always in the advanced Editor. A plain launch
+// belongs in the Projects gallery so the choice stays the user's.
 async function resolveDockStartupProject(explicitProjectPath) {
-  if (explicitProjectPath) return explicitProjectPath;
-  const summaries = await listProjectSummaries({
-    dir: recordingsDir,
-    onError: (error) => console.warn('[startup] skipping unreadable project', error),
-  }).catch((error) => {
-    console.warn('[startup] could not list projects', error);
-    return [];
-  });
-  return summaries[0]?.path ?? null;
+  return explicitProjectPath ?? null;
 }
 
 app.whenReady().then(() => {
@@ -2943,6 +2955,36 @@ async function runRendererEditorLoadedSmoke() {
     hasStyledPreviewCanvas: Boolean(document.querySelector('canvas.styledPreviewCanvas')),
     hasVideo: Boolean(document.querySelector('video')),
     duration: document.querySelector('video')?.duration ?? null,
+  };
+}
+
+async function runRendererFreecutRuntimeSmoke() {
+  const waitFor = async (predicate, label, timeoutMs = 30000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for ${label}; body=${document.body.innerText.slice(0, 800)}`);
+  };
+  const surface = await waitFor(() => document.querySelector('[data-ui-region="freecut-editor-surface"]'), 'FreeCut editor surface');
+  const frame = await waitFor(() => surface.querySelector('iframe[data-freecut-embed="vendored"]'), 'vendored FreeCut iframe');
+  await waitFor(() => surface.getAttribute('data-freecut-frame-loaded') === 'true', 'FreeCut iframe load');
+  await waitFor(() => surface.getAttribute('data-freecut-ready') === 'true', 'FreeCut readiness');
+  const url = new URL(window.location.href);
+  return {
+    ok: true,
+    freecutOnly: true,
+    freecutReady: true,
+    hasFreecutSurface: true,
+    hasFreecutFrame: Boolean(frame),
+    hasFreecutFrameLoaded: true,
+    hasTrustedProbe: surface.getAttribute('data-freecut-probe-source-matched') === 'true',
+    hasCanonicalNleRoute: url.searchParams.get('view') === 'nle',
+    freecutProjectId: surface.getAttribute('data-freecut-project-id') ?? '',
+    freecutMarkerVersion: surface.getAttribute('data-freecut-marker-version') ?? '',
+    freecutBuildHash: surface.getAttribute('data-freecut-build-hash') ?? '',
   };
 }
 
