@@ -311,6 +311,37 @@ describe('resolveMediaUrls', () => {
     expect('src' in resolved[0]!.items[1]!).toBe(false)
   })
 
+  it('preserves a Rough Cut item-scoped program preview while keeping canonical media identity', async () => {
+    const programPreview = '/__rough_cut__/media/project-1/asset-1__program'
+    const tracks: TimelineTrack[] = [{
+      id: 'track-1',
+      name: 'Track 1',
+      height: 40,
+      locked: false,
+      visible: true,
+      muted: false,
+      solo: false,
+      order: 0,
+      items: [{
+        id: 'item-1',
+        type: 'video',
+        trackId: 'track-1',
+        from: 0,
+        durationInFrames: 30,
+        mediaId: 'asset-1',
+        src: programPreview,
+        label: 'recording.mp4',
+      }],
+    }]
+
+    const resolved = await resolveMediaUrls(tracks, { useProxy: false })
+    const item = resolved[0]!.items[0]! as VideoItem
+    expect(item.mediaId).toBe('asset-1')
+    expect(item.src).toBe(programPreview)
+    expect(item.audioSrc).toBe(programPreview)
+    expect(mediaLibraryService.getMedia).not.toHaveBeenCalled()
+  })
+
   it('resolves src for lottie items (fixes stale blob URL after reload)', async () => {
     ;(mediaLibraryService.getMedia as Mock).mockResolvedValue({
       id: 'media-lottie',

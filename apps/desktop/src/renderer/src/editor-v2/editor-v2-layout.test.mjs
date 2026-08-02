@@ -17,6 +17,16 @@ test('Editor v2 panes have no eyebrow header row (banned pattern)', () => {
   assert.match(source, /assetLabel\(primaryAsset, 0\)/);
 });
 
+test('FreeCut is the single advanced editor surface over the Rough Cut program feed', () => {
+  const source = readFileSync(join(here, '../freecut-editor-surface.tsx'), 'utf8');
+
+  assert.match(source, /className="freecutEditorFrame"/);
+  assert.doesNotMatch(source, /StyledVideoPreview/);
+  assert.doesNotMatch(source, /freecutEditorModeBar/);
+  assert.doesNotMatch(source, />Program</);
+  assert.doesNotMatch(source, />Source</);
+});
+
 test('Editor v2 inspector starts at content and keeps working toggles', () => {
   const source = readFileSync(join(here, 'editor-v2-layout.tsx'), 'utf8');
 

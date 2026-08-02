@@ -22,6 +22,14 @@ if (import.meta.env.DEV) {
 }
 
 const initialProjectId = getEditorProjectIdFromPathname(window.location.pathname)
+const initialProjectVersion = Number(new URLSearchParams(window.location.search).get('hostVersion') ?? 0) || 0
+const FREECUT_MARKER = {
+  version: 'vendored-freecut-1',
+  embedded: window.parent !== window,
+  buildHash: getBuildAssetSignature(document),
+  projectVersion: initialProjectVersion,
+}
+;(window as Window & { __FREE_CUT_MARKER?: typeof FREECUT_MARKER }).__FREE_CUT_MARKER = FREECUT_MARKER
 if (initialProjectId) {
   rememberLastEditorProjectId(initialProjectId)
 }
@@ -240,7 +248,7 @@ window.addEventListener('vite:preloadError', () => {
 // should survive refresh/reload.
 // The browser tears down workers/resources on navigation anyway.
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (import.meta.env.PROD && window.parent === window && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js')
@@ -269,7 +277,14 @@ if (!rootElement) {
   throw new Error('Root element not found')
 }
 
+rootElement.dataset.freecutBuild = FREECUT_MARKER.buildHash
+rootElement.dataset.freecutProjectId = initialProjectId ?? ''
+rootElement.dataset.freecutProjectVersion = String(initialProjectVersion)
+
 void i18nReady.then(() => {
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'freecut-ready', marker: FREECUT_MARKER, projectId: initialProjectId, projectVersion: initialProjectVersion }, '*')
+  }
   createRoot(rootElement).render(
     <StrictMode>
       <App />

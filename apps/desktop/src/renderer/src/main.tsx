@@ -60,6 +60,12 @@ import {
 } from '@rough-cut/project-model';
 import { getCameraLayoutRect, resolveFrame } from '@rough-cut/frame-resolver';
 import './styles.css';
+
+const hostBundleSignature = Array.from(document.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'))
+  .map((script) => new URL(script.src, window.location.href).pathname)
+  .sort()
+  .join('|');
+document.documentElement.dataset.hostBundleSignature = hostBundleSignature;
 import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
 import { FreecutEditorSurface } from './freecut-editor-surface';
@@ -111,6 +117,7 @@ declare global {
       getFreecutStatus: () => Promise<{ available: boolean; root: string | null }>;
       getFreecutEditorUrl: (projectId?: string | null) => Promise<{ ok: boolean; url?: string; reason?: string }>;
       openFreecutEditor: () => Promise<{ ok: boolean; reused?: boolean; reason?: string }>;
+      applyFreecutCommand: (command: Record<string, unknown>) => Promise<{ ok: boolean; opId?: string; projectVersion?: number; reason?: string }>;
       setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
       writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
       showItemInFolder: (path: string) => Promise<void>;
@@ -153,6 +160,7 @@ declare global {
       }) => void) => () => void;
       openProject: () => Promise<ProjectState | null>;
       openProjectPath: (path: string) => Promise<ProjectState | null>;
+      onProjectUpdated: (callback: (update: { projectId: string; projectVersion: number }) => void) => () => void;
       saveProject: (project: { path: string; document: ProjectState['document'] }) => Promise<ProjectState>;
       pickImportFile: () => Promise<{ filePath: string; mimeType: string | null } | null>;
       createProjectFromImport: (payload: { importedFilePath: string; importedMimeType: string | null }) => Promise<ProjectState>;
@@ -473,6 +481,7 @@ async function saveProjectGuarded(payload: { path: string; document: ProjectStat
 function App() {
   const searchParams = new URLSearchParams(window.location.search);
   const isRecorderMode = searchParams.get('mode') === 'recorder';
+  const requestedProjectPath = searchParams.get('projectPath');
   const experimentalHeadlessExportUi = searchParams.get('experimentalHeadlessExportUi') === '1';
   // Initial app view: honor ?view= override from the main process. Used when
   // a project is opened from disk (jumps straight to editor) and by smoke
@@ -498,6 +507,7 @@ function App() {
   const [recording, setRecording] = React.useState<RecordingStatus>({ state: 'idle' });
   const [recordingActionPhase, setRecordingActionPhase] = React.useState<RecordingActionPhase>(null);
   const [project, setProject] = React.useState<ProjectState | null>(null);
+  const [projectVersion, setProjectVersion] = React.useState(0);
   const [exportProgress, setExportProgress] = React.useState<ExportProgress | null>(null);
   const [exportResult, setExportResult] = React.useState<ExportResult | null>(null);
   const [exportMode, setExportMode] = React.useState<ExportMode>('raw');
@@ -569,6 +579,33 @@ function App() {
     });
     return undefined;
   }, [isRecorderMode, activeAppView, recording.state]);
+
+  React.useEffect(() => {
+    if (!requestedProjectPath) return undefined;
+    let cancelled = false;
+    window.roughCut.openProjectPath(requestedProjectPath)
+      .then((opened) => {
+        if (cancelled || !opened) return;
+        setProject(opened);
+        setEditHistory(EMPTY_EDIT_HISTORY);
+        setExportResult(null);
+        setActiveAppView('nle');
+      })
+      .catch((err) => setError(appError('project', err, 'Project open failed.')));
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedProjectPath]);
+
+  React.useEffect(() => window.roughCut.onProjectUpdated((update) => {
+    if (!project || update.projectId !== project.document.id) return;
+    setProjectVersion(update.projectVersion);
+    void window.roughCut.openProjectPath(project.path).then((opened) => {
+      if (!opened) return;
+      setProject(opened);
+      setEditHistory(EMPTY_EDIT_HISTORY);
+    });
+  }), [project]);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -1385,7 +1422,12 @@ function App() {
 
   return (
     <main className={`shell ${recordingViewCompact ? 'recordingRoot' : ''}`}>
-      <section className={`editorShell ${activeAppView === 'recording' && recording.state !== 'recording' ? 'recordingShell' : ''}`} data-ui-shell="recording-studio">
+      <section
+        key={activeAppView}
+        className={`editorShell ${activeAppView === 'recording' && recording.state !== 'recording' ? 'recordingShell' : ''}`}
+        data-ui-shell="recording-studio"
+        data-active-app-view={activeAppView}
+      >
         <header className="topBar" data-ui-region="capture-bar">
           <div className="brandCluster">
             <span className="windowDots" aria-hidden="true"><i /><i /><i /></span>
@@ -1587,7 +1629,7 @@ function App() {
           onChange={setActiveAppView}
           editorEnabled={project !== null}
         />
-        <div className="editorContentSlot" data-ui-region="editor-content-slot">
+        <div key={activeAppView} className="editorContentSlot" data-ui-region="editor-content-slot" data-active-app-view={activeAppView}>
           {activeAppView === 'recording' ? (
             <section className="recordingWorkspace" data-ui-region="recording-workspace">
               <PreRecordPanel
@@ -1651,23 +1693,7 @@ function App() {
             <>
             <FreecutEditorSurface
               projectId={project?.document?.id ?? null}
-              project={project ? {
-                document: project.document,
-                recording: project.recording ? {
-                  duration: project.recording.duration,
-                  width: project.recording.width,
-                  height: project.recording.height,
-                  fps: project.recording.fps,
-                  camera: project.recording.camera,
-                } : null,
-                mediaUrl: project.mediaUrl ?? null,
-                cameraMediaUrl: project.cameraMediaUrl ?? null,
-              } : null}
-              currentTimeSec={clampedSharedTimelineTimeSec}
-              cutRanges={project?.recording
-                ? listCutRanges(project.document as unknown as ProjectDocument, project.document.assets?.find((asset) => asset.type === 'recording')?.id ?? null, project.recording.duration)
-                : []}
-              onCurrentTimeSecChange={updateSharedTimelineTimeSec}
+              projectVersion={projectVersion}
             />
             </>
           ) : activeAppView === 'ai' ? (

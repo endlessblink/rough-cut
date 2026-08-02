@@ -1,5 +1,4 @@
 import React from 'react';
-import { StyledVideoPreview, type StyledPreviewProject } from './styled-video-preview';
 
 type FreecutUrlResult = {
   ok: boolean;
@@ -7,27 +6,56 @@ type FreecutUrlResult = {
   reason?: string;
 };
 
-export type FreecutProgramProject = StyledPreviewProject & {
-  document: StyledPreviewProject['document'] & { id?: string };
-};
-
 type FreecutEditorSurfaceProps = {
   projectId: string | null;
-  project: FreecutProgramProject | null;
-  currentTimeSec: number;
-  cutRanges: Array<{ id: string; startFrame: number; endFrame: number }>;
-  onCurrentTimeSecChange: (seconds: number) => void;
+  projectVersion?: number;
 };
 
-export function FreecutEditorSurface({
-  projectId,
-  project,
-  currentTimeSec,
-  cutRanges,
-  onCurrentTimeSecChange,
-}: FreecutEditorSurfaceProps) {
+type FreecutReadyMessage = {
+  type: 'freecut-ready';
+  marker?: { version?: string; embedded?: boolean; buildHash?: string; projectVersion?: number };
+  projectId?: string | null;
+  projectVersion?: number;
+};
+
+type FreecutCommandMessage = {
+  type: 'freecut-command';
+  command?: { opId?: string; projectId?: string; payload?: { project?: { id?: string } } };
+};
+
+export function FreecutEditorSurface({ projectId, projectVersion = 0 }: FreecutEditorSurfaceProps) {
   const [result, setResult] = React.useState<FreecutUrlResult | null>(null);
-  const [mode, setMode] = React.useState<'program' | 'source'>('program');
+  const [ready, setReady] = React.useState(false);
+  const [marker, setMarker] = React.useState<FreecutReadyMessage['marker']>(undefined);
+  const frameRef = React.useRef<HTMLIFrameElement>(null);
+
+  React.useEffect(() => {
+    setReady(false);
+    setMarker(undefined);
+    const onMessage = (event: MessageEvent<FreecutReadyMessage | FreecutCommandMessage>) => {
+      if (event.source !== frameRef.current?.contentWindow) return;
+      if (event.data?.type === 'freecut-command') {
+        const command = event.data.command;
+        if (!ready || command?.projectId !== projectId || command.payload?.project?.id !== projectId) return;
+        void window.roughCut.applyFreecutCommand(command as unknown as Record<string, unknown>).then((ack) => {
+          frameRef.current?.contentWindow?.postMessage({ type: 'freecut-command-ack', ...ack }, '*');
+        });
+        return;
+      }
+      if (event.data?.type !== 'freecut-ready') return;
+      const marker = event.data.marker;
+      if (
+        marker?.embedded !== true
+        || marker.version !== 'vendored-freecut-1'
+        || event.data.projectId !== projectId
+        || event.data.projectVersion !== projectVersion
+      ) return;
+      setMarker(marker);
+      setReady(true);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [projectId, ready]);
 
   React.useEffect(() => {
     if (!projectId) {
@@ -54,33 +82,26 @@ export function FreecutEditorSurface({
 
   if (result?.ok && result.url) {
     return (
-      <section className={`freecutEditorSurface freecutEditorSurface-${mode}`} data-ui-region="freecut-editor-surface" aria-label="FreeCut editor">
-        <div className="freecutEditorModeBar" role="tablist" aria-label="FreeCut editor view">
-          <button type="button" role="tab" aria-selected={mode === 'program'} onClick={() => setMode('program')}>Program</button>
-          <button type="button" role="tab" aria-selected={mode === 'source'} onClick={() => setMode('source')}>Source</button>
-          <span>{mode === 'program' ? 'Rough Cut program preview' : 'FreeCut native canvas'}</span>
-        </div>
-        {mode === 'program' && project ? (
-          <div className="freecutProgramWorkspace">
-            <div className="freecutProgramMonitor" data-ui-region="freecut-program-monitor" aria-label="Rough Cut program preview">
-              <StyledVideoPreview
-                project={project}
-                seekTimeSec={currentTimeSec}
-                timeMode="timeline"
-                cutRanges={cutRanges}
-                onCurrentTimeChange={onCurrentTimeSecChange}
-                showControls
-              />
-            </div>
-          </div>
-        ) : (
-          <iframe
-            className="freecutEditorFrame"
-            title="FreeCut editor"
-            src={result.url}
-            allow="clipboard-read; clipboard-write"
-          />
-        )}
+      <section
+        className="freecutEditorSurface"
+        data-ui-region="freecut-editor-surface"
+        data-freecut-project-id={projectId ?? ''}
+        data-freecut-marker-version={marker?.version ?? ''}
+        data-freecut-build-hash={marker?.buildHash ?? ''}
+        data-freecut-project-version={String(projectVersion)}
+        data-freecut-ready={ready ? 'true' : 'false'}
+        aria-label="FreeCut editor"
+      >
+        <iframe
+          ref={frameRef}
+          className="freecutEditorFrame"
+          title="FreeCut editor"
+          data-freecut-embed="vendored"
+          data-freecut-ready={ready ? 'true' : 'false'}
+          src={`${result.url}${result.url.includes('?') ? '&' : '?'}hostVersion=${projectVersion}`}
+          allow="clipboard-read; clipboard-write"
+        />
+        {!ready ? <div className="freecutEditorSurfaceStatus" data-freecut-readiness="waiting">Loading FreeCut editor…</div> : null}
       </section>
     );
   }

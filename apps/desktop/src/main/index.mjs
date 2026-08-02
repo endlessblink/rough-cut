@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
@@ -45,7 +46,48 @@ import {
   setApiKey as setAiApiKey,
 } from './ai-service.mjs';
 
+const ownsSingleInstance = app.requestSingleInstanceLock();
+if (!ownsSingleInstance) {
+  app.quit();
+  process.exit(0);
+}
+
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('disable-http-cache');
+}
+
+if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
+  app.setDesktopName('@rough-cut/desktop');
+}
+
+app.on('second-instance', () => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  }
+});
+
 const runtimeLogPath = installRuntimeLog();
+const dockProvenancePath = '/tmp/rough-cut-dock-provenance.json';
+
+function recordDockProvenance() {
+  const launchSource = process.env.ROUGH_CUT_DOCK_LAUNCH === '1'
+    ? 'installed-desktop-entry'
+    : 'unknown';
+  const provenance = {
+    version: 1,
+    launchSource,
+    pid: process.pid,
+    parentPid: process.ppid,
+    executable: process.execPath,
+    appPath: app.getAppPath(),
+    startedAt: new Date().toISOString(),
+  };
+  writeFileSync(dockProvenancePath, `${JSON.stringify(provenance)}\n`, 'utf8');
+  console.info(`[startup] provenance source=${launchSource} pid=${process.pid} path=${dockProvenancePath}`);
+  return provenance;
+}
 
 configurePreviewGpuCommandLine();
 
@@ -434,10 +476,14 @@ function waitForRendererLoad(webContents, timeoutMs = 30000) {
 // Editor windows always mount the editor surface; recorder windows keep the
 // dedicated capture surface.
 function rendererInitialView({ mode, projectPath = null }) {
+  const forcedView = process.env.ROUGH_CUT_STARTUP_VIEW?.trim();
+  if (forcedView === 'recording' || forcedView === 'projects' || forcedView === 'editor' || forcedView === 'nle' || forcedView === 'ai') {
+    return forcedView;
+  }
   if (mode === 'recorder') return null;
   if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_NLE === '1') return 'nle';
   if (projectPath) return 'nle';
-  return 'projects';
+  return mode === 'editor' || mode === 'freecut' ? 'nle' : 'projects';
 }
 
 function webglScreenLayerEnabled() {
@@ -524,6 +570,12 @@ function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
   const search = rendererSearch({ mode, projectPath });
   const shouldLoadBuiltRenderer = process.env.ROUGH_CUT_LOAD_BUILT_RENDERER === '1' || process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH;
   const initialView = rendererInitialView({ mode, projectPath });
+
+  if (app.isPackaged || process.env.ROUGH_CUT_DOCK_LAUNCH === '1') {
+    window.webContents.once('did-finish-load', () => {
+      if (!window.isDestroyed()) window.webContents.reloadIgnoringCache();
+    });
+  }
 
   if (process.env.VITE_DEV_SERVER_URL) {
     const url = new URL(process.env.VITE_DEV_SERVER_URL);
@@ -619,6 +671,23 @@ ipcMain.handle(IPC_CHANNELS.APP_GET_FREECUT_URL, (_event, projectId = null) => g
 ipcMain.handle(IPC_CHANNELS.APP_OPEN_FREECUT_EDITOR, (event) => {
   const parent = BrowserWindow.fromWebContents(event.sender);
   return openFreecutEditor({ app, parent, host: freecutHost });
+});
+ipcMain.handle(IPC_CHANNELS.APP_APPLY_FREECUT_COMMAND, async (_event, command = {}) => {
+  if (!command || typeof command !== 'object') return { ok: false, reason: 'invalid-command' };
+  const project = command.payload?.project;
+  if (!project || typeof project !== 'object') return { ok: false, reason: 'missing-project' };
+  if (typeof command.opId !== 'string' || typeof command.projectId !== 'string') return { ok: false, reason: 'missing-command-identity' };
+  if (project.id !== command.projectId) return { ok: false, reason: 'project-id-mismatch' };
+  try {
+    await freecutHost.saveProject(project);
+    const projectVersion = Date.now();
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PROJECT_UPDATED, { projectId: project.id, projectVersion });
+    }
+    return { ok: true, opId: command.opId, projectVersion };
+  } catch (error) {
+    return { ok: false, opId: command.opId, reason: error instanceof Error ? error.message : String(error) };
+  }
 });
 ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
@@ -1361,7 +1430,20 @@ async function openDockStartup({ startupMode, startupProjectPath }) {
   createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
 }
 
+async function resolveDockStartupProject(explicitProjectPath) {
+  if (explicitProjectPath) return explicitProjectPath;
+  const summaries = await listProjectSummaries({
+    dir: recordingsDir,
+    onError: (error) => console.warn('[startup] skipping unreadable project', error),
+  }).catch((error) => {
+    console.warn('[startup] could not list projects', error);
+    return [];
+  });
+  return summaries[0]?.path ?? null;
+}
+
 app.whenReady().then(() => {
+  recordDockProvenance();
   registerMediaProtocol();
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media');
@@ -1370,19 +1452,28 @@ app.whenReady().then(() => {
     void runMainProcessHeadlessExportSmoke();
     return;
   }
-  const startupProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
-  const startupMode = process.env.ROUGH_CUT_STARTUP_MODE === 'freecut'
-    ? 'freecut'
-    : process.env.ROUGH_CUT_STARTUP_MODE === 'editor'
-      || process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1'
-      || startupProjectPath
-      ? 'editor'
-      : 'recorder';
-  console.info(`[startup] mode=${startupMode} requested=${process.env.ROUGH_CUT_STARTUP_MODE ?? 'default'}`);
-  void openDockStartup({ startupMode, startupProjectPath });
+  const requestedProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
+  const startupProjectPathPromise = resolveDockStartupProject(requestedProjectPath);
+  const requestedMode = process.env.ROUGH_CUT_STARTUP_MODE;
+  void startupProjectPathPromise.then((startupProjectPath) => {
+    const startupMode = requestedMode === 'freecut'
+      ? 'freecut'
+      : requestedMode === 'editor'
+        || process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1'
+        || startupProjectPath
+        ? 'editor'
+        : 'recorder';
+    console.info(`[startup] mode=${startupMode} requested=${requestedMode ?? 'default'} project=${startupProjectPath ?? 'none'}`);
+    return openDockStartup({ startupMode, startupProjectPath });
+  });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) void openDockStartup({ startupMode, startupProjectPath });
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void startupProjectPathPromise.then((startupProjectPath) => openDockStartup({
+        startupMode: requestedMode === 'freecut' ? 'freecut' : 'editor',
+        startupProjectPath,
+      }));
+    }
   });
 });
 

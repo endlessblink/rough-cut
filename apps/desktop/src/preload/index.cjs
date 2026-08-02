@@ -7,12 +7,14 @@ const IPC_CHANNELS = {
   APP_GET_FREECUT_STATUS: 'app:get-freecut-status',
   APP_GET_FREECUT_URL: 'app:get-freecut-url',
   APP_OPEN_FREECUT_EDITOR: 'app:open-freecut-editor',
+  APP_APPLY_FREECUT_COMMAND: 'app:apply-freecut-command',
   APP_SET_WINDOW_PROFILE: 'app:set-window-profile',
   APP_WRITE_PLAYBACK_DEBUG_REPORT: 'app:write-playback-debug-report',
   SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
   SHELL_OPEN_PATH: 'shell:open-path',
   PROJECT_OPEN: 'project:open',
   PROJECT_OPEN_PATH: 'project:open-path',
+  PROJECT_UPDATED: 'project:updated',
   PROJECT_SAVE: 'project:save',
   LIBRARY_PICK_IMPORT_FILE: 'library:pick-import-file',
   LIBRARY_CREATE_FROM_IMPORT: 'library:create-from-import',
@@ -81,6 +83,7 @@ contextBridge.exposeInMainWorld('roughCut', {
   getFreecutStatus: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_FREECUT_STATUS),
   getFreecutEditorUrl: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_FREECUT_URL, projectId ?? null),
   openFreecutEditor: () => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_FREECUT_EDITOR),
+  applyFreecutCommand: (command) => ipcRenderer.invoke(IPC_CHANNELS.APP_APPLY_FREECUT_COMMAND, command),
   setWindowProfile: (profile) => ipcRenderer.invoke(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, profile),
   writePlaybackDebugReport: (report) => ipcRenderer.invoke(IPC_CHANNELS.APP_WRITE_PLAYBACK_DEBUG_REPORT, report),
   showItemInFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, path),
@@ -145,6 +148,11 @@ contextBridge.exposeInMainWorld('roughCut', {
   resolveAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_RESOLVE, payload),
   openProject: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN),
   openProjectPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN_PATH, path),
+  onProjectUpdated: (callback) => {
+    const listener = (_event, update) => callback(update);
+    ipcRenderer.on(IPC_CHANNELS.PROJECT_UPDATED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_UPDATED, listener);
+  },
   saveProject: (project) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE, project),
   pickImportFile: () => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_PICK_IMPORT_FILE),
   createProjectFromImport: (payload) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CREATE_FROM_IMPORT, payload),

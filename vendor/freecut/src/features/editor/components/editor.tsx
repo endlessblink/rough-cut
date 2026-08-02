@@ -514,9 +514,19 @@ export const LoadedEditor = memo(function LoadedEditor({
       }
     })()
 
+    const handleRoughCutProjectUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail
+      if (detail?.projectId !== projectId || useTimelineStore.getState().isDirty) return
+      void useTimelineStore.getState().loadTimeline(projectId, { allowProjectUpgrade: true }).catch((error) => {
+        logger.error('Failed to apply live Rough Cut project update:', error)
+      })
+    }
+    window.addEventListener('rough-cut-project-updated', handleRoughCutProjectUpdate)
+
     // Cleanup: clear project context, stop playback, and release blob URLs when leaving editor
     return () => {
       cancelled = true
+      window.removeEventListener('rough-cut-project-updated', handleRoughCutProjectUpdate)
       const cleanupPlaybackStore = usePlaybackStore.getState()
       cleanupPlaybackStore.setPreviewFrame(null)
       useMediaLibraryStore.getState().setCurrentProject(null)

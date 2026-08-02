@@ -239,7 +239,10 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
         from: numberOr(clip.timelineIn, 0),
         durationInFrames: Math.max(1, numberOr(clip.timelineOut, 1) - numberOr(clip.timelineIn, 0)),
         label: clip.name || basename(asset.filePath ?? 'Media'),
-        mediaId: isPrimaryVideo ? styledProgram.mediaId : asset.id,
+        mediaId: asset.id,
+        ...(isPrimaryVideo ? {
+          src: `/__rough_cut__/media/${encodeURIComponent(document.id)}/${encodeURIComponent(styledProgram.mediaId)}`,
+        } : {}),
         type,
         sourceStart: numberOr(clip.sourceIn, 0),
         sourceEnd: numberOr(clip.sourceOut, numberOr(asset.duration, 1)),
@@ -247,6 +250,8 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
         sourceFps: fps,
         volume: clip.volume,
         transform: clip.transform,
+        effects: clip.effects ?? [],
+        keyframes: clip.keyframes ?? [],
       });
     }
     return {
@@ -281,26 +286,6 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     updatedAt: Date.parse(document.modifiedAt ?? '') || Date.now(),
   }));
 
-  if (styledProgram) {
-    media.unshift({
-      id: styledProgram.mediaId,
-      storageType: 'workspace',
-      roughCutUrl: `/__rough_cut__/media/${encodeURIComponent(document.id)}/${encodeURIComponent(styledProgram.mediaId)}`,
-      fileName: `${basename(document.name || 'rough-cut')}-program.mp4`,
-      fileSize: 0,
-      mimeType: 'video/mp4',
-      duration: numberOr(document.composition?.duration, 0) / fps,
-      width: numberOr(document.settings?.resolution?.width, 1920),
-      height: numberOr(document.settings?.resolution?.height, 1080),
-      fps,
-      codec: 'h264',
-      bitrate: 0,
-      tags: ['Rough Cut program'],
-      createdAt: Date.parse(document.createdAt ?? '') || Date.now(),
-      updatedAt: Date.parse(document.modifiedAt ?? '') || Date.now(),
-    });
-  }
-
   return {
     id: document.id,
     name: document.name || 'Untitled',
@@ -318,8 +303,10 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     timeline: {
       tracks: freecutTracks,
       items,
-      transitions: [],
-      keyframes: [],
+      transitions: document.composition?.transitions ?? [],
+      keyframes: items
+        .filter((item) => Array.isArray(item.keyframes) && item.keyframes.length > 0)
+        .map((item) => ({ itemId: item.id, properties: item.keyframes })),
       markers: [],
       inPoint: null,
       outPoint: null,
@@ -328,8 +315,6 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
       zoomLevel: 1,
     },
     roughCutPath,
-    roughCutProgramMediaId: styledProgram?.mediaId ?? null,
-    roughCutProgramSourceAssetId: styledProgram?.sourceAssetId ?? null,
     roughCutAssets: assets.map((asset) => ({ id: asset.id, filePath: asset.filePath })),
     media,
   };
@@ -344,19 +329,17 @@ export function fromFreecutProject(project, original) {
       .map((item) => ({
         ...(originalTrack.clips?.find((candidate) => candidate.id === item.id) ?? {}),
         id: item.id,
-        assetId: item.mediaId === project.roughCutProgramMediaId
-          ? project.roughCutProgramSourceAssetId
-          : item.mediaId,
+        assetId: item.mediaId,
         trackId: track.id,
         name: item.label,
-        enabled: true,
+        enabled: item.enabled !== false,
         timelineIn: numberOr(item.from, 0),
         timelineOut: numberOr(item.from, 0) + numberOr(item.durationInFrames, 1),
         sourceIn: numberOr(item.sourceStart, 0),
         sourceOut: numberOr(item.sourceEnd, numberOr(item.sourceStart, 0) + numberOr(item.durationInFrames, 1)),
         transform: item.transform,
-        effects: [],
-        keyframes: [],
+        effects: item.effects ?? originalTrack.clips?.find((candidate) => candidate.id === item.id)?.effects ?? [],
+        keyframes: item.keyframes ?? originalTrack.clips?.find((candidate) => candidate.id === item.id)?.keyframes ?? [],
         ...(item.volume === undefined ? {} : { volume: item.volume }),
       }));
     return {
@@ -379,6 +362,7 @@ export function fromFreecutProject(project, original) {
       ...original.composition,
       duration: numberOr(project.duration, original.composition?.duration ?? 0),
       tracks,
+      transitions: timeline.transitions ?? original.composition?.transitions ?? [],
     },
   };
 }

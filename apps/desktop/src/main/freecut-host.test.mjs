@@ -189,3 +189,48 @@ test('FreeCut host saves timeline edits back without dropping Rough Cut fields',
   assert.equal(saved.composition.tracks[0].clips[0].timelineIn, 10);
   assert.equal(saved.composition.tracks[0].clips[0].sourceOut, 22);
 });
+
+test('FreeCut uses shared source assets and preserves compositor timeline metadata', () => {
+  const transitions = [{
+    id: 'transition-1', type: 'crossfade', clipAId: 'clip-a', clipBId: 'clip-b',
+    duration: 12, params: { curve: 'smooth' }, easing: 'ease-in-out',
+  }];
+  const effects = [{
+    id: 'effect-1', effectType: 'blur', enabled: true, params: { radius: 4 }, keyframes: [],
+  }];
+  const keyframes = [{
+    property: 'opacity', keyframes: [{ frame: 0, value: 1, easing: 'linear' }],
+  }];
+  const original = {
+    id: 'project',
+    name: 'Shared project',
+    assets: [{ id: 'asset', filePath: '/tmp/video.mp4', duration: 100 }],
+    composition: {
+      duration: 100,
+      tracks: [{
+        id: 'track', type: 'video', name: 'Video', index: 0, clips: [{
+          id: 'clip-a', assetId: 'asset', trackId: 'track', timelineIn: 0, timelineOut: 100,
+          sourceIn: 0, sourceOut: 100, effects, keyframes,
+        }],
+      }],
+      transitions,
+    },
+    settings: { resolution: { width: 1920, height: 1080 }, frameRate: 30 },
+  };
+  const freecut = toFreecutProject(original, '/tmp/project.roughcut', {
+    mediaId: 'asset__program',
+    sourceAssetId: 'asset',
+  });
+
+  assert.equal(freecut.timeline.items[0].mediaId, 'asset');
+  assert.match(freecut.timeline.items[0].src, /__rough_cut__\/media\/project\/asset__program/);
+  assert.equal(freecut.media.some((item) => item.id.endsWith('__program')), false);
+  assert.deepEqual(freecut.timeline.transitions, transitions);
+  assert.deepEqual(freecut.timeline.items[0].effects, effects);
+  assert.deepEqual(freecut.timeline.items[0].keyframes, keyframes);
+
+  const saved = fromFreecutProject(freecut, original);
+  assert.deepEqual(saved.composition.transitions, transitions);
+  assert.deepEqual(saved.composition.tracks[0].clips[0].effects, effects);
+  assert.deepEqual(saved.composition.tracks[0].clips[0].keyframes, keyframes);
+});

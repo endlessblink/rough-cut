@@ -16,7 +16,7 @@ const reason = [
   `Visual proof blocked — failed: ${result.reason}.`,
   'Why: proof must match the current UI source, packaged app, screenshot, and full checklist.',
   'Fix: launch the packaged Rough Cut from the dock, capture and inspect a screenshot, then run',
-  'node scripts/record-ui-visual-proof.mjs <screenshot> "<checklist findings>"',
+  'node scripts/record-ui-visual-proof.mjs <screenshot> <review.json>',
 ].join(' ');
 
 process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
