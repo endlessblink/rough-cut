@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createAsset, createClip, createProject, createTrack } from '../../../../packages/project-model/dist/index.js';
-import { createFreecutHost, describeStyledProgram, fromFreecutProject, toFreecutProject } from './freecut-host.mjs';
+import { createFreecutHost, describeStyledProgram, findCompletedStyledCache, fromFreecutProject, toFreecutProject } from './freecut-host.mjs';
 import { saveProjectFile } from './project-files.mjs';
 
 test('FreeCut host exposes Rough Cut projects, tracks, clips, and media URLs', async () => {
@@ -75,6 +75,34 @@ test('a settings edit produces a different styled render', () => {
   const before = describeStyledProgram(styledKeyFixture, '/tmp/p.roughcut');
   const edited = { ...styledKeyFixture, settings: { frameRate: 60 } };
   assert.notEqual(before.outputPath, describeStyledProgram(edited, '/tmp/p.roughcut').outputPath);
+});
+
+// ---------------------------------------------------------------------------
+// The fingerprint above only invalidates if the lookup respects it. This scan
+// used to fall back to "newest <projectId>-*-web.mp4 regardless of fingerprint",
+// which defeated invalidation entirely: a real project was serving the Editor a
+// render from a different edit state, days old, and would have forever.
+// ---------------------------------------------------------------------------
+
+test('a render from a different edit state is not served', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'freecut-cache-'));
+  await writeFile(join(dir, 'proj-1-aaaaaaaaaaaaaaaa-web.mp4'), 'stale render');
+  const wanted = join(dir, 'proj-1-bbbbbbbbbbbbbbbb-web.mp4');
+  assert.equal(await findCompletedStyledCache(wanted, 'proj-1'), null);
+});
+
+test('the render matching the current edit state is served', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'freecut-cache-'));
+  const wanted = join(dir, 'proj-1-bbbbbbbbbbbbbbbb-web.mp4');
+  await writeFile(wanted, 'current render');
+  assert.equal(await findCompletedStyledCache(wanted, 'proj-1'), wanted);
+});
+
+test('an empty render file is not treated as a cache hit', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'freecut-cache-'));
+  const wanted = join(dir, 'proj-1-bbbbbbbbbbbbbbbb-web.mp4');
+  await writeFile(wanted, '');
+  assert.equal(await findCompletedStyledCache(wanted, 'proj-1'), null);
 });
 
 // ---------------------------------------------------------------------------

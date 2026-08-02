@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
-import { mkdir, open, readFile, readdir, rename, stat, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { listRecordingProjectPaths } from './project-gallery.mjs';
 import { openProjectFile, saveProjectFile, validateProjectPath } from './project-files.mjs';
 import { exportProjectToMp4, EXPORT_MODES } from './export-service.mjs';
@@ -452,22 +452,15 @@ async function ensureStyledProgram(document, roughCutPath, {
   return produced ? hit : null;
 }
 
-async function findCompletedStyledCache(outputPath, projectId) {
+// Only the render whose fingerprint matches the current project state counts as a
+// hit. This used to fall back to the newest `<projectId>-*-web.mp4` in the folder
+// regardless of fingerprint, which defeated invalidation completely: the Editor
+// kept playing a render from an older edit state indefinitely, because every edit
+// produced a fingerprint whose file did not exist while a stale one always did.
+// `projectId` is retained so both call sites stay unchanged.
+export async function findCompletedStyledCache(outputPath, _projectId) {
   const exact = await stat(outputPath).catch(() => null);
-  if (exact?.isFile() && exact.size > 0) return outputPath;
-
-  const directory = dirname(outputPath);
-  const prefix = `${projectId}-`;
-  const names = await readdir(directory).catch(() => []);
-  const candidates = [];
-  for (const name of names) {
-    if (!name.startsWith(prefix) || !name.endsWith('-web.mp4') || name.includes('.partial-')) continue;
-    const candidatePath = join(directory, name);
-    const info = await stat(candidatePath).catch(() => null);
-    if (info?.isFile() && info.size > 0) candidates.push({ path: candidatePath, mtimeMs: info.mtimeMs });
-  }
-  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
-  return candidates[0]?.path ?? null;
+  return exact?.isFile() && exact.size > 0 ? outputPath : null;
 }
 
 // The fingerprint is a cache key for a full-length ffmpeg export, so it must
