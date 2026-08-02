@@ -186,19 +186,13 @@ export function createFreecutHost({
           if (!info?.isFile()) return null;
           return { path: styledProgram.path, size: info.size, mimeType: 'video/mp4' };
         }
-        if (assetId.endsWith('__program')) {
-          const sourceAssetId = assetId.slice(0, -'__program'.length);
-          const sourceAsset = opened.document.assets?.find((candidate) => candidate.id === sourceAssetId);
-          if (sourceAsset?.filePath) {
-            const resolvedPath = isAbsolute(sourceAsset.filePath)
-              ? resolve(sourceAsset.filePath)
-              : resolve(dirname(path), sourceAsset.filePath);
-            const info = await stat(resolvedPath).catch(() => null);
-            if (info?.isFile() && info.size > 1024 * 1024) {
-              return { path: resolvedPath, size: info.size, mimeType: mimeTypeFor(resolvedPath) };
-            }
-          }
-        }
+        // A program request that has no finished render resolves to nothing. It
+        // must never fall back to the raw source: that is the unstyled recording
+        // with no camera PiP, zoom or cursor, and a <video> element handed the
+        // raw file never re-requests, so the Editor would stay wrong for the
+        // whole session. The background render was already kicked off above.
+        if (assetId.endsWith('__program')) return null;
+
         const asset = opened.document.assets?.find((candidate) => candidate.id === assetId);
         if (!asset?.filePath) return null;
         const resolvedPath = isAbsolute(asset.filePath)

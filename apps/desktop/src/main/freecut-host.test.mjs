@@ -226,6 +226,60 @@ test('a lock held by a live process blocks a second render rather than duplicati
   assert.equal(calls.length, renders, 'no second render may start while the lock is held');
 });
 
+// ---------------------------------------------------------------------------
+// Asking for the styled program and receiving the raw recording is not a
+// graceful fallback — it is silently the wrong picture: unstyled, no camera
+// PiP, no zoom, no cursor. A <video> that has already been handed the raw file
+// never asks again, so the Editor stays wrong for the whole session.
+//
+// The 1MB floor in the old fallback means this only reproduces with a large
+// source file; the 7-byte fixture above never tripped it.
+// ---------------------------------------------------------------------------
+
+async function largeSourceFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-rawfallback-'));
+  const mediaPath = join(root, 'recording.mp4');
+  await writeFile(mediaPath, Buffer.alloc(2 * 1024 * 1024, 1));
+  const projectPath = join(root, 'demo.roughcut');
+  const asset = createAsset('recording', mediaPath, {
+    duration: 90,
+    metadata: { width: 1920, height: 1080, fps: 30 },
+  });
+  const track = createTrack('video', { name: 'Screen Recording', index: 0 });
+  const clip = createClip(asset.id, track.id, {
+    timelineIn: 0, timelineOut: 90, sourceIn: 0, sourceOut: 90,
+  });
+  const document = createProject({
+    id: 'rough-cut-rawfallback',
+    name: 'Raw fallback project',
+    assets: [asset],
+    composition: { duration: 90, tracks: [{ ...track, clips: [clip] }], transitions: [] },
+  });
+  await saveProjectFile(projectPath, document);
+
+  const host = createFreecutHost({
+    recordingsDir: root,
+    allowedRoots: [root],
+    // Produces no file: reproduces "the styled render is not ready yet"
+    // without ever spawning ffmpeg.
+    async exportStyledProgram() {},
+  });
+  host.registerProjectPath(projectPath);
+  return { host, document, asset, mediaPath };
+}
+
+test('an unfinished styled program resolves to nothing, never the raw recording', async () => {
+  const { host, document, asset } = await largeSourceFixture();
+  const served = await host.resolveMedia(document.id, `${asset.id}__program`);
+  assert.equal(served, null, 'the Editor must wait rather than play unstyled footage');
+});
+
+test('a raw asset requested by its own id still resolves', async () => {
+  const { host, document, asset, mediaPath } = await largeSourceFixture();
+  const served = await host.resolveMedia(document.id, asset.id);
+  assert.equal(served?.path, mediaPath);
+});
+
 test('FreeCut host saves timeline edits back without dropping Rough Cut fields', () => {
   const original = {
     id: 'project',
