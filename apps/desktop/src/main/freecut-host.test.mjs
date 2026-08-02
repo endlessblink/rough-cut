@@ -318,6 +318,58 @@ test('the Editor is seeded with the program alone, not program plus raw camera',
   assert.match(fc.timeline.items[0].src, /__rough_cut__\/media\/p1\/screen__program/);
 });
 
+test('the collapsed feed leaves no empty camera track beside it', () => {
+  const doc = {
+    id: 'p1',
+    settings: { frameRate: 30 },
+    assets: [
+      { id: 'screen', type: 'recording', filePath: '/tmp/s.mkv', duration: 300 },
+      { id: 'camera', type: 'video', filePath: '/tmp/c.mkv', duration: 300 },
+    ],
+    composition: {
+      duration: 300,
+      tracks: [
+        { id: 't1', type: 'video', clips: [{ id: 'c1', assetId: 'screen', timelineIn: 0, timelineOut: 300 }] },
+        { id: 't2', type: 'video', clips: [{ id: 'c2', assetId: 'camera', timelineIn: 0, timelineOut: 300 }] },
+      ],
+      transitions: [],
+    },
+  };
+  const styled = { mediaId: 'screen__program', outputPath: '/tmp/x.mp4', sourceAssetId: 'screen' };
+  const fc = toFreecutProject(doc, '/tmp/p.roughcut', styled);
+  assert.equal(fc.timeline.tracks.length, 1, 'the emptied camera track must not be sent');
+});
+
+// The camera and audio are baked into the rendered program, so the collapsed
+// timeline has no items for them. Mapping its tracks back to the composition
+// would write empty clip lists and delete the camera from the user's project.
+test('saving the collapsed feed does not delete the camera from the project', () => {
+  const original = {
+    id: 'p1',
+    name: 'Original',
+    settings: { frameRate: 30 },
+    assets: [
+      { id: 'screen', type: 'recording', filePath: '/tmp/s.mkv', duration: 300 },
+      { id: 'camera', type: 'video', filePath: '/tmp/c.mkv', duration: 300 },
+    ],
+    composition: {
+      duration: 300,
+      tracks: [
+        { id: 't1', type: 'video', clips: [{ id: 'c1', assetId: 'screen', timelineIn: 0, timelineOut: 300 }] },
+        { id: 't2', type: 'video', clips: [{ id: 'c2', assetId: 'camera', timelineIn: 0, timelineOut: 300 }] },
+      ],
+      transitions: [],
+    },
+  };
+  const styled = { mediaId: 'screen__program', outputPath: '/tmp/x.mp4', sourceAssetId: 'screen' };
+  const collapsed = toFreecutProject(original, '/tmp/p.roughcut', styled);
+
+  const saved = fromFreecutProject(collapsed, original);
+  assert.equal(saved.composition.tracks.length, 2, 'both tracks must survive');
+  assert.equal(saved.composition.tracks[1].clips.length, 1, 'the camera clip must survive');
+  assert.equal(saved.composition.tracks[1].clips[0].assetId, 'camera');
+});
+
 test('without a styled program every clip is still seeded', () => {
   const doc = {
     id: 'p1',

@@ -136,12 +136,14 @@ export function createFreecutHost({
       for (const path of paths) {
         try {
           const opened = await openProjectFile(path);
-          // The selected project is registered by Rough Cut before the editor
-          // loads; keep the project gallery responsive by deferring expensive
-          // program renders for unopened historical projects.
-          const styledProgram = registeredProjectPaths.has(resolve(path))
-            ? describeStyledProgram(opened.document, path)
-            : null;
+          // Every project describes its program, not just the one Rough Cut has
+          // registered. Gating this meant only the currently-open project was
+          // collapsed to a single feed; every other project reached the Editor
+          // as separate raw screen and camera clips on separate tracks.
+          // This stays cheap — describeStyledProgram only hashes the document.
+          // The expensive render is still deferred: it is triggered by
+          // resolveMedia when the program is actually requested for playback.
+          const styledProgram = describeStyledProgram(opened.document, path);
           const project = toFreecutProject(opened.document, path, styledProgram);
           projects.push(project);
           const transcript = toFreecutTranscript(opened.document, project);
@@ -314,7 +316,12 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     // exactly this object. The composition mapping below is the seed for a
     // project FreeCut has never opened.
     timeline: hasStoredFreecutTimeline(document) ? document.freecutTimeline : {
-      tracks: freecutTracks,
+      // With the program collapsed to one item, every other track is empty —
+      // its source is baked into the program. Emitting them anyway put a stray
+      // empty "Camera" track beside the feed in the Editor.
+      tracks: styledProgram
+        ? freecutTracks.filter((track) => items.some((item) => item.trackId === track.id))
+        : freecutTracks,
       items,
       transitions: document.composition?.transitions ?? [],
       keyframes: items
@@ -333,8 +340,30 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
   };
 }
 
+// True when the Editor is showing the collapsed program feed: one item whose
+// source is the rendered program. FreeCut preserves a /__rough_cut__/ src
+// verbatim, so this marker survives the round trip.
+function isProgramCollapsedTimeline(timeline) {
+  return (timeline?.items ?? []).some(
+    (item) => typeof item?.src === 'string' && item.src.includes('__program'),
+  );
+}
+
 export function fromFreecutProject(project, original) {
   const timeline = project?.timeline;
+
+  // A collapsed program timeline is NOT a representation of the Rough Cut
+  // composition: the camera and audio are baked into the rendered program and
+  // have no items of their own. Rebuilding tracks from it would map those to
+  // empty clip lists and delete the camera from the user's project. Keep the
+  // composition exactly as it was and store the Editor's timeline alongside it.
+  if (isProgramCollapsedTimeline(timeline)) {
+    return {
+      ...original,
+      name: project.name || original.name,
+      freecutTimeline: timeline,
+    };
+  }
   const tracks = (timeline?.tracks ?? []).map((track, index) => {
     const originalTrack = original.composition?.tracks?.find((candidate) => candidate.id === track.id) ?? {};
     const clips = (timeline?.items ?? [])
