@@ -847,6 +847,14 @@ export const ProjectDocumentSchema = z.object({
   captionTracks: z.array(CaptionTrackSchema).optional(),
   tracks: z.array(NleTrackSchema).optional(),
   timeline: SharedTimelineSchema,
+  // The advanced Editor's own timeline, stored verbatim. Rough Cut's element
+  // vocabulary is a closed set (see TimelineEffectSchema) with no text, title or
+  // transition, so elements added in the Editor have nowhere to live in
+  // `composition` and were being silently deleted on save. Deliberately
+  // unvalidated: its shape belongs to the vendored editor, and Rough Cut must
+  // not need to understand a title in order to avoid destroying it.
+  // Optional so every existing project still validates.
+  freecutTimeline: z.unknown().optional(),
 });
 
 /**

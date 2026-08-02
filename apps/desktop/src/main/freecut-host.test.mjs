@@ -280,6 +280,99 @@ test('a raw asset requested by its own id still resolves', async () => {
   assert.equal(served?.path, mediaPath);
 });
 
+// ---------------------------------------------------------------------------
+// Rough Cut's element vocabulary is a closed set (cursor, click, camera-pip,
+// zoom, annotation, stabilization) with no text, title or transition, so
+// rebuilding the timeline from the composition silently deleted anything the
+// Editor added. Measured on a real project: title text, element id and marker
+// all gone; only an empty track survived.
+//
+// A side-car region is not enough. FreeCut's hydrateTimelineStoresFromProject
+// rebuilds its stores from project.timeline.tracks/.items, so if we kept
+// regenerating that from the composition the title would vanish on next open
+// regardless. The stored FreeCut timeline has to be authoritative for
+// tracks/items; the composition only seeds a project FreeCut never opened.
+// ---------------------------------------------------------------------------
+
+test('an element added in the Editor survives a save and reload', () => {
+  const original = {
+    id: 'p1',
+    settings: { frameRate: 30 },
+    assets: [],
+    composition: { duration: 300, tracks: [], transitions: [] },
+  };
+  const edited = {
+    id: 'p1',
+    duration: 300,
+    timeline: {
+      tracks: [{ id: 'titles', name: 'Titles', kind: 'video', order: 0 }],
+      items: [{
+        id: 'title-1', trackId: 'titles', type: 'text',
+        from: 0, durationInFrames: 60, label: 'MY NEW TITLE', text: 'Hello',
+      }],
+      markers: [{ id: 'm1', frame: 30, label: 'note' }],
+      transitions: [],
+    },
+  };
+
+  const saved = fromFreecutProject(edited, original);
+  const flat = JSON.stringify(saved);
+  assert.ok(flat.includes('MY NEW TITLE'), 'title text must survive the save');
+  assert.ok(flat.includes('title-1'), 'element id must survive the save');
+  assert.ok(flat.includes('"m1"'), 'marker must survive the save');
+
+  const reopened = toFreecutProject(saved, '/tmp/p.roughcut', null);
+  assert.ok(reopened.timeline.items.some((item) => item.id === 'title-1'), 'title must come back on reload');
+  assert.equal(reopened.timeline.markers.length, 1);
+});
+
+// The in-memory round trip above proves the mapping. This proves the field
+// actually survives being written to disk — the project schema strips keys it
+// does not declare, so an undeclared passthrough would vanish on save with the
+// mapping still looking correct in unit tests.
+test('an element added in the Editor survives being written to disk', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-passthrough-'));
+  const projectPath = join(root, 'demo.roughcut');
+  const document = createProject({ id: 'passthrough-demo', name: 'Passthrough demo' });
+  await saveProjectFile(projectPath, document);
+
+  const host = createFreecutHost({ recordingsDir: root, allowedRoots: [root] });
+  host.registerProjectPath(projectPath);
+
+  const freecut = toFreecutProject(document, projectPath);
+  freecut.timeline = {
+    tracks: [{ id: 'titles', name: 'Titles', kind: 'video', order: 0 }],
+    items: [{ id: 'title-1', trackId: 'titles', type: 'text', from: 0, durationInFrames: 60, label: 'MY NEW TITLE' }],
+    markers: [{ id: 'm1', frame: 30, label: 'note' }],
+    transitions: [],
+  };
+  await host.saveProject(freecut);
+
+  const snapshot = await host.getSnapshot();
+  const reopened = snapshot.projects.find((candidate) => candidate.id === document.id);
+  assert.ok(reopened, 'the project must still be readable after the save');
+  assert.ok(
+    reopened.timeline.items.some((item) => item.label === 'MY NEW TITLE'),
+    'the title must come back from disk, not just from memory',
+  );
+});
+
+test('a project FreeCut has never opened is still seeded from the composition', () => {
+  const doc = {
+    id: 'p2',
+    settings: { frameRate: 30 },
+    assets: [{ id: 'screen', type: 'recording', filePath: '/tmp/s.mkv', duration: 300 }],
+    composition: {
+      duration: 300,
+      tracks: [{ id: 't1', type: 'video', clips: [{ id: 'c1', assetId: 'screen', timelineIn: 0, timelineOut: 300 }] }],
+      transitions: [],
+    },
+  };
+  const fc = toFreecutProject(doc, '/tmp/p2.roughcut', null);
+  assert.equal(fc.timeline.items.length, 1);
+  assert.equal(fc.timeline.items[0].mediaId, 'screen');
+});
+
 test('FreeCut host saves timeline edits back without dropping Rough Cut fields', () => {
   const original = {
     id: 'project',

@@ -215,6 +215,13 @@ export function createFreecutHost({
   };
 }
 
+// A stored timeline only counts once it actually has tracks. An empty one means
+// FreeCut has not really opened this project, so the composition should seed it.
+function hasStoredFreecutTimeline(document) {
+  const stored = document?.freecutTimeline;
+  return Boolean(stored && Array.isArray(stored.tracks) && stored.tracks.length > 0);
+}
+
 export function toFreecutProject(document, roughCutPath, styledProgram = null) {
   const fps = numberOr(document.settings?.frameRate, 30);
   const assets = Array.isArray(document.assets) ? document.assets : [];
@@ -294,7 +301,13 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
       fps,
       backgroundColor: document.settings?.backgroundColor ?? '#000000',
     },
-    timeline: {
+    // Once FreeCut has saved, its own timeline is authoritative for tracks and
+    // items — it is the only place elements Rough Cut cannot model (titles,
+    // transitions, effects) exist. Rebuilding from the composition here would
+    // delete them on the next open, because FreeCut hydrates its stores from
+    // exactly this object. The composition mapping below is the seed for a
+    // project FreeCut has never opened.
+    timeline: hasStoredFreecutTimeline(document) ? document.freecutTimeline : {
       tracks: freecutTracks,
       items,
       transitions: document.composition?.transitions ?? [],
@@ -352,11 +365,17 @@ export function fromFreecutProject(project, original) {
   return {
     ...original,
     name: project.name || original.name,
+    // Kept verbatim so nothing the Editor added is lost. Rough Cut only models a
+    // closed set of elements (cursor, click, camera-pip, zoom, annotation,
+    // stabilization), so a title or transition has nowhere to live in the
+    // composition below — mapping alone silently deleted them. Export still
+    // reads the composition; this region is what makes the Editor round-trip.
+    ...(timeline ? { freecutTimeline: timeline } : {}),
     composition: {
       ...original.composition,
       duration: numberOr(project.duration, original.composition?.duration ?? 0),
       tracks,
-      transitions: timeline.transitions ?? original.composition?.transitions ?? [],
+      transitions: timeline?.transitions ?? original.composition?.transitions ?? [],
     },
   };
 }
