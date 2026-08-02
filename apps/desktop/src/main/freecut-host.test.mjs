@@ -35,7 +35,9 @@ test('FreeCut host exposes Rough Cut projects, tracks, clips, and media URLs', a
   const snapshot = await host.getSnapshot();
   assert.equal(snapshot.projects.length, 1);
   assert.equal(snapshot.projects[0].id, document.id);
-  assert.equal(snapshot.projects[0].timeline.items[0].mediaId, asset.id);
+  // Every project now presents its composited program as the clip's media, so
+  // the Editor plays the same picture Recording edit shows.
+  assert.equal(snapshot.projects[0].timeline.items[0].mediaId, `${asset.id}__program`);
   assert.match(snapshot.projects[0].media[0].roughCutUrl, /__rough_cut__\/media/);
   assert.deepEqual(await host.resolveMedia(document.id, asset.id), {
     path: mediaPath,
@@ -314,8 +316,10 @@ test('the Editor is seeded with the program alone, not program plus raw camera',
   const fc = toFreecutProject(doc, '/tmp/p.roughcut', styled);
 
   assert.equal(fc.timeline.items.length, 1, 'the camera must not be drawn a second time');
-  assert.equal(fc.timeline.items[0].mediaId, 'screen');
+  // mediaId, not just src: the preview resolves by id and ignores src.
+  assert.equal(fc.timeline.items[0].mediaId, 'screen__program');
   assert.match(fc.timeline.items[0].src, /__rough_cut__\/media\/p1\/screen__program/);
+  assert.ok(fc.media.some((m) => m.id === 'screen__program'), 'the program must be resolvable media');
 });
 
 test('the collapsed feed leaves no empty camera track beside it', () => {
@@ -540,9 +544,12 @@ test('FreeCut uses shared source assets and preserves compositor timeline metada
     sourceAssetId: 'asset',
   });
 
-  assert.equal(freecut.timeline.items[0].mediaId, 'asset');
+  // The program must be BOTH the item's mediaId and a media-library entry: the
+  // Editor's preview resolves strictly by mediaId and ignores src, so the old
+  // shape (mediaId = raw asset, src = program) silently played the raw screen.
+  assert.equal(freecut.timeline.items[0].mediaId, 'asset__program');
   assert.match(freecut.timeline.items[0].src, /__rough_cut__\/media\/project\/asset__program/);
-  assert.equal(freecut.media.some((item) => item.id.endsWith('__program')), false);
+  assert.equal(freecut.media.some((item) => item.id === 'asset__program'), true);
   assert.deepEqual(freecut.timeline.transitions, transitions);
   assert.deepEqual(freecut.timeline.items[0].effects, effects);
   assert.deepEqual(freecut.timeline.items[0].keyframes, keyframes);

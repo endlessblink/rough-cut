@@ -236,6 +236,13 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
       if (!asset) continue;
       const type = asset.type === 'audio' ? 'audio' : asset.type === 'image' ? 'image' : 'video';
       const isPrimaryVideo = styledProgram && asset.id === styledProgram.sourceAssetId && type === 'video';
+      // The Editor's preview resolves a clip's video strictly by mediaId
+      // (use-preview-composition-model: resolvedUrls.get(item.mediaId)) and
+      // ignores `src` entirely — `src` is only honoured by thumbnail and inline
+      // composition paths. Pointing mediaId at the raw source asset therefore
+      // played the bare screen recording no matter what `src` said, which is
+      // why the composited program never actually appeared. Point mediaId at
+      // the program, and register it in `media` below so it can resolve.
       // The styled program is the finished composite: it already contains the
       // camera PiP, background, zoom, cursor and the mixed audio. Seeding the
       // other source clips alongside it draws the camera a second time on top
@@ -248,7 +255,7 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
         from: numberOr(clip.timelineIn, 0),
         durationInFrames: Math.max(1, numberOr(clip.timelineOut, 1) - numberOr(clip.timelineIn, 0)),
         label: clip.name || basename(asset.filePath ?? 'Media'),
-        mediaId: asset.id,
+        mediaId: isPrimaryVideo ? styledProgram.mediaId : asset.id,
         ...(isPrimaryVideo ? {
           src: `/__rough_cut__/media/${encodeURIComponent(document.id)}/${encodeURIComponent(styledProgram.mediaId)}`,
         } : {}),
@@ -276,6 +283,27 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
       order,
     };
   });
+
+  // The composited program must appear in the media library, because that is the
+  // only thing the Editor's preview resolves against. Without this entry the
+  // collapsed clip has nothing to play.
+  const programMedia = styledProgram ? [{
+    id: styledProgram.mediaId,
+    storageType: 'workspace',
+    roughCutUrl: `/__rough_cut__/media/${encodeURIComponent(document.id)}/${encodeURIComponent(styledProgram.mediaId)}`,
+    fileName: `${document.name || 'program'}.mp4`,
+    fileSize: 0,
+    mimeType: 'video/mp4',
+    duration: numberOr(document.composition?.duration, 0) / fps,
+    width: numberOr(document.settings?.resolution?.width, 1920),
+    height: numberOr(document.settings?.resolution?.height, 1080),
+    fps,
+    codec: '',
+    bitrate: 0,
+    tags: [],
+    createdAt: Date.parse(document.createdAt ?? '') || Date.now(),
+    updatedAt: Date.parse(document.modifiedAt ?? '') || Date.now(),
+  }] : [];
 
   const media = assets.map((asset) => ({
     id: asset.id,
@@ -336,7 +364,7 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     },
     roughCutPath,
     roughCutAssets: assets.map((asset) => ({ id: asset.id, filePath: asset.filePath })),
-    media,
+    media: [...programMedia, ...media],
   };
 }
 
@@ -345,7 +373,8 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
 // verbatim, so this marker survives the round trip.
 function isProgramCollapsedTimeline(timeline) {
   return (timeline?.items ?? []).some(
-    (item) => typeof item?.src === 'string' && item.src.includes('__program'),
+    (item) => (typeof item?.mediaId === 'string' && item.mediaId.endsWith('__program'))
+      || (typeof item?.src === 'string' && item.src.includes('__program')),
   );
 }
 
