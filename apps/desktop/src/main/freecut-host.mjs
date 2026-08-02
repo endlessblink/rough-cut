@@ -470,13 +470,16 @@ async function findCompletedStyledCache(outputPath, projectId) {
   return candidates[0]?.path ?? null;
 }
 
-function describeStyledProgram(document, roughCutPath) {
+// The fingerprint is a cache key for a full-length ffmpeg export, so it must
+// cover exactly the inputs the styled render reads and nothing else. `modifiedAt`
+// was in here and changes on every save — a rename or a transcript edit, neither
+// of which moves a pixel, invalidated the whole recording's render.
+export function describeStyledProgram(document, roughCutPath) {
   const sourceAsset = (document.assets ?? []).find((asset) => asset.type === 'recording' || asset.type === 'video');
   if (!sourceAsset?.filePath) return null;
   const mediaId = `${sourceAsset.id}__program`;
   const fingerprint = createHash('sha256')
     .update(JSON.stringify({
-      modifiedAt: document.modifiedAt ?? null,
       sourceAsset,
       composition: document.composition,
       settings: document.settings,

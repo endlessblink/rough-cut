@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createAsset, createClip, createProject, createTrack } from '../../../../packages/project-model/dist/index.js';
-import { createFreecutHost, fromFreecutProject, toFreecutProject } from './freecut-host.mjs';
+import { createFreecutHost, describeStyledProgram, fromFreecutProject, toFreecutProject } from './freecut-host.mjs';
 import { saveProjectFile } from './project-files.mjs';
 
 test('FreeCut host exposes Rough Cut projects, tracks, clips, and media URLs', async () => {
@@ -42,6 +42,39 @@ test('FreeCut host exposes Rough Cut projects, tracks, clips, and media URLs', a
     size: 7,
     mimeType: 'video/mp4',
   });
+});
+
+// ---------------------------------------------------------------------------
+// The styled render's cache key decides when a full-length export is paid for
+// again. Keying it on `modifiedAt` meant a rename or a transcript edit — neither
+// of which changes a pixel — invalidated the whole recording's render.
+// ---------------------------------------------------------------------------
+
+const styledKeyFixture = {
+  id: 'p1',
+  modifiedAt: '2026-01-01T00:00:00.000Z',
+  assets: [{ id: 'screen', type: 'recording', filePath: '/tmp/s.mkv' }],
+  composition: { duration: 300, tracks: [] },
+  settings: { frameRate: 30 },
+};
+
+test('a save that does not change the picture keeps the same styled render', () => {
+  const before = describeStyledProgram(styledKeyFixture, '/tmp/p.roughcut');
+  const renamed = { ...styledKeyFixture, name: 'New name', modifiedAt: '2026-06-06T00:00:00.000Z' };
+  const after = describeStyledProgram(renamed, '/tmp/p.roughcut');
+  assert.equal(before.outputPath, after.outputPath);
+});
+
+test('a composition edit produces a different styled render', () => {
+  const before = describeStyledProgram(styledKeyFixture, '/tmp/p.roughcut');
+  const edited = { ...styledKeyFixture, composition: { duration: 200, tracks: [] } };
+  assert.notEqual(before.outputPath, describeStyledProgram(edited, '/tmp/p.roughcut').outputPath);
+});
+
+test('a settings edit produces a different styled render', () => {
+  const before = describeStyledProgram(styledKeyFixture, '/tmp/p.roughcut');
+  const edited = { ...styledKeyFixture, settings: { frameRate: 60 } };
+  assert.notEqual(before.outputPath, describeStyledProgram(edited, '/tmp/p.roughcut').outputPath);
 });
 
 // ---------------------------------------------------------------------------
