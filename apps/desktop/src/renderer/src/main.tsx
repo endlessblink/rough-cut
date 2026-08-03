@@ -160,7 +160,7 @@ declare global {
       }) => void) => () => void;
       openProject: () => Promise<ProjectState | null>;
       openProjectPath: (path: string) => Promise<ProjectState | null>;
-      onProjectUpdated: (callback: (update: { projectId: string; projectVersion: number }) => void) => () => void;
+      onProjectUpdated: (callback: (update: { projectId: string; projectVersion: number; origin?: string }) => void) => () => void;
       saveProject: (project: { path: string; document: ProjectState['document'] }) => Promise<ProjectState>;
       pickImportFile: () => Promise<{ filePath: string; mimeType: string | null } | null>;
       createProjectFromImport: (payload: { importedFilePath: string; importedMimeType: string | null }) => Promise<ProjectState>;
@@ -644,15 +644,36 @@ function App() {
     };
   }, [requestedProjectPath]);
 
+  // Set when the Editor saved while it was the visible view. Re-reading the
+  // project on every one of those would re-parse from disk continuously and
+  // clear Recording edit's undo history mid-edit, so the refresh is deferred
+  // until the user actually looks at another view.
+  const pendingEditorRefresh = React.useRef(false);
+
   React.useEffect(() => window.roughCut.onProjectUpdated((update) => {
     if (!project || update.projectId !== project.document.id) return;
     setProjectVersion(update.projectVersion);
+    if (update.origin === 'freecut' && activeAppView === 'nle') {
+      pendingEditorRefresh.current = true;
+      return;
+    }
     void window.roughCut.openProjectPath(project.path).then((opened) => {
       if (!opened) return;
       setProject(opened);
       setEditHistory(EMPTY_EDIT_HISTORY);
     });
-  }), [project]);
+  }), [project, activeAppView]);
+
+  // Leaving the Editor: pick up whatever it wrote while we were not looking.
+  React.useEffect(() => {
+    if (activeAppView === 'nle' || !pendingEditorRefresh.current || !project) return;
+    pendingEditorRefresh.current = false;
+    void window.roughCut.openProjectPath(project.path).then((opened) => {
+      if (!opened) return;
+      setProject(opened);
+      setEditHistory(EMPTY_EDIT_HISTORY);
+    });
+  }, [activeAppView, project]);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -1737,12 +1758,9 @@ function App() {
               }}
             />
           ) : activeAppView === 'nle' ? (
-            <>
-            <FreecutEditorSurface
-              projectId={project?.document?.id ?? null}
-              projectVersion={projectVersion}
-            />
-            </>
+            // Rendered by the persistent slot below, outside this keyed subtree,
+            // so switching views hides it instead of destroying it.
+            null
           ) : activeAppView === 'ai' ? (
             <AiShell
               project={project ? { path: project.path, document: project.document } : null}
@@ -1817,6 +1835,22 @@ function App() {
           ) : (
             <EditorEmptyState onGoToProjects={() => setActiveAppView('projects')} />
           )}
+        </div>
+        {/* Outside the keyed slot above on purpose. Keeping the advanced Editor
+            mounted is what lets an edit survive a view switch: unmounting tears
+            down the embedded editor's document and anything not yet written with
+            it. Hidden, not removed, so returning restores the same session. */}
+        <div
+          className="persistentEditorSlot"
+          data-ui-region="persistent-editor-slot"
+          hidden={activeAppView !== 'nle'}
+          aria-hidden={activeAppView !== 'nle'}
+        >
+          <FreecutEditorSurface
+            projectId={project?.document?.id ?? null}
+            projectVersion={projectVersion}
+            active={activeAppView === 'nle'}
+          />
         </div>
       </section>
     </main>

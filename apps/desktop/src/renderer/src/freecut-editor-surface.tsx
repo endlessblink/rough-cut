@@ -9,13 +9,17 @@ type FreecutUrlResult = {
 type FreecutEditorSurfaceProps = {
   projectId: string | null;
   projectVersion?: number;
+  /** False while another view is showing. The surface stays mounted either way. */
+  active?: boolean;
 };
 
 type FreecutReadyMessage = {
-  type: 'freecut-ready';
+  type: 'freecut-ready' | 'freecut:ready' | 'freecut-boot' | 'freecut-error';
   marker?: { version?: string; embedded?: boolean; buildHash?: string; projectVersion?: number };
   projectId?: string | null;
   projectVersion?: number;
+  error?: string;
+  probe?: boolean;
 };
 
 type FreecutCommandMessage = {
@@ -23,20 +27,64 @@ type FreecutCommandMessage = {
   command?: { opId?: string; projectId?: string; payload?: { project?: { id?: string } } };
 };
 
-export function FreecutEditorSurface({ projectId, projectVersion = 0 }: FreecutEditorSurfaceProps) {
+export function FreecutEditorSurface({ projectId, projectVersion = 0, active = true }: FreecutEditorSurfaceProps) {
   const [result, setResult] = React.useState<FreecutUrlResult | null>(null);
   const [ready, setReady] = React.useState(false);
+  const [booted, setBooted] = React.useState(false);
+  const [bootError, setBootError] = React.useState<string | null>(null);
+  const [frameLoaded, setFrameLoaded] = React.useState(false);
+  const [probeReceived, setProbeReceived] = React.useState(false);
+  const [probeSourceMatched, setProbeSourceMatched] = React.useState(false);
   const [marker, setMarker] = React.useState<FreecutReadyMessage['marker']>(undefined);
   const frameRef = React.useRef<HTMLIFrameElement>(null);
+  const readyRef = React.useRef(false);
 
   React.useEffect(() => {
+    readyRef.current = false;
     setReady(false);
+    setBooted(false);
+    setBootError(null);
+    setFrameLoaded(false);
+    setProbeReceived(false);
+    setProbeSourceMatched(false);
     setMarker(undefined);
     const onMessage = (event: MessageEvent<FreecutReadyMessage | FreecutCommandMessage>) => {
-      if (event.source !== frameRef.current?.contentWindow) return;
+      const expectedOrigin = result?.url ? new URL(result.url).origin : '';
+      const sourceTrusted = event.source === frameRef.current?.contentWindow || event.origin === expectedOrigin;
+      if (typeof event.data?.type === 'string' && event.data.type.startsWith('freecut')) {
+        console.info('[freecut-host-message]', event.data.type, event.origin, sourceTrusted);
+      }
+      if (event.data?.type === 'freecut:ready' && event.data.probe === true) {
+        setProbeReceived(true);
+        setProbeSourceMatched(sourceTrusted);
+        if (!sourceTrusted) return;
+        frameRef.current?.contentWindow?.postMessage({ type: 'freecut:request-status' }, '*');
+        return;
+      }
+      if (!sourceTrusted) return;
+      if (event.data?.type === 'freecut-boot') {
+        setBooted(true);
+        return;
+      }
+      if (event.data?.type === 'freecut-error') {
+        setBootError(event.data.error ?? 'FreeCut startup failed.');
+        return;
+      }
       if (event.data?.type === 'freecut-command') {
         const command = event.data.command;
-        if (!ready || command?.projectId !== projectId || command.payload?.project?.id !== projectId) return;
+        // Always answer. This used to `return` silently when the guard rejected,
+        // so a dropped write reached the editor only as a 10s timeout and looked
+        // like a hang instead of a refusal.
+        const reject = (reason: string) => {
+          console.warn('[freecut-host] rejected command', reason, command?.opId);
+          frameRef.current?.contentWindow?.postMessage(
+            { type: 'freecut-command-ack', ok: false, opId: command?.opId, reason },
+            '*',
+          );
+        };
+        if (!readyRef.current) return reject('host-not-ready');
+        if (command?.projectId !== projectId) return reject('project-id-mismatch');
+        if (command.payload?.project?.id !== projectId) return reject('payload-project-mismatch');
         void window.roughCut.applyFreecutCommand(command as unknown as Record<string, unknown>).then((ack) => {
           frameRef.current?.contentWindow?.postMessage({ type: 'freecut-command-ack', ...ack }, '*');
         });
@@ -44,18 +92,32 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0 }: FreecutE
       }
       if (event.data?.type !== 'freecut-ready') return;
       const marker = event.data.marker;
+      console.info('[freecut-host-ready-payload]', JSON.stringify({
+        marker,
+        messageProjectId: event.data.projectId,
+        expectedProjectId: projectId,
+        messageProjectVersion: event.data.projectVersion,
+        expectedProjectVersion: projectVersion,
+      }));
+      // Deliberately NOT gated on projectVersion any more. The version used to
+      // travel in the iframe URL, so every write reloaded the editor and threw
+      // away playhead, scroll and zoom. With the URL stable, a freshly mounted
+      // editor reports version 0 while the host holds a save timestamp — gating
+      // on that would leave readiness false forever and silently drop every
+      // write. Identity is what matters here: the right build, embedded, on the
+      // right project.
       if (
         marker?.embedded !== true
         || marker.version !== 'vendored-freecut-1'
         || event.data.projectId !== projectId
-        || event.data.projectVersion !== projectVersion
       ) return;
       setMarker(marker);
+      readyRef.current = true;
       setReady(true);
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [projectId, ready]);
+  }, [projectId, result]);
 
   React.useEffect(() => {
     if (!projectId) {
@@ -80,6 +142,70 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0 }: FreecutE
     };
   }, [projectId]);
 
+  // Leaving the Editor must not race the editor's own save debounce. Hiding with
+  // display:none does not fire visibilitychange inside the frame — the frame's
+  // document is still "visible" — so the flush has to be an explicit message.
+  const wasActive = React.useRef(active);
+  React.useEffect(() => {
+    if (wasActive.current && !active) {
+      frameRef.current?.contentWindow?.postMessage({ type: 'freecut:flush' }, '*');
+    }
+    wasActive.current = active;
+  }, [active]);
+
+  React.useEffect(() => {
+    if (!result?.ok || !result.url) return undefined;
+    const requestStatus = () => frameRef.current?.contentWindow?.postMessage({ type: 'freecut:request-status' }, '*');
+    requestStatus();
+    const interval = window.setInterval(requestStatus, 250);
+    const stop = window.setTimeout(() => window.clearInterval(interval), 10000);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(stop);
+    };
+  }, [result]);
+
+  React.useEffect(() => {
+    if (!result?.ok || !result.url) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      void window.roughCut.writePlaybackDebugReport({
+        schemaVersion: 1,
+        kind: 'packaged-renderer-runtime',
+        route: {
+          pathname: window.location.pathname,
+          search: window.location.search,
+          activeAppView: document.querySelector<HTMLElement>('[data-active-app-view]')?.dataset.activeAppView ?? null,
+        },
+        host: {
+          bundleSignature: document.documentElement.dataset.hostBundleSignature ?? '',
+          shellMarker: document.querySelector<HTMLElement>('[data-ui-shell="recording-studio"]')?.dataset.uiShell ?? null,
+          shellCount: document.querySelectorAll('[data-ui-shell="recording-studio"]').length,
+        },
+        visibleSurface: {
+          freecutSurfaceCount: document.querySelectorAll('[data-ui-region="freecut-editor-surface"]').length,
+          freecutFrameCount: 1,
+          freecutFrameLoaded: frameLoaded,
+          freecutFrameSrc: result.url,
+          freecutProbeReceived: probeReceived,
+          freecutProbeSourceMatched: probeSourceMatched,
+          freecutBooted: booted,
+          freecutError: bootError ?? '',
+          freecutReady: ready,
+          freecutMarkerVersion: marker?.version ?? '',
+          freecutBuildHash: marker?.buildHash ?? '',
+          freecutProjectId: projectId ?? '',
+          freecutProjectVersion: String(projectVersion),
+        },
+        project: {
+          id: projectId,
+          version: projectVersion,
+        },
+        capturedAt: new Date().toISOString(),
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [bootError, booted, frameLoaded, marker, probeReceived, probeSourceMatched, projectId, projectVersion, ready, result]);
+
   if (result?.ok && result.url) {
     return (
       <section
@@ -90,6 +216,11 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0 }: FreecutE
         data-freecut-build-hash={marker?.buildHash ?? ''}
         data-freecut-project-version={String(projectVersion)}
         data-freecut-ready={ready ? 'true' : 'false'}
+        data-freecut-booted={booted ? 'true' : 'false'}
+        data-freecut-error={bootError ?? ''}
+        data-freecut-frame-loaded={frameLoaded ? 'true' : 'false'}
+        data-freecut-probe-received={probeReceived ? 'true' : 'false'}
+        data-freecut-probe-source-matched={probeSourceMatched ? 'true' : 'false'}
         aria-label="FreeCut editor"
       >
         <iframe
@@ -98,10 +229,19 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0 }: FreecutE
           title="FreeCut editor"
           data-freecut-embed="vendored"
           data-freecut-ready={ready ? 'true' : 'false'}
-          src={`${result.url}${result.url.includes('?') ? '&' : '?'}hostVersion=${projectVersion}`}
+          data-freecut-booted={booted ? 'true' : 'false'}
+          onLoad={() => {
+            setFrameLoaded(true);
+            frameRef.current?.contentWindow?.postMessage({ type: 'freecut:request-status' }, '*');
+          }}
+          // Stable URL on purpose: interpolating the project version here made
+          // every successful write reload the whole editor, discarding the
+          // playhead, scroll position and zoom. The version is informational and
+          // is carried in messages instead.
+          src={result.url}
           allow="clipboard-read; clipboard-write"
         />
-        {!ready ? <div className="freecutEditorSurfaceStatus" data-freecut-readiness="waiting">Loading FreeCut editor…</div> : null}
+        {!ready ? <div className="freecutEditorSurfaceStatus" data-freecut-readiness="waiting">{bootError ?? (booted ? 'FreeCut is waiting for readiness…' : 'Loading FreeCut editor…')}</div> : null}
       </section>
     );
   }

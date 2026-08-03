@@ -698,7 +698,11 @@ ipcMain.handle(IPC_CHANNELS.APP_APPLY_FREECUT_COMMAND, async (_event, command = 
     await freecutHost.saveProject(project);
     const projectVersion = Date.now();
     for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PROJECT_UPDATED, { projectId: project.id, projectVersion });
+      // Tagged so the renderer can tell its own Editor's writes apart from an
+      // external change. With continuous saving these arrive constantly, and a
+      // blind re-read on each one would re-parse the project from disk and wipe
+      // Recording edit's undo history while the user is typing in the Editor.
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PROJECT_UPDATED, { projectId: project.id, projectVersion, origin: 'freecut' });
     }
     return { ok: true, opId: command.opId, projectVersion };
   } catch (error) {

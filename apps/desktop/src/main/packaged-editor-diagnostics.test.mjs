@@ -20,11 +20,18 @@ function renderBranch(mainSource, view) {
   return mainSource.slice(start, end === -1 ? start + 5000 : end);
 }
 
-test('the advanced Editor route owns exactly one FreeCut surface', async () => {
+test('the app mounts exactly one FreeCut surface, and never inside the view-keyed slot', async () => {
   const main = await source('apps/desktop/src/renderer/src/main.tsx');
-  const editorBranch = renderBranch(main, 'nle');
 
-  assert.equal((editorBranch.match(/<FreecutEditorSurface\b/g) ?? []).length, 1);
+  // Still exactly one surface — two would mean two editor documents.
+  assert.equal((main.match(/<FreecutEditorSurface\b/g) ?? []).length, 1);
+
+  // It must live in the persistent slot, NOT the subtree keyed on activeAppView.
+  // Inside that subtree, switching views unmounts the editor and destroys any
+  // edit not yet written — the "my layer disappeared" bug.
+  assert.match(main, /className="persistentEditorSlot"/);
+  const editorBranch = renderBranch(main, 'nle');
+  assert.doesNotMatch(editorBranch, /<FreecutEditorSurface\b/);
   assert.doesNotMatch(editorBranch, /<ProjectPreview\b|<StyledVideoPreview\b|<RecordingTimeline\b|>Program<|>Source</);
 });
 
@@ -56,7 +63,33 @@ test('the host surface requires an embedded FreeCut readiness handshake', async 
   assert.match(surface, /marker\?\.embedded !== true/);
   assert.match(surface, /marker\.version !== 'vendored-freecut-1'/);
   assert.match(surface, /event\.data\.projectId !== projectId/);
-  assert.match(surface, /event\.data\.projectVersion !== projectVersion/);
+
+  // Readiness is deliberately NOT gated on projectVersion, and the iframe URL
+  // must not carry it. Interpolating the version into the src reloaded the whole
+  // editor on every write, discarding playhead, scroll and zoom. Re-adding the
+  // gate on its own is worse: a freshly mounted editor reports version 0 while
+  // the host holds a save timestamp, so readiness never becomes true and every
+  // write is silently dropped.
+  assert.doesNotMatch(surface, /event\.data\.projectVersion !== projectVersion/);
+  assert.doesNotMatch(surface, /hostVersion=\$\{/);
+});
+
+test('a rejected command is answered instead of dropped', async () => {
+  const surface = await source('apps/desktop/src/renderer/src/freecut-editor-surface.tsx');
+  // Returning silently made a refused write look like a hang: the editor only
+  // learned about it via a 10-second acknowledgement timeout.
+  assert.match(surface, /freecut-command-ack'[\s\S]{0,80}ok: false/);
+  assert.match(surface, /host-not-ready/);
+});
+
+test('the editor persists shortly after a change, not only on the interval', async () => {
+  const editor = await source('vendor/freecut/src/features/editor/components/editor.tsx');
+  // The interval autosave has a five-minute floor, so anything added and then
+  // navigated away from was lost. Switching views is not a save prompt.
+  assert.match(editor, /useContinuousSave/);
+  assert.match(editor, /freecut:flush/);
+  // Must not route through the toasting Save action at this cadence.
+  assert.match(editor, /useTimelineStore\.getState\(\)\.saveTimeline\(projectId\)/);
 });
 
 test('the vendored FreeCut build emits the same identity it claims to the host', async () => {

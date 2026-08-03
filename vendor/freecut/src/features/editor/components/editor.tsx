@@ -365,13 +365,73 @@ const TimelineDialogHost = memo(function TimelineDialogHost() {
 
 const AutoSaveController = memo(function AutoSaveController({
   onSave,
+  projectId,
 }: {
   onSave: () => Promise<void>
+  projectId: string
 }) {
   const isDirty = useTimelineStore((s: { isDirty: boolean }) => s.isDirty)
   useAutoSave({ isDirty, onSave })
+  useContinuousSave({ isDirty, projectId })
   return null
 })
+
+/**
+ * Persist shortly after every change, rather than only on the interval timer.
+ *
+ * The host (Rough Cut) presents this editor as a tab, not a document with a save
+ * step: switching tabs is expected to keep your work. The interval autosave above
+ * has a five-minute floor, so anything added and then navigated away from was
+ * simply lost. This closes that window.
+ *
+ * Deliberately calls saveTimeline directly rather than the editor's Save action,
+ * because that action raises a success toast — fine once, unbearable every second.
+ * Flushes on tab hide and page teardown so a switch never races the debounce.
+ */
+function useContinuousSave({ isDirty, projectId }: { isDirty: boolean; projectId: string }) {
+  const savingRef = useRef(false)
+  const dirtyRef = useRef(isDirty)
+  dirtyRef.current = isDirty
+
+  const save = useCallback(async () => {
+    if (savingRef.current || !dirtyRef.current) return
+    savingRef.current = true
+    try {
+      await useTimelineStore.getState().saveTimeline(projectId)
+    } catch (error) {
+      // Never toast here: this runs unattended. The interval autosave and the
+      // explicit Save action still surface failures to the user.
+      logger.error('Continuous save failed:', error)
+    } finally {
+      savingRef.current = false
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    if (!isDirty) return
+    const timer = setTimeout(() => void save(), 600)
+    return () => clearTimeout(timer)
+  }, [isDirty, save])
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') void save()
+    }
+    // The host hides this frame with display:none when another view is shown,
+    // which does NOT fire visibilitychange here, so it tells us directly.
+    const onHostMessage = (event: MessageEvent<{ type?: string }>) => {
+      if (event.data?.type === 'freecut:flush') void save()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', onVisibility)
+    window.addEventListener('message', onHostMessage)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', onVisibility)
+      window.removeEventListener('message', onHostMessage)
+    }
+  }, [save])
+}
 
 const TimelineShortcutsController = memo(function TimelineShortcutsController() {
   useTimelineShortcuts()
@@ -683,7 +743,7 @@ export const LoadedEditor = memo(function LoadedEditor({
       role="application"
       aria-label={t('editor.editor.appLabel')}
     >
-      <AutoSaveController onSave={handleSave} />
+      <AutoSaveController onSave={handleSave} projectId={projectId} />
       <TimelineShortcutsController />
 
       {/* Top Toolbar */}

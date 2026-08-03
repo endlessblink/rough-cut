@@ -293,6 +293,32 @@ input[type="number"]:focus-visible {
   min-width: 0;
   overflow: hidden;
 }
+
+/* The advanced Editor lives outside the view-keyed slot so switching views does
+   not unmount it. Unmounting destroys the embedded editor's document along with
+   any edit not yet written, which is exactly the "my layer disappeared" bug.
+   It shares the content cell with the slot above and is hidden — not removed —
+   when another view is active, so returning to it restores the same session,
+   playhead and scroll position rather than a fresh document. */
+.persistentEditorSlot {
+  display: flex;
+  grid-area: content;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* display:none rather than visibility/opacity: it must claim no space beside the
+   active view, and it stops the embedded editor painting while backgrounded. */
+.persistentEditorSlot[hidden] {
+  display: none;
+}
+
+.persistentEditorSlot > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
 .editorContentSlot > * {
   flex: 1 1 auto;
   min-height: 0;
