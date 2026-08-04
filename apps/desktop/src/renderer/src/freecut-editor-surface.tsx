@@ -31,8 +31,34 @@ type FreecutViewerMessage = {
   playing: boolean;
   /** Layers on the Editor's timeline. Drawn by Rough Cut's compositor so they
    *  appear in every view, not just this one. */
-  layers?: EditorOverlayLayer[];
+  layers?: (EditorOverlayLayer & { trackId?: string; isRecording?: boolean })[];
+  /** The track stack, bottom first. Track order is z-order. */
+  tracks?: { id?: string; order?: number }[];
 };
+
+/**
+ * Splits the Editor's layers by where they sit relative to the recording in the
+ * track stack. Track order is z-order in any NLE, and the recording is just
+ * another clip on a track — so layers above it must cover it and layers below it
+ * must be covered by it. Nothing is unconditionally on top.
+ */
+function splitLayersByRecordingTrack(viewer: FreecutViewerMessage | null) {
+  const empty = { above: [] as EditorOverlayLayer[], below: [] as EditorOverlayLayer[] };
+  if (!viewer?.layers?.length) return empty;
+  const orderOf = new Map((viewer.tracks ?? []).map((track, index) => [track.id, track.order ?? index]));
+  const recording = viewer.layers.find((layer) => layer.isRecording);
+  // With no recording clip on this timeline there is nothing to be above or
+  // below, so everything simply draws over the program.
+  const recordingOrder = recording ? orderOf.get(recording.trackId) ?? 0 : -Infinity;
+  const above: EditorOverlayLayer[] = [];
+  const below: EditorOverlayLayer[] = [];
+  for (const layer of viewer.layers) {
+    if (layer.isRecording) continue;
+    const order = orderOf.get(layer.trackId) ?? 0;
+    (order >= recordingOrder ? above : below).push(layer);
+  }
+  return { above, below };
+}
 
 type FreecutReadyMessage = {
   type: 'freecut-ready' | 'freecut:ready' | 'freecut-boot' | 'freecut-error';
@@ -298,7 +324,8 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
               project={previewProject}
               seekTimeSec={viewer.fps > 0 ? viewer.frame / viewer.fps : 0}
               isPlaying={viewer.playing}
-              overlayLayers={viewer.layers ?? []}
+              overlayLayersAbove={splitLayersByRecordingTrack(viewer).above}
+              overlayLayersBelow={splitLayersByRecordingTrack(viewer).below}
               timeMode="timeline"
               showControls={false}
             />

@@ -455,11 +455,14 @@ export function StyledVideoPreview({
   onCensorRectChange,
   mediaUrlOverride,
   cameraMediaUrlOverride,
-  overlayLayers = [],
+  overlayLayersAbove = [],
+  overlayLayersBelow = [],
 }: {
   project: StyledPreviewProject;
-  /** Layers added in the advanced Editor, drawn on top of the program. */
-  overlayLayers?: EditorOverlayLayer[];
+  /** Editor layers on tracks above the recording. */
+  overlayLayersAbove?: EditorOverlayLayer[];
+  /** Editor layers on tracks below the recording. */
+  overlayLayersBelow?: EditorOverlayLayer[];
   seekTimeSec?: number;
   trimStartSec?: number;
   trimEndSec?: number;
@@ -1649,6 +1652,10 @@ export function StyledVideoPreview({
       if (!activeTimelinePlayback && editablePreview && alignmentGridVisibleRef.current) {
         drawAlignmentGrid(ctx, canvasWidth, canvasHeight);
       }
+      // Layers on tracks BELOW the recording. Track order is z-order, and the
+      // recording is just another clip on a track — it is not automatically
+      // on top of or underneath anything.
+      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersBelow, renderFrame, editorLayerMediaRef.current);
       markDrawPhase('background');
       if (timeMode === 'timeline' && !screenLayer) {
         publishCursorOffscreenStatus(null);
@@ -2002,10 +2009,10 @@ export function StyledVideoPreview({
       publishScreenLayerRendererStats(cursorLayerStats);
       ctx.restore();
       ctx.restore();
-      // Layers added in the advanced Editor, drawn by this compositor so both
-      // views show them. Deliberately outside the zoom/screen transform above:
-      // these sit on the program, like titles, not inside the recording.
-      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayers, renderFrame, editorLayerMediaRef.current);
+      // Layers on tracks ABOVE the recording. Outside the zoom/screen transform
+      // on purpose: these sit on the program, like titles, not inside the
+      // recording's frame.
+      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAbove, renderFrame, editorLayerMediaRef.current);
       if (zoomSafety) {
         drawZoomAuthoringSafetyOverlay(ctx, zoomSafety, cursorPos, {
           screenX,

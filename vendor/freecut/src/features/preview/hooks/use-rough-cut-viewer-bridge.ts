@@ -28,6 +28,10 @@ export function useRoughCutViewerBridge(
   // own project, and these on top, so a layer added here shows in BOTH views —
   // the host's compositor is the only thing painting either of them.
   const items = useItemsStore((state) => state.items)
+  // Track order is the z-order, exactly as in any NLE: a clip on a higher
+  // track covers one below it. The recording occupies a track in this same
+  // stack, so the host needs the whole stack to draw in the right order.
+  const tracks = useItemsStore((state) => state.tracks)
 
   useEffect(() => {
     if (window.parent === window) return undefined
@@ -50,16 +54,22 @@ export function useRoughCutViewerBridge(
         frame,
         fps,
         playing: isPlaying,
-        // The clip carrying Rough Cut's own recording is excluded: the host
-        // already draws that from its project, and sending it back would draw
-        // the recording twice.
+        // Every track, in stack order. Index 0 is the bottom.
+        tracks: (tracks ?? []).map((track, index) => {
+          const tr = track as Record<string, unknown>
+          return { id: tr.id, order: typeof tr.order === 'number' ? tr.order : index }
+        }),
+        // ALL items, including the one carrying Rough Cut's recording. That one
+        // is not drawn from here — the host draws the recording from its own
+        // project — but the host must know which track it sits on to place
+        // everything else above or below it correctly.
         layers: (items ?? [])
-          .filter((item) => !String((item as { mediaId?: string }).mediaId ?? '').endsWith('__program'))
           .map((item) => {
             const it = item as Record<string, unknown>
             return {
               id: it.id,
               type: it.type,
+              isRecording: String(it.mediaId ?? '').endsWith('__program'),
               trackId: it.trackId,
               from: it.from,
               durationInFrames: it.durationInFrames,
@@ -91,5 +101,5 @@ export function useRoughCutViewerBridge(
       window.removeEventListener('resize', post)
       window.removeEventListener('scroll', post, true)
     }
-  }, [viewerRef, frame, fps, isPlaying, items])
+  }, [viewerRef, frame, fps, isPlaying, items, tracks])
 }
