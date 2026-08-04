@@ -39,6 +39,7 @@ import {
   ensureAudioContextResumed,
 } from './video-audio-context'
 import { getBrowserMediaPlaybackRate } from '@/shared/state/playback/shuttle'
+import { shouldSilenceEmbeddedPreviewAudio } from '../utils/embedded-preview-audio'
 
 const videoLog = createLogger('NativePreviewVideo')
 const contentLog = createLogger('VideoContent')
@@ -352,7 +353,9 @@ const NativePreviewVideo: React.FC<{
     // Item-id-only handoffs reuse the same acquired element and are handled
     // by registration/sync effects below, so this only runs when the actual
     // pool lane/source changes.
-    element.muted = false
+    // Embedded, the host plays this timeline's sound, so staying muted here is
+    // what keeps one recording from being heard twice.
+    element.muted = shouldSilenceEmbeddedPreviewAudio()
 
     // Also resume AudioContext if this element was previously connected
     // (e.g., when crossing split boundary and reusing the same video element)

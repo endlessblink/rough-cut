@@ -32,7 +32,7 @@ type FreecutViewerMessage = {
   /** Layers on the Editor's timeline. Drawn by Rough Cut's compositor so they
    *  appear in every view, not just this one. */
   layers?: (EditorOverlayLayer & { trackId?: string; isRecording?: boolean })[];
-  /** The track stack, bottom first. Track order is z-order. */
+  /** The track stack. Lower order numbers are higher visual tracks in FreeCut. */
   tracks?: { id?: string; order?: number }[];
 };
 
@@ -55,9 +55,36 @@ function splitLayersByRecordingTrack(viewer: FreecutViewerMessage | null) {
   for (const layer of viewer.layers) {
     if (layer.isRecording) continue;
     const order = orderOf.get(layer.trackId) ?? 0;
-    (order >= recordingOrder ? above : below).push(layer);
+    // FreeCut defines "above" as a lower order number (see its source-edit
+    // targeting rules). Keep that mapping explicit: V1/order 0 covers a
+    // recording on order 1, while a larger order is below it.
+    (order <= recordingOrder ? above : below).push(layer);
   }
   return { above, below };
+}
+
+/**
+ * FreeCut resolves media by id. Its item src is either absent or scoped to the
+ * embedded server, so it is not a usable source for the host compositor. Keep
+ * the canonical id and address the same live media endpoint from the host.
+ */
+function resolveOverlayLayerSource(
+  layer: EditorOverlayLayer,
+  freecutUrl: string,
+  projectId: string | null,
+): EditorOverlayLayer {
+  if (!projectId || !layer.mediaId) return layer;
+  try {
+    return {
+      ...layer,
+      src: new URL(
+        `/__rough_cut__/media/${encodeURIComponent(projectId)}/${encodeURIComponent(layer.mediaId)}`,
+        freecutUrl,
+      ).href,
+    };
+  } catch {
+    return layer;
+  }
 }
 
 type FreecutReadyMessage = {
@@ -324,8 +351,8 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
               project={previewProject}
               seekTimeSec={viewer.fps > 0 ? viewer.frame / viewer.fps : 0}
               isPlaying={viewer.playing}
-              overlayLayersAbove={splitLayersByRecordingTrack(viewer).above}
-              overlayLayersBelow={splitLayersByRecordingTrack(viewer).below}
+              overlayLayersAbove={splitLayersByRecordingTrack(viewer).above.map((layer) => resolveOverlayLayerSource(layer, result.url!, projectId))}
+              overlayLayersBelow={splitLayersByRecordingTrack(viewer).below.map((layer) => resolveOverlayLayerSource(layer, result.url!, projectId))}
               timeMode="timeline"
               showControls={false}
             />

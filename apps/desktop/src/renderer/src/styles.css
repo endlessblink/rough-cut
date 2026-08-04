@@ -7170,6 +7170,24 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   min-width: 0;
   width: 100%;
 }
+/* The one compositor paints exactly over the Editor's viewer rectangle. The
+ * shared preview canvas normally insets itself and rounds its corners, which
+ * here left a ring of the Editor's OWN picture visible around ours — one image
+ * appearing twice with a border between them. Inside this overlay the canvas
+ * fills its box edge to edge, and the box is opaque so nothing shows through. */
+.freecutProgramOverlay {
+  background: #000;
+  overflow: hidden;
+}
+.freecutProgramOverlay .styledPreviewCanvas,
+.freecutProgramOverlay .styledPreviewWebglCanvas {
+  border-radius: 0;
+  box-shadow: none;
+  height: 100%;
+  max-height: 100%;
+  max-width: 100%;
+  width: 100%;
+}
 .freecutEditorSurfaceStatus {
   align-items: center;
   color: var(--muted);

@@ -24,6 +24,22 @@ export function useRoughCutViewerBridge(
 ): void {
   const frame = useResolvedPlaybackFrame()
   const isPlaying = usePlaybackStore((state) => state.isPlaying)
+
+  // The host's compositor plays this timeline's sound, the same mix Recording
+  // edit plays — screen and camera together. This editor's own monitor plays the
+  // same recording a few frames apart, which is heard as an echo, so it stays
+  // silent while embedded. Its monitor volume control is meaningless here for
+  // the same reason its picture is: the host is the one output.
+  useEffect(() => {
+    if (window.parent === window) return undefined
+    const { setMuted } = usePlaybackStore.getState()
+    setMuted(true)
+    // Anything that flips it back — a restored session, a stray keyboard
+    // shortcut — would bring the echo back, so hold it muted.
+    return usePlaybackStore.subscribe((state) => {
+      if (!state.muted) usePlaybackStore.getState().setMuted(true)
+    })
+  }, [])
   // Everything on this timeline. The host draws the recording composite from its
   // own project, and these on top, so a layer added here shows in BOTH views —
   // the host's compositor is the only thing painting either of them.
@@ -54,7 +70,8 @@ export function useRoughCutViewerBridge(
         frame,
         fps,
         playing: isPlaying,
-        // Every track, in stack order. Index 0 is the bottom.
+        // Every track, in FreeCut's stack order. Lower order numbers are higher
+        // visual tracks, so the host can preserve the Editor's z-order exactly.
         tracks: (tracks ?? []).map((track, index) => {
           const tr = track as Record<string, unknown>
           return { id: tr.id, order: typeof tr.order === 'number' ? tr.order : index }

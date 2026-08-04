@@ -24,6 +24,7 @@ import type { AudioPlaybackProps } from './audio-playback-props'
 import { getBrowserMediaPlaybackRate } from '@/shared/state/playback/shuttle'
 import { useClockPlaybackRate } from '@/runtime/composition-runtime/deps/player'
 import { useAudioPlaybackState } from './hooks/use-audio-playback-state'
+import { shouldSilenceEmbeddedPreviewAudio } from '../utils/embedded-preview-audio'
 import {
   hasAudioPitchOverride,
   isAudioPitchShiftActive,
@@ -197,7 +198,8 @@ export const NativePitchCorrectedAudio: React.FC<PitchCorrectedAudioProps> = Rea
       audioRef.current = audio
       graphRef.current = graph
       audio.volume = 1
-      audio.muted = false
+      // Silent while embedded: the host is already playing this timeline.
+      audio.muted = shouldSilenceEmbeddedPreviewAudio()
 
       try {
         const sourceNode = graph.context.createMediaElementSource(audio)

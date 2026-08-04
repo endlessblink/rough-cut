@@ -109,7 +109,10 @@ export const PreviewStage = memo(function PreviewStage({
   // Tell the Rough Cut host where this viewer is and which frame it shows, so
   // the host's compositor can paint the picture. See the hook for why the
   // picture is drawn there rather than here.
-  useRoughCutViewerBridge(pixelSnappedPlayerRef, fps)
+  // Report only the actual painted viewer surface. The pixel-snapped wrapper
+  // also contains controls and can extend beyond the visible viewer into the
+  // timeline, which would let the host compositor cover FreeCut's chrome.
+  useRoughCutViewerBridge(playerSurfaceRef, fps)
 
   // Observe the browser's actual video presentation rather than treating a
   // Clock tick as visible output. The subscription is imperative so playback

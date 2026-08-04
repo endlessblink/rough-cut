@@ -17,11 +17,19 @@ test('Editor v2 panes have no eyebrow header row (banned pattern)', () => {
   assert.match(source, /assetLabel\(primaryAsset, 0\)/);
 });
 
-test('FreeCut is the single advanced editor surface over the Rough Cut program feed', () => {
+test('FreeCut is the single advanced editor surface, and Rough Cut paints its picture', () => {
   const source = readFileSync(join(here, '../freecut-editor-surface.tsx'), 'utf8');
 
   assert.match(source, /className="freecutEditorFrame"/);
-  assert.doesNotMatch(source, /StyledVideoPreview/);
+  // One compositor draws every view. This used to assert the opposite — that the
+  // surface must NOT mount Rough Cut's preview — back when the Editor drew its
+  // own picture from a pre-rendered program feed. Two renderers can never agree
+  // (this one has no concept of camera PiP, zoom, click effects or a
+  // telemetry-driven cursor), so Rough Cut's compositor now paints over the
+  // Editor's viewer and there is only ever one thing drawing.
+  assert.match(source, /StyledVideoPreview/);
+  assert.match(source, /freecutProgramOverlay/);
+  // The Editor's own duplicate chrome stays gone.
   assert.doesNotMatch(source, /freecutEditorModeBar/);
   assert.doesNotMatch(source, />Program</);
   assert.doesNotMatch(source, />Source</);

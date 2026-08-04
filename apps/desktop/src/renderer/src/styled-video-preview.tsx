@@ -509,6 +509,11 @@ export function StyledVideoPreview({
   // Decode surfaces for Editor video layers, kept across frames so playback
   // does not re-create an element (and re-buffer) on every draw.
   const editorLayerMediaRef = React.useRef<Map<string, HTMLVideoElement>>(new Map());
+  // The draw loop is a long-lived closure that is not restarted when layers
+  // change, so it must read them through a ref or it would keep drawing the
+  // stack that existed when the loop started.
+  const overlayLayersAboveRef = React.useRef<EditorOverlayLayer[]>(overlayLayersAbove);
+  const overlayLayersBelowRef = React.useRef<EditorOverlayLayer[]>(overlayLayersBelow);
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
@@ -1106,6 +1111,28 @@ export function StyledVideoPreview({
   // the loop only restarts when the cut ranges actually change.
   const cutRangesKey = JSON.stringify(cutRanges);
 
+  // Same reasoning as cutRangesKey: the split arrays are rebuilt on every render,
+  // so identity says nothing. Compare content, and hand the loop the new stack
+  // through refs rather than restarting it.
+  // An overlay layer's decoder finishing a frame is not a timeline event, so
+  // nothing else would repaint a parked playhead with the picture that just
+  // became available.
+  const markOverlayLayerDirty = React.useCallback(() => {
+    previewInteractionDirtyRef.current = true;
+  }, []);
+
+  const overlayLayersKey = JSON.stringify([overlayLayersAbove, overlayLayersBelow]);
+  React.useEffect(() => {
+    overlayLayersAboveRef.current = overlayLayersAbove;
+    overlayLayersBelowRef.current = overlayLayersBelow;
+    // A layer added, moved between tracks or removed in the Editor has to show
+    // immediately, including while the playhead is parked — without this the
+    // paused frame is considered already drawn and the change appears only
+    // after the next seek or playback.
+    previewInteractionDirtyRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, see above
+  }, [overlayLayersKey]);
+
   React.useEffect(() => {
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
@@ -1655,7 +1682,7 @@ export function StyledVideoPreview({
       // Layers on tracks BELOW the recording. Track order is z-order, and the
       // recording is just another clip on a track — it is not automatically
       // on top of or underneath anything.
-      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersBelow, renderFrame, editorLayerMediaRef.current);
+      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersBelowRef.current, renderFrame, editorLayerMediaRef.current, 'below', markOverlayLayerDirty, activeTimelinePlayback);
       markDrawPhase('background');
       if (timeMode === 'timeline' && !screenLayer) {
         publishCursorOffscreenStatus(null);
@@ -1873,6 +1900,11 @@ export function StyledVideoPreview({
             offsetY,
           });
         }
+        // The accelerated compositor draws the entire recording — screen, cursor
+        // and camera PiP — in one call, and this branch returns before the
+        // Canvas2D path below. Without this the layers a user added in the
+        // Editor disappear the moment playback goes accelerated.
+        drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAboveRef.current, renderFrame, editorLayerMediaRef.current, 'above', markOverlayLayerDirty, activeTimelinePlayback);
         markDrawPhase('accelerated-frame');
         publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
         markDrawPhase('layout-publish-overlays');
@@ -2009,10 +2041,6 @@ export function StyledVideoPreview({
       publishScreenLayerRendererStats(cursorLayerStats);
       ctx.restore();
       ctx.restore();
-      // Layers on tracks ABOVE the recording. Outside the zoom/screen transform
-      // on purpose: these sit on the program, like titles, not inside the
-      // recording's frame.
-      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAbove, renderFrame, editorLayerMediaRef.current);
       if (zoomSafety) {
         drawZoomAuthoringSafetyOverlay(ctx, zoomSafety, cursorPos, {
           screenX,
@@ -2066,6 +2094,13 @@ export function StyledVideoPreview({
         if (!activeTimelinePlayback && onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrameForDraw, '#f59e0b', frame.cameraPresentation);
       }
       markDrawPhase('camera-pip');
+      // Layers on tracks ABOVE the recording, drawn once the WHOLE recording
+      // composite is down — screen, cursor and camera PiP alike. The recording
+      // is a clip on a track like any other, so nothing belonging to it may
+      // survive on top of a track above it. Outside the zoom/screen transform on
+      // purpose: these sit on the program, like titles, not inside the
+      // recording's frame.
+      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAboveRef.current, renderFrame, editorLayerMediaRef.current, 'above', markOverlayLayerDirty, activeTimelinePlayback);
       publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
       const focalSelection = selectedZoomFocalRef.current;
       const focalScreenRect = screenRectRef.current;
@@ -3077,7 +3112,39 @@ export type EditorOverlayLayer = {
  * stalled decode must not be able to stop or slow the compositor, which is why
  * every draw is guarded on readyState rather than awaited.
  */
-function acquireOverlayVideo(pool: Map<string, HTMLVideoElement>, src: string): HTMLVideoElement {
+/**
+ * The last frame each overlay layer successfully decoded.
+ *
+ * A seek drops a video element back to readyState 1 for a moment. Skipping the
+ * layer during that window makes it vanish and lets whatever is under it — the
+ * recording — show through, which reads as the layer being on the wrong track.
+ * A clip on a higher track covers the one below it on every frame, so hold the
+ * last decoded picture until the next one arrives.
+ */
+const overlayLayerFrameCache = new WeakMap<HTMLVideoElement, HTMLCanvasElement>();
+
+function cacheOverlayFrame(video: HTMLVideoElement): HTMLCanvasElement | null {
+  const width = video.videoWidth;
+  const height = video.videoHeight;
+  if (!width || !height) return null;
+  let cache = overlayLayerFrameCache.get(video);
+  if (!cache || cache.width !== width || cache.height !== height) {
+    cache = document.createElement('canvas');
+    cache.width = width;
+    cache.height = height;
+    overlayLayerFrameCache.set(video, cache);
+  }
+  const cacheCtx = cache.getContext('2d');
+  if (!cacheCtx) return null;
+  cacheCtx.drawImage(video, 0, 0, width, height);
+  return cache;
+}
+
+function acquireOverlayVideo(
+  pool: Map<string, HTMLVideoElement>,
+  src: string,
+  onDecoded?: () => void,
+): HTMLVideoElement {
   const existing = pool.get(src);
   if (existing) return existing;
   const video = document.createElement('video');
@@ -3085,6 +3152,13 @@ function acquireOverlayVideo(pool: Map<string, HTMLVideoElement>, src: string): 
   video.muted = true;
   video.playsInline = true;
   video.preload = 'auto';
+  // A paused preview draws only when something marks it dirty, so a frame that
+  // finishes decoding after the draw would otherwise never be shown.
+  if (onDecoded) {
+    for (const event of ['loadeddata', 'seeked', 'canplay'] as const) {
+      video.addEventListener(event, onDecoded);
+    }
+  }
   pool.set(src, video);
   return video;
 }
@@ -3096,13 +3170,25 @@ function drawEditorOverlayLayers(
   layers: EditorOverlayLayer[],
   timelineFrame: number,
   pool: Map<string, HTMLVideoElement>,
+  pass: 'above' | 'below' = 'above',
+  onDecoded?: () => void,
+  playing = false,
 ) {
+  // Why a layer did or did not land on the canvas is invisible from a
+  // screenshot: an unresolved source and a correctly hidden layer look the
+  // same. Publish the reason so a check can read it instead of guessing.
+  const diag = ((window as unknown as Record<string, unknown>).__roughCutOverlayDiag ??= {}) as Record<string, unknown>;
+  const report: Record<string, unknown>[] = [];
+  diag[pass] = { frame: timelineFrame, count: layers.length, layers: report };
   if (!layers.length) return;
   for (const layer of layers) {
     const from = Number(layer.from ?? 0);
     const duration = Number(layer.durationInFrames ?? 0);
     // Half-open interval, matching the timeline convention used everywhere else.
-    if (duration > 0 && (timelineFrame < from || timelineFrame >= from + duration)) continue;
+    if (duration > 0 && (timelineFrame < from || timelineFrame >= from + duration)) {
+      report.push({ id: layer.id, type: layer.type, drawn: false, reason: 'not-under-playhead', from, duration });
+      continue;
+    }
 
     // Editor coordinates are in composition pixels; the canvas may be a
     // different size, so scale rather than assuming they match.
@@ -3114,14 +3200,43 @@ function drawEditorOverlayLayers(
     const h = layer.height ? Number(layer.height) * scaleY : canvasHeight;
 
     if (layer.type === 'video' && layer.src) {
-      const video = acquireOverlayVideo(pool, layer.src);
+      const video = acquireOverlayVideo(pool, layer.src, onDecoded);
       const sourceStart = Number(layer.sourceStart ?? 0);
       const wantedSec = Math.max(0, (timelineFrame - from + sourceStart) / 30);
-      // Only seek when meaningfully off, or playback fights the decoder.
-      if (Number.isFinite(video.duration) && Math.abs(video.currentTime - wantedSec) > 0.12) {
-        try { video.currentTime = wantedSec; } catch { /* seek before metadata */ }
+      // While the timeline runs, let the layer's own decoder run with it and
+      // only correct real drift. Seeking it once per drawn frame — which is what
+      // this used to do — makes every frame wait on a fresh decode and drags the
+      // whole preview down. Paused, a seek is exactly right.
+      const drift = Math.abs(video.currentTime - wantedSec);
+      const hasDuration = Number.isFinite(video.duration);
+      if (playing) {
+        if (video.paused) { void video.play().catch(() => undefined); }
+        if (hasDuration && drift > 0.35) {
+          try { video.currentTime = wantedSec; } catch { /* seek before metadata */ }
+        }
+      } else {
+        if (!video.paused) video.pause();
+        if (hasDuration && drift > 0.12) {
+          try { video.currentTime = wantedSec; } catch { /* seek before metadata */ }
+        }
       }
-      if (video.readyState >= 2) ctx.drawImage(video, x, y, w, h);
+      const ready = video.readyState >= 2;
+      // Fresh frame when there is one, last decoded frame while a seek is in
+      // flight. Never nothing — a covering layer must keep covering.
+      const cached = ready ? cacheOverlayFrame(video) : overlayLayerFrameCache.get(video) ?? null;
+      if (ready) ctx.drawImage(video, x, y, w, h);
+      else if (cached) ctx.drawImage(cached, x, y, w, h);
+      report.push({
+        id: layer.id,
+        type: 'video',
+        drawn: ready || Boolean(cached),
+        reason: ready ? 'drawn' : cached ? 'held-last-frame' : 'source-not-decodable',
+        src: layer.src,
+        readyState: video.readyState,
+        networkState: video.networkState,
+        error: video.error?.code ?? null,
+        rect: { x, y, w, h },
+      });
       continue;
     }
     if (layer.type === 'text' && layer.text) {
@@ -3131,7 +3246,10 @@ function drawEditorOverlayLayers(
       ctx.textBaseline = 'top';
       ctx.fillText(layer.text, x || canvasWidth * 0.1, y || canvasHeight * 0.1);
       ctx.restore();
+      report.push({ id: layer.id, type: 'text', drawn: true, reason: 'drawn' });
+      continue;
     }
+    report.push({ id: layer.id, type: layer.type, drawn: false, reason: 'unsupported-layer-type' });
   }
 }
 

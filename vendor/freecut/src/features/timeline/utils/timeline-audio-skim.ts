@@ -3,6 +3,7 @@ import { getMixerLiveGain } from '@/shared/state/mixer-live-gain'
 import { getAudioFadeMultiplier } from '@/shared/utils/audio-fade-curve'
 import { timelineToSourceFrames } from './source-calculations'
 import { resolveEffectiveTrackStates } from './group-utils'
+import { shouldSilenceEmbeddedPreviewAudio } from '@/runtime/composition-runtime/utils/embedded-preview-audio'
 
 const DEFAULT_TIMELINE_FPS = 30
 const DEFAULT_GRAIN_DURATION_SECONDS = 0.045
@@ -333,7 +334,7 @@ export function createTimelineMediaElementAudioSkimPreview(
       media.preload = 'auto'
       media.crossOrigin = 'anonymous'
       media.volume = gain
-      media.muted = false
+      media.muted = shouldSilenceEmbeddedPreviewAudio()
       if (media instanceof HTMLVideoElement) {
         media.playsInline = true
       }
@@ -395,7 +396,7 @@ export function createTimelineMediaElementAudioSkimPreview(
     }
 
     element.volume = Math.max(0, Math.min(1, gain * requestGain))
-    element.muted = false
+    element.muted = shouldSilenceEmbeddedPreviewAudio()
     await element.play()
     if (currentRequest !== requestId) {
       element.pause()

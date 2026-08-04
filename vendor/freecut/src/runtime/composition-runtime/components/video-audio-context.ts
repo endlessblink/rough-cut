@@ -26,6 +26,7 @@ import {
   setPreviewClipGain,
   type PreviewClipAudioGraph,
 } from '../utils/preview-audio-graph'
+import { shouldSilenceEmbeddedPreviewAudio } from '../utils/embedded-preview-audio'
 
 // Track video elements that have been connected to Web Audio API
 // A video element can only be connected to ONE MediaElementSourceNode ever
@@ -38,8 +39,9 @@ export function applyVideoElementAudioState(
   audioVolume: number,
   audioEqStages: ReadonlyArray<ResolvedAudioEqSettings>,
 ): void {
-  // Pool creates elements muted. Keep element unmuted and control via volume/gain.
-  video.muted = false
+  // Pool creates elements muted. Keep element unmuted and control via volume/gain
+  // — unless the host is playing this timeline's sound already.
+  video.muted = shouldSilenceEmbeddedPreviewAudio()
   const safeVolume = Math.max(0, audioVolume)
 
   // Already connected to Web Audio API: ramp gain and resume context if needed.

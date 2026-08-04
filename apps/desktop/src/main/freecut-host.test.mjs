@@ -108,31 +108,37 @@ test('an empty render file is not treated as a cache hit', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Styled program renders must be single-flight.
+// Serving media must never start a render. Not one render, not a single-flight
+// render, none.
 //
-// `resolveMedia` runs on every HTTP Range request a <video> element makes. Before
-// these guards, each request that missed the cache started its own full ffmpeg
-// render: 9 processes in 3 seconds, 76GB RAM and 31GB swap, twice in one day.
+// `resolveMedia` runs on every HTTP Range request a <video> element makes.
+// Rendering here once cost 9 ffmpeg processes in 3 seconds, 76GB RAM and 31GB
+// swap; making it single-flight only reduced that to one full-length export per
+// project, which still put ffmpeg on the machine merely because someone opened
+// the Editor. The duration of the recording is beside the point — a preview must
+// never wait on an encode at all. Rough Cut's compositor draws the picture live
+// from the raw media, so the program request only owes the Editor decodable
+// frames of the right length, and the raw recording already is that.
 // ---------------------------------------------------------------------------
 
-async function styledProgramFixture({ onExport } = {}) {
+async function styledProgramFixture({ onExport, duration = 90 } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-styled-'));
   const mediaPath = join(root, 'recording.mp4');
   await writeFile(mediaPath, 'fixture');
   const projectPath = join(root, 'demo.roughcut');
   const asset = createAsset('recording', mediaPath, {
-    duration: 90,
+    duration,
     metadata: { width: 1920, height: 1080, fps: 30 },
   });
   const track = createTrack('video', { name: 'Screen Recording', index: 0 });
   const clip = createClip(asset.id, track.id, {
-    timelineIn: 0, timelineOut: 90, sourceIn: 0, sourceOut: 90,
+    timelineIn: 0, timelineOut: duration, sourceIn: 0, sourceOut: duration,
   });
   const document = createProject({
     id: 'rough-cut-styled',
     name: 'Styled project',
     assets: [asset],
-    composition: { duration: 90, tracks: [{ ...track, clips: [clip] }], transitions: [] },
+    composition: { duration, tracks: [{ ...track, clips: [clip] }], transitions: [] },
   });
   await saveProjectFile(projectPath, document);
 
@@ -150,92 +156,57 @@ async function styledProgramFixture({ onExport } = {}) {
   return { root, host, document, asset, calls, programAssetId: `${asset.id}__program` };
 }
 
-test('concurrent media requests for one clip trigger exactly one styled render', async () => {
-  const { host, document, calls, programAssetId } = await styledProgramFixture({
-    // Hold the render open so all nine requests are genuinely in flight at once,
-    // which is what the real Range-request burst does.
-    async onExport({ outputPath }) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      await writeFile(outputPath, 'rendered program');
-    },
-  });
+test('a burst of media requests starts no render at all', async () => {
+  const { host, document, calls, programAssetId } = await styledProgramFixture();
 
   const results = await Promise.all(
     Array.from({ length: 9 }, () => host.resolveMedia(document.id, programAssetId)),
   );
 
-  assert.equal(calls.length, 1, `expected 1 render, got ${calls.length}`);
-  for (const result of results) assert.ok(result?.path, 'every caller should receive the rendered media');
+  assert.equal(calls.length, 0, `expected 0 renders, got ${calls.length}`);
+  for (const result of results) assert.ok(result?.path, 'every caller should still receive playable media');
   assert.equal(new Set(results.map((r) => r.path)).size, 1);
 });
 
-test('a completed styled render is reused instead of re-rendered', async () => {
-  const { host, document, calls, programAssetId } = await styledProgramFixture();
-  await host.resolveMedia(document.id, programAssetId);
-  await host.resolveMedia(document.id, programAssetId);
-  await host.resolveMedia(document.id, programAssetId);
-  assert.equal(calls.length, 1);
-});
-
-test('styled renders publish atomically and leave no partial behind', async () => {
+test('the program resolves to the raw recording, instantly and without encoding', async () => {
   const { root, host, document, calls, programAssetId } = await styledProgramFixture();
   const result = await host.resolveMedia(document.id, programAssetId);
 
-  // The render wrote to a partial path, not straight to the published name.
-  assert.notEqual(calls[0], result.path);
-  assert.match(calls[0], /\.partial-\d+\.mp4$/);
-
-  const cacheDir = join(root, '.roughcut-freecut-cache');
-  const leftovers = (await readdir(cacheDir)).filter((name) => name.includes('.partial') || name.endsWith('.lock'));
-  assert.deepEqual(leftovers, [], `partial/lock files left behind: ${leftovers.join(', ')}`);
-  assert.ok((await stat(result.path)).size > 0);
+  assert.equal(result?.path, join(root, 'recording.mp4'));
+  assert.equal(calls.length, 0);
 });
 
-test('a failed styled render publishes nothing and falls back to raw media', async () => {
-  const { root, host, document, programAssetId } = await styledProgramFixture({
-    async onExport() { throw new Error('ffmpeg died'); },
-  });
+test('serving the program writes nothing to disk', async () => {
+  const { root, host, document, programAssetId } = await styledProgramFixture();
+  await host.resolveMedia(document.id, programAssetId);
+  await host.resolveMedia(document.id, programAssetId);
 
-  assert.equal(await host.resolveMedia(document.id, programAssetId), null);
-
-  // Critically: no half-written file that a later request would read as a cache hit.
+  // No cache directory, no partials, no locks: nothing was produced.
   const cacheDir = join(root, '.roughcut-freecut-cache');
   const entries = await readdir(cacheDir).catch(() => []);
-  assert.deepEqual(entries, [], `failed render left files behind: ${entries.join(', ')}`);
+  assert.deepEqual(entries, [], `serving media created files: ${entries.join(', ')}`);
 });
 
-test('a lock held by a live process blocks a second render rather than duplicating it', async () => {
-  const { root, host, document, calls, programAssetId } = await styledProgramFixture();
-  const cacheDir = join(root, '.roughcut-freecut-cache');
-  await mkdir(cacheDir, { recursive: true });
-
-  // Simulate the other app instance that was running during the real incident.
-  const [entry] = await readdir(root).then((names) => names.filter((n) => n.endsWith('.roughcut')));
-  assert.ok(entry);
-  const lockTarget = await host.resolveMedia(document.id, programAssetId);
-  assert.ok(lockTarget?.path);
-  const renders = calls.length;
-
-  await writeFile(`${lockTarget.path}.lock`, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
-  await writeFile(lockTarget.path, ''); // truncate so the fast path misses
-
-  // Bound the wait so the test does not sit for the production timeout.
-  process.env.ROUGH_CUT_STYLED_WAIT_MS = '300';
+test('the length of the recording changes nothing about what is served', async () => {
+  // A ten-hour project must behave exactly like a ninety-frame one: no encode,
+  // immediate answer. Duration is metadata here, so this is a fair stand-in.
+  const { root, host, document, calls, programAssetId } = await styledProgramFixture({
+    duration: 30 * 60 * 60 * 10,
+  });
+  const startedAt = Date.now();
   const result = await host.resolveMedia(document.id, programAssetId);
-  delete process.env.ROUGH_CUT_STYLED_WAIT_MS;
-
-  assert.equal(result, null, 'a contended render should report unavailable, not render again');
-  assert.equal(calls.length, renders, 'no second render may start while the lock is held');
+  assert.equal(result?.path, join(root, 'recording.mp4'));
+  assert.equal(calls.length, 0);
+  assert.ok(Date.now() - startedAt < 2000, 'resolving media must not wait on anything');
 });
 
 // ---------------------------------------------------------------------------
-// Asking for the styled program and receiving the raw recording is not a
-// graceful fallback — it is silently the wrong picture: unstyled, no camera
-// PiP, no zoom, no cursor. A <video> that has already been handed the raw file
-// never asks again, so the Editor stays wrong for the whole session.
-//
-// The 1MB floor in the old fallback means this only reproduces with a large
-// source file; the 7-byte fixture above never tripped it.
+// Handing back the raw recording used to be wrong: the Editor drew its own
+// picture from it, so the user saw unstyled footage with no camera PiP, zoom or
+// cursor. That is no longer how the picture gets drawn — Rough Cut's compositor
+// paints the Editor's viewer from the live project, so the raw file is only ever
+// a decode surface behind it, and never showing the user a stale render is worth
+// far more than the Editor's internal filmstrips being unstyled.
 // ---------------------------------------------------------------------------
 
 async function largeSourceFixture() {
@@ -270,10 +241,10 @@ async function largeSourceFixture() {
   return { host, document, asset, mediaPath };
 }
 
-test('an unfinished styled program resolves to nothing, never the raw recording', async () => {
-  const { host, document, asset } = await largeSourceFixture();
+test('the program serves the raw recording rather than waiting on a render', async () => {
+  const { host, document, asset, mediaPath } = await largeSourceFixture();
   const served = await host.resolveMedia(document.id, `${asset.id}__program`);
-  assert.equal(served, null, 'the Editor must wait rather than play unstyled footage');
+  assert.equal(served?.path, mediaPath, 'the Editor must never be made to wait on an encode');
 });
 
 test('a raw asset requested by its own id still resolves', async () => {
