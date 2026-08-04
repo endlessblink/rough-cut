@@ -27,6 +27,7 @@ import {
   resolvePlaybackColdStartVisibleFrame,
 } from '../utils/playback-cold-start-event'
 import { DomTextScrubOverlay } from './dom-text-scrub-overlay'
+import { useRoughCutViewerBridge } from '../hooks/use-rough-cut-viewer-bridge'
 
 interface PreviewStageProps {
   backgroundRef: RefObject<HTMLDivElement | null>
@@ -104,6 +105,11 @@ export const PreviewStage = memo(function PreviewStage({
   const textOverlayPlayerRef = useRef<PlayerRef | null>(null)
   const renderedOverlayVisibleRef = useRef(isRenderedOverlayVisible)
   renderedOverlayVisibleRef.current = isRenderedOverlayVisible
+
+  // Tell the Rough Cut host where this viewer is and which frame it shows, so
+  // the host's compositor can paint the picture. See the hook for why the
+  // picture is drawn there rather than here.
+  useRoughCutViewerBridge(pixelSnappedPlayerRef, fps)
 
   // Observe the browser's actual video presentation rather than treating a
   // Clock tick as visible output. The subscription is imperative so playback

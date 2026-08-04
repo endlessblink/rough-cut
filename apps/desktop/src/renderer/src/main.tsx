@@ -69,7 +69,7 @@ document.documentElement.dataset.hostBundleSignature = hostBundleSignature;
 import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
 import { FreecutEditorSurface } from './freecut-editor-surface';
-import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
+import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout, type StyledPreviewProject } from './styled-video-preview';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
@@ -1850,6 +1850,9 @@ function App() {
             projectId={project?.document?.id ?? null}
             projectVersion={projectVersion}
             active={activeAppView === 'nle'}
+            // Same project state Recording edit composites, so both views are
+            // literally drawn by the same renderer from the same state.
+            previewProject={(project as unknown as StyledPreviewProject | null) ?? null}
           />
         </div>
       </section>

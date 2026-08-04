@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyledVideoPreview, type StyledPreviewProject } from './styled-video-preview';
 
 type FreecutUrlResult = {
   ok: boolean;
@@ -11,6 +12,23 @@ type FreecutEditorSurfaceProps = {
   projectVersion?: number;
   /** False while another view is showing. The surface stays mounted either way. */
   active?: boolean;
+  /**
+   * The project Rough Cut's compositor draws. The Editor's own renderer cannot
+   * express camera PiP, zoom markers, click effects or a telemetry-driven
+   * cursor, so matching Recording edit inside it would mean re-implementing the
+   * compositor in a second engine and letting the two drift. Instead the one
+   * compositor Rough Cut already has paints over the Editor's viewer.
+   */
+  previewProject?: StyledPreviewProject | null;
+};
+
+/** Where the Editor's viewer sits inside the iframe, and what it is showing. */
+type FreecutViewerMessage = {
+  type: 'freecut:viewer';
+  rect: { x: number; y: number; width: number; height: number };
+  frame: number;
+  fps: number;
+  playing: boolean;
 };
 
 type FreecutReadyMessage = {
@@ -27,7 +45,12 @@ type FreecutCommandMessage = {
   command?: { opId?: string; projectId?: string; payload?: { project?: { id?: string } } };
 };
 
-export function FreecutEditorSurface({ projectId, projectVersion = 0, active = true }: FreecutEditorSurfaceProps) {
+export function FreecutEditorSurface({ projectId, projectVersion = 0, active = true, previewProject = null }: FreecutEditorSurfaceProps) {
+  // Position and playhead of the Editor's viewer, reported by the embedded
+  // editor. Null until it reports, which is also our signal that the embedded
+  // build is old enough to lack the bridge — in that case nothing is painted
+  // and the Editor keeps its own picture.
+  const [viewer, setViewer] = React.useState<FreecutViewerMessage | null>(null);
   const [result, setResult] = React.useState<FreecutUrlResult | null>(null);
   const [ready, setReady] = React.useState(false);
   const [booted, setBooted] = React.useState(false);
@@ -48,9 +71,15 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
     setProbeReceived(false);
     setProbeSourceMatched(false);
     setMarker(undefined);
-    const onMessage = (event: MessageEvent<FreecutReadyMessage | FreecutCommandMessage>) => {
+    const onMessage = (event: MessageEvent<FreecutReadyMessage | FreecutCommandMessage | FreecutViewerMessage>) => {
       const expectedOrigin = result?.url ? new URL(result.url).origin : '';
       const sourceTrusted = event.source === frameRef.current?.contentWindow || event.origin === expectedOrigin;
+      // Fires on every viewer move and every frame, so it must not be logged
+      // like the one-off handshake messages below.
+      if (event.data?.type === 'freecut:viewer') {
+        if (sourceTrusted) setViewer(event.data as unknown as FreecutViewerMessage);
+        return;
+      }
       if (typeof event.data?.type === 'string' && event.data.type.startsWith('freecut')) {
         console.info('[freecut-host-message]', event.data.type, event.origin, sourceTrusted);
       }
@@ -241,6 +270,36 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
           src={result.url}
           allow="clipboard-read; clipboard-write"
         />
+        {/* One compositor draws the picture, and it is Rough Cut's. It is
+            positioned over the Editor's own viewer using the rectangle the
+            Editor reports, so both views are guaranteed to look identical —
+            there is only one renderer. Nothing is pre-rendered: this composites
+            live from the raw media exactly as Recording edit does, so a project
+            shows instantly regardless of its length. */}
+        {viewer && previewProject ? (
+          <div
+            className="freecutProgramOverlay"
+            data-ui-region="freecut-program-overlay"
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: viewer.rect.x,
+              top: viewer.rect.y,
+              width: viewer.rect.width,
+              height: viewer.rect.height,
+              // The Editor's gizmos and controls must stay clickable underneath.
+              pointerEvents: 'none',
+            }}
+          >
+            <StyledVideoPreview
+              project={previewProject}
+              seekTimeSec={viewer.fps > 0 ? viewer.frame / viewer.fps : 0}
+              isPlaying={viewer.playing}
+              timeMode="timeline"
+              showControls={false}
+            />
+          </div>
+        ) : null}
         {!ready ? <div className="freecutEditorSurfaceStatus" data-freecut-readiness="waiting">{bootError ?? (booted ? 'FreeCut is waiting for readiness…' : 'Loading FreeCut editor…')}</div> : null}
       </section>
     );
