@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyledVideoPreview, type StyledPreviewProject } from './styled-video-preview';
+import { StyledVideoPreview, type StyledPreviewProject, type EditorOverlayLayer } from './styled-video-preview';
 
 type FreecutUrlResult = {
   ok: boolean;
@@ -29,6 +29,9 @@ type FreecutViewerMessage = {
   frame: number;
   fps: number;
   playing: boolean;
+  /** Layers on the Editor's timeline. Drawn by Rough Cut's compositor so they
+   *  appear in every view, not just this one. */
+  layers?: EditorOverlayLayer[];
 };
 
 type FreecutReadyMessage = {
@@ -295,6 +298,7 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
               project={previewProject}
               seekTimeSec={viewer.fps > 0 ? viewer.frame / viewer.fps : 0}
               isPlaying={viewer.playing}
+              overlayLayers={viewer.layers ?? []}
               timeMode="timeline"
               showControls={false}
             />

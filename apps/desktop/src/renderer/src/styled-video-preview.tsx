@@ -455,8 +455,11 @@ export function StyledVideoPreview({
   onCensorRectChange,
   mediaUrlOverride,
   cameraMediaUrlOverride,
+  overlayLayers = [],
 }: {
   project: StyledPreviewProject;
+  /** Layers added in the advanced Editor, drawn on top of the program. */
+  overlayLayers?: EditorOverlayLayer[];
   seekTimeSec?: number;
   trimStartSec?: number;
   trimEndSec?: number;
@@ -500,6 +503,9 @@ export function StyledVideoPreview({
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const webglCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const screenLayerRendererRef = React.useRef<ScreenLayerRenderer | null>(null);
+  // Decode surfaces for Editor video layers, kept across frames so playback
+  // does not re-create an element (and re-buffer) on every draw.
+  const editorLayerMediaRef = React.useRef<Map<string, HTMLVideoElement>>(new Map());
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
@@ -1996,6 +2002,10 @@ export function StyledVideoPreview({
       publishScreenLayerRendererStats(cursorLayerStats);
       ctx.restore();
       ctx.restore();
+      // Layers added in the advanced Editor, drawn by this compositor so both
+      // views show them. Deliberately outside the zoom/screen transform above:
+      // these sit on the program, like titles, not inside the recording.
+      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayers, renderFrame, editorLayerMediaRef.current);
       if (zoomSafety) {
         drawZoomAuthoringSafetyOverlay(ctx, zoomSafety, cursorPos, {
           screenX,
@@ -3031,6 +3041,91 @@ function alignRectInCanvas(
     x: Math.max(0, Math.min(canvasWidth - rect.w, next.x)),
     y: Math.max(0, Math.min(canvasHeight - rect.h, next.y)),
   };
+}
+
+/**
+ * A layer the advanced Editor added to the shared timeline. Only the fields this
+ * compositor needs to draw it; the Editor owns the rest.
+ */
+export type EditorOverlayLayer = {
+  id?: string;
+  type?: string;
+  from?: number;
+  durationInFrames?: number;
+  mediaId?: string;
+  src?: string;
+  text?: string;
+  sourceStart?: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+};
+
+/**
+ * Decode surfaces for Editor video layers, keyed by source url.
+ *
+ * These follow the same rule as the recording's own decode surfaces: the element
+ * NEVER owns the clock. It is seeked from canonical timeline time and drawn; a
+ * stalled decode must not be able to stop or slow the compositor, which is why
+ * every draw is guarded on readyState rather than awaited.
+ */
+function acquireOverlayVideo(pool: Map<string, HTMLVideoElement>, src: string): HTMLVideoElement {
+  const existing = pool.get(src);
+  if (existing) return existing;
+  const video = document.createElement('video');
+  video.src = src;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  pool.set(src, video);
+  return video;
+}
+
+function drawEditorOverlayLayers(
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  layers: EditorOverlayLayer[],
+  timelineFrame: number,
+  pool: Map<string, HTMLVideoElement>,
+) {
+  if (!layers.length) return;
+  for (const layer of layers) {
+    const from = Number(layer.from ?? 0);
+    const duration = Number(layer.durationInFrames ?? 0);
+    // Half-open interval, matching the timeline convention used everywhere else.
+    if (duration > 0 && (timelineFrame < from || timelineFrame >= from + duration)) continue;
+
+    // Editor coordinates are in composition pixels; the canvas may be a
+    // different size, so scale rather than assuming they match.
+    const scaleX = canvasWidth / 1920;
+    const scaleY = canvasHeight / 1080;
+    const x = Number(layer.x ?? 0) * scaleX;
+    const y = Number(layer.y ?? 0) * scaleY;
+    const w = layer.width ? Number(layer.width) * scaleX : canvasWidth;
+    const h = layer.height ? Number(layer.height) * scaleY : canvasHeight;
+
+    if (layer.type === 'video' && layer.src) {
+      const video = acquireOverlayVideo(pool, layer.src);
+      const sourceStart = Number(layer.sourceStart ?? 0);
+      const wantedSec = Math.max(0, (timelineFrame - from + sourceStart) / 30);
+      // Only seek when meaningfully off, or playback fights the decoder.
+      if (Number.isFinite(video.duration) && Math.abs(video.currentTime - wantedSec) > 0.12) {
+        try { video.currentTime = wantedSec; } catch { /* seek before metadata */ }
+      }
+      if (video.readyState >= 2) ctx.drawImage(video, x, y, w, h);
+      continue;
+    }
+    if (layer.type === 'text' && layer.text) {
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${Math.round(48 * scaleY)}px sans-serif`;
+      ctx.textBaseline = 'top';
+      ctx.fillText(layer.text, x || canvasWidth * 0.1, y || canvasHeight * 0.1);
+      ctx.restore();
+    }
+  }
 }
 
 function drawAlignmentGrid(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number) {

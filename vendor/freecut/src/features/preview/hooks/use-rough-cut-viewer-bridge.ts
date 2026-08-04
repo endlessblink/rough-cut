@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from 'react'
 import { useResolvedPlaybackFrame } from '@/shared/state/playback/use-resolved-playback-frame'
 import { usePlaybackStore } from '@/shared/state/playback'
+import { useItemsStore } from '@/features/preview/deps/timeline-store'
 
 /**
  * Reports this editor's viewer rectangle and playhead to the Rough Cut host.
@@ -23,6 +24,10 @@ export function useRoughCutViewerBridge(
 ): void {
   const frame = useResolvedPlaybackFrame()
   const isPlaying = usePlaybackStore((state) => state.isPlaying)
+  // Everything on this timeline. The host draws the recording composite from its
+  // own project, and these on top, so a layer added here shows in BOTH views —
+  // the host's compositor is the only thing painting either of them.
+  const items = useItemsStore((state) => state.items)
 
   useEffect(() => {
     if (window.parent === window) return undefined
@@ -45,6 +50,30 @@ export function useRoughCutViewerBridge(
         frame,
         fps,
         playing: isPlaying,
+        // The clip carrying Rough Cut's own recording is excluded: the host
+        // already draws that from its project, and sending it back would draw
+        // the recording twice.
+        layers: (items ?? [])
+          .filter((item) => !String((item as { mediaId?: string }).mediaId ?? '').endsWith('__program'))
+          .map((item) => {
+            const it = item as Record<string, unknown>
+            return {
+              id: it.id,
+              type: it.type,
+              trackId: it.trackId,
+              from: it.from,
+              durationInFrames: it.durationInFrames,
+              mediaId: it.mediaId,
+              src: it.src,
+              text: it.text,
+              sourceStart: it.sourceStart,
+              transform: it.transform,
+              x: it.x,
+              y: it.y,
+              width: it.width,
+              height: it.height,
+            }
+          }),
       }
       const key = JSON.stringify(payload)
       if (key === lastKey) return
@@ -62,5 +91,5 @@ export function useRoughCutViewerBridge(
       window.removeEventListener('resize', post)
       window.removeEventListener('scroll', post, true)
     }
-  }, [viewerRef, frame, fps, isPlaying])
+  }, [viewerRef, frame, fps, isPlaying, items])
 }
