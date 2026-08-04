@@ -281,10 +281,33 @@ rootElement.dataset.freecutBuild = FREECUT_MARKER.buildHash
 rootElement.dataset.freecutProjectId = initialProjectId ?? ''
 rootElement.dataset.freecutProjectVersion = String(initialProjectVersion)
 
-void i18nReady.then(() => {
-  if (window.parent !== window) {
-    window.parent.postMessage({ type: 'freecut-ready', marker: FREECUT_MARKER, projectId: initialProjectId, projectVersion: initialProjectVersion }, '*')
+function postHostDiagnostic(message: Record<string, unknown>): void {
+  console.info('FreeCut sending host diagnostic', message.type)
+  if (window.parent !== window) window.parent.postMessage(message, '*')
+}
+
+let freecutReady = false
+
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== 'freecut:request-status') return
+  console.info('FreeCut status request received')
+  postHostDiagnostic({ type: 'freecut-boot', marker: FREECUT_MARKER, projectId: initialProjectId, projectVersion: initialProjectVersion })
+  if (freecutReady) {
+    postHostDiagnostic({ type: 'freecut-ready', marker: FREECUT_MARKER, projectId: initialProjectId, projectVersion: initialProjectVersion })
   }
+})
+
+window.addEventListener('error', (event) => {
+  postHostDiagnostic({ type: 'freecut-error', error: event.error?.message ?? event.message ?? 'FreeCut script error' })
+})
+window.addEventListener('unhandledrejection', (event) => {
+  postHostDiagnostic({ type: 'freecut-error', error: event.reason instanceof Error ? event.reason.message : String(event.reason ?? 'FreeCut promise rejection') })
+})
+postHostDiagnostic({ type: 'freecut-boot', marker: FREECUT_MARKER, projectId: initialProjectId, projectVersion: initialProjectVersion })
+
+void i18nReady.then(() => {
+  freecutReady = true
+  postHostDiagnostic({ type: 'freecut-ready', marker: FREECUT_MARKER, projectId: initialProjectId, projectVersion: initialProjectVersion })
   createRoot(rootElement).render(
     <StrictMode>
       <App />

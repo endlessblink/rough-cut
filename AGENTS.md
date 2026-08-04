@@ -1,5 +1,15 @@
 # Project Agent Notes
 
+## Runtime testing truth — read first
+
+Do not tell the user to test an artifact until its identity is proven. For Rough Cut,
+the only testable version is the freshly packaged artifact whose build completed after
+the latest source change and whose dock launch produced a newer provenance timestamp
+and runtime report. If the dock shows the old UI, stop: rebuild and refresh the dock
+entry, then verify artifact path, bundle signature, launch timestamp, and report
+timestamp before asking for any visual check. Never use a stale report or an unverified
+dock launch as evidence.
+
 ## Design tasks — HARD RULE
 
 Any task that touches UI, CSS, or visual design in this repo MUST be done with a design skill loaded. Acceptable skills (in rough order of preference for this project): `impeccable`, `emil-design-eng`, `frontend-design`, `ui-ux-pro-max`. For motion or animation: pair the brand-specific motion skill (`motion-vercel` / `motion-linear` / `motion-stripe` etc.) with `motion-principles`.
@@ -27,3 +37,9 @@ Any change to the Rough Cut renderer or the vendored FreeCut editor is incomplet
 The required sequence is `pnpm package:linux`, launch the packaged app from the dock, capture the live editor state, have a disposable visual reviewer inspect that screenshot, then run `pnpm visual-proof:record -- <screenshot-path> "<checklist findings>"` followed by `pnpm visual-proof:verify`. Before the final completion claim, run `pnpm visual-proof:arm`; this arms the Stop hook for the final review without blocking ordinary progress messages. Run `pnpm visual-proof:disarm` when continuing implementation. Do not claim completion when the verifier blocks, when any checklist item is missing, when the screenshot is stale, or when the packaged app does not match the reviewed source.
 
 The Stop hook is part of the project contract and must remain installed with `pnpm visual-proof:install`; tests and selector smoke do not replace the headed dock screenshot. A failed visual review is evidence of an unfinished task, not a reason to weaken or bypass the gate.
+
+## Real visual verification — NON-NEGOTIABLE
+
+Before reporting any renderer, timeline, compositor, or FreeCut change as working, run an end-to-end visual check against the exact freshly packaged app and a real project with real media. The check must capture the actual Editor surface, not only a synthetic smoke fixture, and an independent visual reviewer must inspect the screenshot for the complete Editor layout, viewer bounds, media, playback state, effects, timeline, overlap, and cross-view identity. Synthetic smoke, typecheck, tests, DOM payloads, logs, and extracted frames are supporting evidence only; none can substitute for the real screenshot. If the real packaged app cannot be launched or the screenshot cannot be reviewed, the task remains unverified and must not be handed back to the user as working.
+
+The end-to-end check must fail closed on stale package identity, missing real-project media, missing FreeCut readiness, viewer geometry extending outside the viewer, hidden Editor chrome, blank/overlapping UI, or a screenshot that is not newer than the final source and package. The agent owns this verification; do not hand the user a launch instruction as a substitute for doing it.

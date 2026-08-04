@@ -15,6 +15,37 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" crossorigin="anonymous" />
     <title>FreeCut</title>
+    <script>
+      (() => {
+        document.documentElement.dataset.freecutStatus = 'booting';
+        window.addEventListener('error', (event) => {
+          const message = event.error?.message ?? event.message ?? 'unknown error';
+          console.error('FreeCut bootstrap window error', message);
+          if (window.parent !== window) window.parent.postMessage({ type: 'freecut-error', error: `window: ${message}` }, '*');
+        });
+        window.addEventListener('unhandledrejection', (event) => {
+          const message = event.reason?.message ?? String(event.reason ?? 'unknown rejection');
+          console.error('FreeCut bootstrap rejection', message);
+          if (window.parent !== window) window.parent.postMessage({ type: 'freecut-error', error: `rejection: ${message}` }, '*');
+        });
+        console.info('FreeCut bootstrap script executing');
+        const sendProbe = () => {
+          const payload = {
+            type: 'freecut:ready',
+            probe: true,
+            status: 'ok',
+            timestamp: Date.now(),
+          };
+          console.info('FreeCut bootstrap sending probe', payload);
+          if (window.parent !== window) window.parent.postMessage(payload, '*');
+        };
+        sendProbe();
+        window.addEventListener('DOMContentLoaded', sendProbe, { once: true });
+        window.addEventListener('load', sendProbe, { once: true });
+        window.setTimeout(sendProbe, 500);
+        window.setTimeout(sendProbe, 2000);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

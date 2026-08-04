@@ -17,6 +17,12 @@ This rule exists because shipping CSS changes without a design pass produced vis
 - Avoid FFmpeg chains with one overlay per telemetry sample; prefer a transparent cursor layer overlaid once.
 - Keep styled export full-screen fit until explicit zoom/viewport logic exists.
 
+## Real visual verification — NON-NEGOTIABLE
+
+Before reporting any renderer, timeline, compositor, or FreeCut change as working, run an end-to-end visual check against the exact freshly packaged app and a real project with real media. The check must capture the actual Editor surface, not only a synthetic smoke fixture, and an independent visual reviewer must inspect the screenshot for the complete Editor layout, viewer bounds, media, playback state, effects, timeline, overlap, and cross-view identity. Synthetic smoke, typecheck, tests, DOM payloads, logs, and extracted frames are supporting evidence only; none can substitute for the real screenshot. If the real packaged app cannot be launched or the screenshot cannot be reviewed, the task remains unverified and must not be handed back to the user as working.
+
+The end-to-end check must fail closed on stale package identity, missing real-project media, missing FreeCut readiness, viewer geometry extending outside the viewer, hidden Editor chrome, blank/overlapping UI, or a screenshot that is not newer than the final source and package. The agent owns this verification; do not hand the user a launch instruction as a substitute for doing it.
+
 ## Recording setup requirements (Linux/X11 + NVIDIA)
 
 - **Disable "Allow Flipping"** in `nvidia-settings` → OpenGL Settings. With it enabled, the NVIDIA driver uses page-flipping for vsync; x11grab occasionally reads the framebuffer mid-flip and captures torn frames into the recording. Disabling eliminates this. Persists across reboots. Confirmed on this user's hardware on 2026-05-04.

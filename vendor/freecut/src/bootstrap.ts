@@ -1,5 +1,7 @@
 const APP_SHELL_CACHE_PREFIX = 'freecut-app-shell-'
 
+console.info('FreeCut module bootstrap executing')
+
 async function removeProductionAppShellFromDevelopment(): Promise<boolean> {
   if (!import.meta.env.DEV) return false
 
@@ -26,12 +28,34 @@ async function removeProductionAppShellFromDevelopment(): Promise<boolean> {
   return wasControlled
 }
 
+function reportBootstrapError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error('FreeCut bootstrap failed to load main module', message)
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'freecut-error', error: `bootstrap: ${message}` }, '*')
+  }
+}
+
+function loadMainModule(): Promise<unknown> {
+  console.info('FreeCut main module import requested')
+  return import('./main').then((module) => {
+    console.info('FreeCut main module import resolved')
+    return module
+  })
+}
+
 void removeProductionAppShellFromDevelopment()
   .then((requiresReload) => {
     if (requiresReload) {
       window.location.reload()
       return
     }
-    return import('./main')
+    return loadMainModule()
   })
-  .catch(() => import('./main'))
+  .catch((error) => {
+    reportBootstrapError(error)
+    return loadMainModule().catch((retryError) => {
+      reportBootstrapError(retryError)
+      throw retryError
+    })
+  })
