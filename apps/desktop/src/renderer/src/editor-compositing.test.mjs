@@ -142,6 +142,34 @@ test('the host positions its compositor over the Editor viewer rectangle', () =>
   assert.match(source, /pointerEvents: 'none'/);
 });
 
+// --- The user saw: the recording still on screen past the end of the clip. ---
+// It was being composited at the raw playhead time, so where the clip sits, what
+// it is trimmed to and any hole cut in it made no difference to the picture.
+
+test('the compositor is given the recording\'s own time, not the playhead\'s', () => {
+  const source = surface();
+
+  assert.match(source, /seekTimeSec=\{resolveRecordingTimeSec\(viewer\)/);
+  assert.match(source, /recordingAbsent=\{resolveRecordingTimeSec\(viewer\) === null\}/);
+  // The arithmetic must come from the shared module, not a second copy here.
+  assert.match(source, /from '\.\/editor-timeline-placement\.mjs'/);
+});
+
+test('an empty timeline position renders empty, with the layers on it still drawn', () => {
+  const source = preview();
+
+  assert.match(source, /recordingAbsentRef\.current/);
+  const gapBranch = source.slice(source.indexOf('recordingAbsentRef.current) {'), source.indexOf('recordingAbsentRef.current) {') + 1600);
+  // Black, not the styled backdrop: the background belongs to how the recording
+  // is presented, and where the recording does not reach there is nothing.
+  assert.match(gapBranch, /fillStyle = '#000'/);
+  assert.match(gapBranch, /fillRect\(0, 0, canvasWidth, canvasHeight\)/);
+  // Clips on other tracks are still there and still in order.
+  const belowAt = gapBranch.indexOf("'below'");
+  const aboveAt = gapBranch.indexOf("'above'");
+  assert.ok(belowAt > 0 && aboveAt > belowAt, 'both groups draw over the empty frame, in track order');
+});
+
 // --- The user heard: the Recording edit and Editor timelines at once. --------
 
 test('the embedded Editor never sounds; the host compositor is the one output', () => {

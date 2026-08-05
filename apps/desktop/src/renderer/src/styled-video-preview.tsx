@@ -457,12 +457,20 @@ export function StyledVideoPreview({
   cameraMediaUrlOverride,
   overlayLayersAbove = [],
   overlayLayersBelow = [],
+  recordingAbsent = false,
 }: {
   project: StyledPreviewProject;
   /** Editor layers on tracks above the recording. */
   overlayLayersAbove?: EditorOverlayLayer[];
   /** Editor layers on tracks below the recording. */
   overlayLayersBelow?: EditorOverlayLayer[];
+  /**
+   * True where the recording clip does not reach: before it starts, after it
+   * ends, or inside a hole cut out of it. The recording occupies a range like
+   * any other clip, and outside that range the timeline is empty and must render
+   * empty — layers on other tracks still draw.
+   */
+  recordingAbsent?: boolean;
   seekTimeSec?: number;
   trimStartSec?: number;
   trimEndSec?: number;
@@ -514,6 +522,7 @@ export function StyledVideoPreview({
   // stack that existed when the loop started.
   const overlayLayersAboveRef = React.useRef<EditorOverlayLayer[]>(overlayLayersAbove);
   const overlayLayersBelowRef = React.useRef<EditorOverlayLayer[]>(overlayLayersBelow);
+  const recordingAbsentRef = React.useRef(recordingAbsent);
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
@@ -1121,10 +1130,11 @@ export function StyledVideoPreview({
     previewInteractionDirtyRef.current = true;
   }, []);
 
-  const overlayLayersKey = JSON.stringify([overlayLayersAbove, overlayLayersBelow]);
+  const overlayLayersKey = JSON.stringify([overlayLayersAbove, overlayLayersBelow, recordingAbsent]);
   React.useEffect(() => {
     overlayLayersAboveRef.current = overlayLayersAbove;
     overlayLayersBelowRef.current = overlayLayersBelow;
+    recordingAbsentRef.current = recordingAbsent;
     // A layer added, moved between tracks or removed in the Editor has to show
     // immediately, including while the playhead is parked — without this the
     // paused frame is considered already drawn and the change appears only
@@ -1684,8 +1694,25 @@ export function StyledVideoPreview({
       // on top of or underneath anything.
       drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersBelowRef.current, renderFrame, editorLayerMediaRef.current, 'below', markOverlayLayerDirty, activeTimelinePlayback);
       markDrawPhase('background');
-      if (timeMode === 'timeline' && !screenLayer) {
+      // Empty timeline position: either this view's own resolver found no clip,
+      // or the Editor placed the recording somewhere that does not cover the
+      // playhead. Either way there is no recording to draw here — the frame is
+      // empty and only the other tracks have anything to say.
+      if ((timeMode === 'timeline' && !screenLayer) || recordingAbsentRef.current) {
         publishCursorOffscreenStatus(null);
+        // Black, not the styled backdrop. The background is part of how the
+        // recording is presented; where the recording does not reach there is no
+        // presentation either, and an empty timeline position reads as black in
+        // every editor. Painted over whatever the background pass just drew.
+        ctx.save();
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        ctx.restore();
+        // Both groups draw over the empty frame — a clip in a gap is visible
+        // whichever track it is on — and the black fill above just erased the
+        // below pass, so it is repeated here. Order between them still holds.
+        drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersBelowRef.current, renderFrame, editorLayerMediaRef.current, 'below', markOverlayLayerDirty, activeTimelinePlayback);
+        drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAboveRef.current, renderFrame, editorLayerMediaRef.current, 'above', markOverlayLayerDirty, activeTimelinePlayback);
         // Keep the focus target visible/draggable even over a timeline gap,
         // anchored to the last-known screen rect.
         const gapFocal = selectedZoomFocalRef.current;

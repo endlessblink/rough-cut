@@ -26,7 +26,10 @@ test('styled video preview can resolve timeline-time playback through the shared
   assert.match(source, /timeMode\?: PreviewTimeMode/);
   assert.match(source, /resolveTimelinePreviewFrame\(document, currentFrame/);
   assert.match(source, /resolveTimelineFrame\(project\.document as unknown as ProjectDocument, timelineFrame\)/);
-  assert.match(source, /if \(timeMode === 'timeline' && !screenLayer\)/);
+  // The empty-frame path now also covers the case where the Editor placed the
+  // recording somewhere that does not cover the playhead, so this reads as one
+  // branch with two ways in. Its job is unchanged: no clip here, draw nothing.
+  assert.match(source, /if \(\(timeMode === 'timeline' && !screenLayer\) \|\| recordingAbsentRef\.current\)/);
   assert.match(source, /const parkedTimelineGap = Boolean/);
   assert.match(source, /if \(!parkedTimelineGap && \(video\.seeking \|\| video\.readyState < 2\)\) \{/);
   assert.match(source, /if \(timeMode === 'timeline'\) return;/);

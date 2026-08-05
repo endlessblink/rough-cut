@@ -1,5 +1,7 @@
 import React from 'react';
+import { getStyledCanvasResolution } from '@rough-cut/project-model';
 import { StyledVideoPreview, type StyledPreviewProject, type EditorOverlayLayer } from './styled-video-preview';
+import { resolveRecordingTimeSec, splitLayersByRecordingTrack } from './editor-timeline-placement.mjs';
 
 type FreecutUrlResult = {
   ok: boolean;
@@ -36,32 +38,9 @@ type FreecutViewerMessage = {
   tracks?: { id?: string; order?: number }[];
 };
 
-/**
- * Splits the Editor's layers by where they sit relative to the recording in the
- * track stack. Track order is z-order in any NLE, and the recording is just
- * another clip on a track — so layers above it must cover it and layers below it
- * must be covered by it. Nothing is unconditionally on top.
- */
-function splitLayersByRecordingTrack(viewer: FreecutViewerMessage | null) {
-  const empty = { above: [] as EditorOverlayLayer[], below: [] as EditorOverlayLayer[] };
-  if (!viewer?.layers?.length) return empty;
-  const orderOf = new Map((viewer.tracks ?? []).map((track, index) => [track.id, track.order ?? index]));
-  const recording = viewer.layers.find((layer) => layer.isRecording);
-  // With no recording clip on this timeline there is nothing to be above or
-  // below, so everything simply draws over the program.
-  const recordingOrder = recording ? orderOf.get(recording.trackId) ?? 0 : -Infinity;
-  const above: EditorOverlayLayer[] = [];
-  const below: EditorOverlayLayer[] = [];
-  for (const layer of viewer.layers) {
-    if (layer.isRecording) continue;
-    const order = orderOf.get(layer.trackId) ?? 0;
-    // FreeCut defines "above" as a lower order number (see its source-edit
-    // targeting rules). Keep that mapping explicit: V1/order 0 covers a
-    // recording on order 1, while a larger order is below it.
-    (order <= recordingOrder ? above : below).push(layer);
-  }
-  return { above, below };
-}
+// Both the placement maths and the track-order split live in a plain module so
+// they are unit-testable and so any other view compositing this timeline uses
+// exactly the same arithmetic rather than a second copy that drifts.
 
 /**
  * FreeCut resolves media by id. Its item src is either absent or scoped to the
@@ -238,6 +217,45 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
     wasActive.current = active;
   }, [active]);
 
+  // The frame both views share. Recording edit lets the user pick it — wide,
+  // vertical, square, classic, tall, portrait or the recording's own shape — and
+  // the compositor cuts the program to it. The Editor is a second window onto
+  // that same program, so its canvas is the same canvas; anything else shows one
+  // timeline in two different frames.
+  const canvas = React.useMemo(() => getStyledCanvasResolution({
+    aspectRatio: previewProject?.document?.settings?.aspectRatio ?? 'auto',
+    sourceWidth: previewProject?.recording?.width ?? 1920,
+    sourceHeight: previewProject?.recording?.height ?? 1080,
+  }), [previewProject?.document?.settings?.aspectRatio, previewProject?.recording?.width, previewProject?.recording?.height]);
+  const canvasRef = React.useRef(canvas);
+  canvasRef.current = canvas;
+
+  const postCanvas = React.useCallback(() => {
+    frameRef.current?.contentWindow?.postMessage(
+      { type: 'freecut:set-canvas', width: canvasRef.current.width, height: canvasRef.current.height },
+      '*',
+    );
+  }, []);
+
+  // The snapshot that seeds the Editor is read once at boot, so a shape chosen
+  // afterwards has to be pushed. Sending it on every change — and again whenever
+  // the Editor asks, because its project store populates after ours — is what
+  // keeps the two views on one frame without reloading the Editor.
+  React.useEffect(() => {
+    if (!ready) return;
+    postCanvas();
+  }, [ready, canvas.width, canvas.height, postCanvas]);
+
+  React.useEffect(() => {
+    if (!result?.ok || !result.url) return undefined;
+    const onRequest = (event: MessageEvent<{ type?: string }>) => {
+      if (event.source !== frameRef.current?.contentWindow) return;
+      if (event.data?.type === 'freecut:request-canvas') postCanvas();
+    };
+    window.addEventListener('message', onRequest);
+    return () => window.removeEventListener('message', onRequest);
+  }, [result, postCanvas]);
+
   React.useEffect(() => {
     if (!result?.ok || !result.url) return undefined;
     const requestStatus = () => frameRef.current?.contentWindow?.postMessage({ type: 'freecut:request-status' }, '*');
@@ -349,7 +367,12 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
           >
             <StyledVideoPreview
               project={previewProject}
-              seekTimeSec={viewer.fps > 0 ? viewer.frame / viewer.fps : 0}
+              // The recording's OWN time under the playhead, not the playhead's.
+              // They differ the moment the clip is moved, trimmed or cut.
+              seekTimeSec={resolveRecordingTimeSec(viewer) ?? 0}
+              // Nothing of the recording exists here: an empty timeline position
+              // renders empty, and only the layers on other tracks are drawn.
+              recordingAbsent={resolveRecordingTimeSec(viewer) === null}
               isPlaying={viewer.playing}
               overlayLayersAbove={splitLayersByRecordingTrack(viewer).above.map((layer) => resolveOverlayLayerSource(layer, result.url!, projectId))}
               overlayLayersBelow={splitLayersByRecordingTrack(viewer).below.map((layer) => resolveOverlayLayerSource(layer, result.url!, projectId))}
