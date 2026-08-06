@@ -1368,6 +1368,68 @@ test('styled export args can render linked camera timeline segments', () => {
   assert(joined.includes('[camera_base]scale='));
 });
 
+test('styled export args give each camera timeline segment its own seeked input', () => {
+  // Regression: several `trim` branches off one camera input make ffmpeg buffer
+  // every frame up to the latest segment's start while concat drains the earlier
+  // ones, which the export memory cap turns into a silent SIGKILL.
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    timelineDurationFrames: 18000,
+    timelineSegments: [
+      { timelineIn: 0, timelineOut: 60, sourceIn: 0, sourceOut: 60 },
+      { timelineIn: 60, timelineOut: 120, sourceIn: 9000, sourceOut: 9060 },
+    ],
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraSourceWidth: 640,
+    cameraSourceHeight: 480,
+    cameraSourceStartSeconds: 0.5,
+    cameraTimelineSegments: [
+      { timelineIn: 0, timelineOut: 60, sourceIn: 0, sourceOut: 60 },
+      { timelineIn: 60, timelineOut: 120, sourceIn: 9000, sourceOut: 9060 },
+    ],
+  });
+  const joined = args.join(' ');
+
+  // Screen keeps inputs 2 and 3; the camera's land after them.
+  assert.equal(args.filter((arg, index) => args[index - 1] === '-i' && arg === '/tmp/camera.mp4').length, 3);
+  assert(joined.includes('-ss 0.5 -t 2 -i /tmp/camera.mp4'));
+  assert(joined.includes('-ss 300.5 -t 2 -i /tmp/camera.mp4'));
+  assert(joined.includes('[4:v]setpts=PTS-STARTPTS,format=rgba[camera_base_seg_0]'));
+  assert(joined.includes('[5:v]setpts=PTS-STARTPTS,format=rgba[camera_base_seg_1]'));
+  assert(!joined.includes('camera_base_seg_0]') || !joined.includes('[1:v]trim=start_frame=9000'));
+});
+
+test('styled export args keep stabilized camera on the single-input trim path', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    timelineDurationFrames: 240,
+    timelineSegments: [
+      { timelineIn: 0, timelineOut: 60, sourceIn: 0, sourceOut: 60 },
+      { timelineIn: 60, timelineOut: 120, sourceIn: 120, sourceOut: 180 },
+    ],
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraSourceWidth: 640,
+    cameraSourceHeight: 480,
+    cameraStabilizationTransform: { transformPath: '/tmp/camera.trf', strength: 1 },
+    cameraTimelineSegments: [
+      { timelineIn: 0, timelineOut: 60, sourceIn: 0, sourceOut: 60 },
+      { timelineIn: 60, timelineOut: 120, sourceIn: 120, sourceOut: 180 },
+    ],
+  });
+  const joined = args.join(' ');
+
+  assert.equal(args.filter((arg, index) => args[index - 1] === '-i' && arg === '/tmp/camera.mp4').length, 1);
+  assert(joined.includes('[camera_stabilized]trim=start_frame=120:end_frame=180'));
+});
+
 test('styled export args remove middle cut ranges from output video', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',

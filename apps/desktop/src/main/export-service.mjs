@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
+import { probeVideoStreamStartOffsets } from './media-probe.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import {
@@ -516,6 +517,11 @@ export async function exportStyledProjectToMp4({
   const includeTimelineAudio = Array.isArray(recording.timelineSegments)
     && recording.timelineSegments.length > 0
     && await sourceHasAudioStream(recording.filePath, signal);
+  // Needed only to place the camera's per-segment seeks on the same frame the
+  // old frame-count trim picked; a failed probe just means "assume 0".
+  const cameraSourceStartSeconds = recording.camera?.filePath
+    ? await probeCameraStartSeconds(recording.camera.filePath)
+    : 0;
   let useSimpleFastPath = false;
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
@@ -553,6 +559,7 @@ export async function exportStyledProjectToMp4({
       cameraSourceWidth: recording.camera?.width ?? null,
       cameraSourceHeight: recording.camera?.height ?? null,
       cameraSourceInFrames: recording.camera?.sourceInFrames ?? 0,
+      cameraSourceStartSeconds,
       cameraTimelineSegments: recording.camera?.timelineSegments ?? [],
       cameraPresentation: recording.presentation?.camera ?? null,
       cameraFrame: recording.presentation?.cameraFrame ?? null,
@@ -1344,6 +1351,7 @@ export function buildStyledExportArgs({
   cameraSourceWidth = null,
   cameraSourceHeight = null,
   cameraSourceInFrames = 0,
+  cameraSourceStartSeconds = 0,
   cameraTimelineSegments = [],
   cameraPresentation = null,
   cameraFrame: cameraFrameOverride = null,
@@ -1444,6 +1452,29 @@ export function buildStyledExportArgs({
         '-i', inputPath,
       ])
     : [];
+  // The camera needs the same treatment for the same reason. Slicing one camera
+  // input into several `trim` branches makes ffmpeg auto-split it, and a branch
+  // whose segment starts minutes in has to buffer every frame until then while
+  // concat drains the earlier branches — tens of GB of raw RGBA, which the
+  // memory cap turns into a SIGKILL with no ffmpeg error line at all.
+  // These inputs go last so the screen's indices stay put.
+  const cameraSegmentInputBase = segmentInputBase + (useSegmentInputs ? normalizedTimelineSegments.length : 0);
+  const useCameraSegmentInputs = useCameraTimelineSegments
+    && normalizedCameraTimelineSegments.length > 1
+    && !cameraStabilizationTransform?.transformPath;
+  const cameraSegmentInputLabels = useCameraSegmentInputs
+    ? normalizedCameraTimelineSegments.map((_segment, index) => `[${cameraSegmentInputBase + index}:v]`)
+    : null;
+  // `trim=start_frame` counts from the camera's first frame, but `-ss` seeks the
+  // container clock, and the camera stream rarely starts at exactly 0. Adding its
+  // start offset back keeps the seek landing on the same frame the trim did.
+  const cameraSegmentInputArgs = useCameraSegmentInputs
+    ? normalizedCameraTimelineSegments.flatMap((segment) => [
+        '-ss', formatFilterNumber(Math.max(0, cameraSourceStartSeconds + segment.sourceIn / fps)),
+        '-t', formatFilterNumber(Math.max(1, segment.sourceOut - segment.sourceIn) / fps),
+        '-i', cameraInputPath,
+      ])
+    : [];
   const sourceBaseFilters = useTimelineSegments
     ? buildTimelineVideoBaseFilters({
         segments: normalizedTimelineSegments,
@@ -1470,6 +1501,7 @@ export function buildStyledExportArgs({
         fps,
         durationFrames: timelineDuration,
         inputLabel: cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]',
+        segmentInputLabels: cameraSegmentInputLabels,
         outputLabel: 'camera_base',
         transparent: true,
       })
@@ -1528,6 +1560,7 @@ export function buildStyledExportArgs({
     inputPath,
     ...(cameraInputPath ? ['-i', cameraInputPath] : []),
     ...segmentInputArgs,
+    ...cameraSegmentInputArgs,
     '-filter_complex',
     filter,
     '-map',
@@ -2563,6 +2596,18 @@ function isCameraAlignedClip(clip, asset, sourceOffset, timelineIn, timelineOut)
       clip.effects.length === 0 &&
       clip.keyframes.length === 0,
   );
+}
+
+async function probeCameraStartSeconds(inputPath, signal = null) {
+  try {
+    const [first] = await probeVideoStreamStartOffsets(inputPath, {
+      runner: (command, args) => run(command, args, { signal }),
+    });
+    const start = first?.startTimeSeconds;
+    return Number.isFinite(start) && start > 0 ? start : 0;
+  } catch {
+    return 0;
+  }
 }
 
 async function sourceHasAudioStream(inputPath, signal = null) {
