@@ -65,6 +65,74 @@ export function splitLayersByRecordingTrack(viewer) {
   return { above, below };
 }
 
+/**
+ * The Editor's stored timeline, in the shape its live bridge reports.
+ *
+ * Every view has to show what is on the timeline from the first frame after a
+ * restart, not once the Editor happens to have loaded and reported in. The
+ * project file already carries the Editor's tracks and items, so read them
+ * directly and let the live report take over when it arrives.
+ */
+export function viewerFromStoredTimeline(document, { frame = 0, fps = 30 } = {}) {
+  const stored = document?.freecutTimeline;
+  if (!stored || !Array.isArray(stored.items) || stored.items.length === 0) return null;
+  return {
+    frame,
+    fps: numberOr(document?.settings?.frameRate, fps),
+    tracks: (stored.tracks ?? []).map((track, index) => ({
+      id: track?.id,
+      order: numberOr(track?.order, index),
+    })),
+    layers: stored.items.map((item) => ({
+      id: item?.id,
+      type: item?.type,
+      // The clip carrying Rough Cut's recording is the one the compositor draws
+      // itself; everything else is drawn as a layer around it.
+      isRecording: String(item?.mediaId ?? '').endsWith('__program'),
+      trackId: item?.trackId,
+      from: item?.from,
+      durationInFrames: item?.durationInFrames,
+      mediaId: item?.mediaId,
+      src: item?.src,
+      text: item?.text,
+      sourceStart: item?.sourceStart,
+      transform: item?.transform,
+      x: item?.x,
+      y: item?.y,
+      width: item?.width,
+      height: item?.height,
+    })),
+  };
+}
+
+/**
+ * The live media URL for a layer, addressed the same way the Editor addresses it.
+ *
+ * The Editor resolves a clip's video strictly by media id and its own `src` is
+ * scoped to the embedded server, so it is not usable from the host as-is.
+ */
+export function resolveOverlayLayerSource(layer, freecutUrl, projectId) {
+  if (!projectId || !layer?.mediaId || !freecutUrl) return layer;
+  try {
+    return {
+      ...layer,
+      src: new URL(
+        `/__rough_cut__/media/${encodeURIComponent(projectId)}/${encodeURIComponent(layer.mediaId)}`,
+        freecutUrl,
+      ).href,
+    };
+  } catch {
+    return layer;
+  }
+}
+
+/** The split, with every layer's source resolved against the live media server. */
+export function resolveOverlayLayers(viewer, freecutUrl, projectId) {
+  const { above, below } = splitLayersByRecordingTrack(viewer);
+  const resolve = (layer) => resolveOverlayLayerSource(layer, freecutUrl, projectId);
+  return { above: above.map(resolve), below: below.map(resolve) };
+}
+
 function numberOr(value, fallback) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }

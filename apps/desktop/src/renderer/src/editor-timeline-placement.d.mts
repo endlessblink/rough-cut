@@ -23,3 +23,21 @@ export function splitLayersByRecordingTrack(viewer: EditorViewerMessage | null):
   above: EditorOverlayLayer[];
   below: EditorOverlayLayer[];
 };
+
+/** The Editor's saved timeline, in the shape its live bridge reports. */
+export function viewerFromStoredTimeline(
+  document: unknown,
+  options?: { frame?: number; fps?: number },
+): EditorViewerMessage | null;
+
+export function resolveOverlayLayerSource(
+  layer: EditorOverlayLayer,
+  freecutUrl: string | null | undefined,
+  projectId: string | null,
+): EditorOverlayLayer;
+
+export function resolveOverlayLayers(
+  viewer: EditorViewerMessage | null,
+  freecutUrl: string | null | undefined,
+  projectId: string | null,
+): { above: EditorOverlayLayer[]; below: EditorOverlayLayer[] };

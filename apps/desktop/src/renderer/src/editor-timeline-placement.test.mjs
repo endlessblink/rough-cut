@@ -9,7 +9,14 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findRecordingLayer, resolveRecordingTimeSec, splitLayersByRecordingTrack } from './editor-timeline-placement.mjs';
+import {
+  findRecordingLayer,
+  resolveOverlayLayerSource,
+  resolveOverlayLayers,
+  resolveRecordingTimeSec,
+  splitLayersByRecordingTrack,
+  viewerFromStoredTimeline,
+} from './editor-timeline-placement.mjs';
 
 const recording = (overrides = {}) => ({
   id: 'rec',
@@ -100,6 +107,61 @@ test('without a recording every layer simply draws over the program', () => {
   });
   const { above, below } = splitLayersByRecordingTrack(noRecording);
   assert.deepEqual(above.map((l) => l.id), ['title']);
+  assert.deepEqual(below, []);
+});
+
+// --- Every view is correct from a cold start ---------------------------------
+// A clip added in the Editor belongs to the project, so Recording edit must show
+// it after a restart without the Editor having been opened first.
+
+const storedDocument = () => ({
+  id: 'project-1',
+  settings: { frameRate: 30 },
+  freecutTimeline: {
+    tracks: [{ id: 'title-track', order: -1 }, { id: 'rec-track', order: 0 }],
+    items: [
+      { id: 'rec', trackId: 'rec-track', type: 'video', mediaId: 'asset-1__program', from: 0, durationInFrames: 900 },
+      { id: 'title', trackId: 'title-track', type: 'text', text: 'Hello', from: 0, durationInFrames: 90 },
+      { id: 'cam', trackId: 'title-track', type: 'video', mediaId: 'asset-2', from: 120, durationInFrames: 90 },
+    ],
+  },
+});
+
+test('the saved timeline reads back in the shape the live bridge reports', () => {
+  const viewer = viewerFromStoredTimeline(storedDocument());
+  assert.equal(viewer.fps, 30);
+  assert.deepEqual(viewer.tracks, [{ id: 'title-track', order: -1 }, { id: 'rec-track', order: 0 }]);
+  assert.equal(findRecordingLayer(viewer.layers).id, 'rec');
+});
+
+test('a project the Editor has never touched seeds nothing', () => {
+  assert.equal(viewerFromStoredTimeline({ id: 'p' }), null);
+  assert.equal(viewerFromStoredTimeline({ id: 'p', freecutTimeline: { tracks: [], items: [] } }), null);
+  assert.equal(viewerFromStoredTimeline(null), null);
+});
+
+test('layers saved above the recording are seeded above it', () => {
+  const { above, below } = splitLayersByRecordingTrack(viewerFromStoredTimeline(storedDocument()));
+  assert.deepEqual(above.map((l) => l.id), ['title', 'cam']);
+  assert.deepEqual(below, []);
+});
+
+test('a layer with media is addressed at the same endpoint the Editor uses', () => {
+  const resolved = resolveOverlayLayerSource({ id: 'cam', mediaId: 'asset-2' }, 'http://127.0.0.1:4321', 'project-1');
+  assert.equal(resolved.src, 'http://127.0.0.1:4321/__rough_cut__/media/project-1/asset-2');
+});
+
+test('a layer with no media of its own keeps whatever it had', () => {
+  const title = { id: 'title', type: 'text', text: 'Hello' };
+  assert.deepEqual(resolveOverlayLayerSource(title, 'http://127.0.0.1:4321', 'project-1'), title);
+  // No server yet is not a reason to invent a URL.
+  assert.deepEqual(resolveOverlayLayerSource({ id: 'cam', mediaId: 'asset-2' }, null, 'project-1'), { id: 'cam', mediaId: 'asset-2' });
+});
+
+test('resolving the whole stack keeps the split and fills in the sources', () => {
+  const { above, below } = resolveOverlayLayers(viewerFromStoredTimeline(storedDocument()), 'http://127.0.0.1:4321', 'project-1');
+  assert.deepEqual(above.map((l) => l.id), ['title', 'cam']);
+  assert.equal(above.find((l) => l.id === 'cam').src, 'http://127.0.0.1:4321/__rough_cut__/media/project-1/asset-2');
   assert.deepEqual(below, []);
 });
 

@@ -194,6 +194,36 @@ test('the embedded Editor never sounds; the host compositor is the one output', 
   }
 });
 
+// --- The user reported: edits in the Editor don't show in Recording edit. ----
+// Only the Editor's own view was ever given the clip stack, so the other view
+// could not have drawn them — there was no wiring at all.
+
+test('the Editor publishes its clip stack to the app rather than keeping it', () => {
+  const source = surface();
+
+  assert.match(source, /onLayersChange\?: \(layers: \{ above: EditorOverlayLayer\[\]; below: EditorOverlayLayer\[\] \}\) => void/);
+  assert.match(source, /onLayersChange\?\.\(/);
+});
+
+test('Recording edit draws the same clips the Editor has', () => {
+  const app = readFileSync(join(here, 'main.tsx'), 'utf8');
+
+  // The app holds the stack, not whichever view happens to be open.
+  assert.match(app, /const \[editorLayers, setEditorLayers\] = React\.useState/);
+  assert.match(app, /onLayersChange=\{setEditorLayers\}/);
+  // ...and Recording edit's own player is given it.
+  assert.match(app, /overlayLayersAbove=\{editorLayers\.above\} overlayLayersBelow=\{editorLayers\.below\}/);
+});
+
+test('a restart shows the Editor\'s clips before the Editor has loaded', () => {
+  const app = readFileSync(join(here, 'main.tsx'), 'utf8');
+
+  // Seeded from what the project already knows, so the first frame after a
+  // restart is right rather than catching up once the Editor reports in.
+  assert.match(app, /viewerFromStoredTimeline\(project\?\.document/);
+  assert.match(app, /setEditorLayers\(resolveOverlayLayers\(viewer, freecutMediaUrl, projectId\)\)/);
+});
+
 // --- The trap that made two of the fixes above look like they did nothing. ---
 
 test('packaging rebuilds the embedded Editor when its source is newer', () => {

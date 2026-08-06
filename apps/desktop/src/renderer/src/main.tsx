@@ -69,7 +69,8 @@ document.documentElement.dataset.hostBundleSignature = hostBundleSignature;
 import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
 import { FreecutEditorSurface } from './freecut-editor-surface';
-import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout, type StyledPreviewProject } from './styled-video-preview';
+import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout, type StyledPreviewProject, type EditorOverlayLayer } from './styled-video-preview';
+import { resolveOverlayLayers, viewerFromStoredTimeline } from './editor-timeline-placement.mjs';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
@@ -97,6 +98,7 @@ import {
   updateCensorRegionRange,
   updateCensorRegionRect,
 } from './censor-markers.mjs';
+import { resolveProjectOpenAppView, resolveRequestedAppView } from './boot-app-view.mjs';
 import { buildTimelineModel, frameRangeToPlacement } from './timeline-rail.mjs';
 import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
 import type { PreviewDragOrigin } from './styled-preview.mjs';
@@ -483,15 +485,12 @@ function App() {
   const isRecorderMode = searchParams.get('mode') === 'recorder';
   const requestedProjectPath = searchParams.get('projectPath');
   const experimentalHeadlessExportUi = searchParams.get('experimentalHeadlessExportUi') === '1';
+  const requestedAppView = searchParams.get('view');
   // Initial app view: honor ?view= override from the main process. Used when
   // a project is opened from disk (jumps straight to editor) and by smoke
   // harnesses that need the editor surface mounted at boot. Falls back to
   // the registry default (Projects gallery) for a plain launch.
-  const initialAppView: AppViewId = (() => {
-    const requested = searchParams.get('view');
-    if (requested === 'recording' || requested === 'projects' || requested === 'editor' || requested === 'nle' || requested === 'ai') return requested;
-    return DEFAULT_APP_VIEW_ID;
-  })();
+  const initialAppView: AppViewId = resolveRequestedAppView(requestedAppView) ?? DEFAULT_APP_VIEW_ID;
   const initialPreRecordPreferences = React.useMemo(readPreRecordPreferences, []);
   // Version is fetched for diagnostics / about-dialog use; the dev label is
   // no longer rendered in chrome. Kept stateful so future surfaces can show it.
@@ -627,22 +626,42 @@ function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [activeAppView, project?.document?.id, project?.path, projectVersion]);
 
+  // The clips the Editor has on this timeline, held by the app rather than by
+  // whichever view happens to be open. A clip added in the Editor belongs to the
+  // project, so Recording edit draws it too — that is what makes the two views
+  // one timeline instead of two documents that happen to share media.
+  const [editorLayers, setEditorLayers] = React.useState<{ above: EditorOverlayLayer[]; below: EditorOverlayLayer[] }>({ above: [], below: [] });
+  const [freecutMediaUrl, setFreecutMediaUrl] = React.useState<string | null>(null);
+
   React.useEffect(() => {
-    if (!requestedProjectPath) return undefined;
+    const projectId = project?.document?.id;
+    if (!projectId) {
+      setFreecutMediaUrl(null);
+      return;
+    }
+    // Needed to address the Editor's media from here. Same endpoint the Editor
+    // itself uses, so both views resolve a clip to exactly one file.
     let cancelled = false;
-    window.roughCut.openProjectPath(requestedProjectPath)
-      .then((opened) => {
-        if (cancelled || !opened) return;
-        setProject(opened);
-        setEditHistory(EMPTY_EDIT_HISTORY);
-        setExportResult(null);
-        setActiveAppView('editor');
-      })
-      .catch((err) => setError(appError('project', err, 'Project open failed.')));
-    return () => {
-      cancelled = true;
-    };
-  }, [requestedProjectPath]);
+    void window.roughCut.getFreecutEditorUrl(projectId)
+      .then((next) => { if (!cancelled) setFreecutMediaUrl(next?.ok ? next.url ?? null : null); })
+      .catch(() => { if (!cancelled) setFreecutMediaUrl(null); });
+    return () => { cancelled = true; };
+  }, [project?.document?.id]);
+
+  // Seed from what the project already knows, so a view is correct on the first
+  // frame after a restart instead of only once the Editor has loaded and
+  // reported in. The live report replaces this as soon as it arrives.
+  const storedLayersKey = JSON.stringify([
+    (project?.document as unknown as { freecutTimeline?: unknown })?.freecutTimeline ?? null,
+    freecutMediaUrl,
+  ]);
+  React.useEffect(() => {
+    const projectId = project?.document?.id ?? null;
+    const viewer = viewerFromStoredTimeline(project?.document, { fps: project?.recording?.fps ?? 30 });
+    if (!viewer) return;
+    setEditorLayers(resolveOverlayLayers(viewer, freecutMediaUrl, projectId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, see above
+  }, [storedLayersKey]);
 
   // Set when the Editor saved while it was the visible view. Re-reading the
   // project on every one of those would re-parse from disk continuously and
@@ -860,12 +879,14 @@ function App() {
     if (token) void window.roughCut.stopAudioPreview(token);
   }, []);
 
+  // The one place a deep-linked project is opened at boot. There were two of
+  // these effects; they raced on the same project and the later one won every
+  // disagreement, so the earlier one's view choice never survived.
   React.useEffect(() => {
-    const projectPath = new URLSearchParams(window.location.search).get('projectPath');
-    if (!projectPath) return;
+    if (!requestedProjectPath) return;
 
     let cancelled = false;
-    window.roughCut.openProjectPath(projectPath)
+    window.roughCut.openProjectPath(requestedProjectPath)
       .then((opened) => {
         if (cancelled) return;
         if (!opened) {
@@ -879,7 +900,11 @@ function App() {
         setProject(opened);
         setEditHistory(EMPTY_EDIT_HISTORY);
         setExportResult(null);
-        setActiveAppView('editor');
+        // The URL's `view` is a decision, not a suggestion: the main process
+        // already defaults a plain project launch to Recording edit, so a view
+        // that survived into the URL was asked for on purpose. Overwriting it
+        // here honoured `view=nle` for one render and then threw it away.
+        setActiveAppView(resolveProjectOpenAppView(requestedAppView));
       })
       .catch((err) => {
         if (!cancelled) {
@@ -895,7 +920,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [requestedProjectPath, requestedAppView, isRecorderMode]);
 
   React.useEffect(() => {
     if (recording.state !== 'recording') {
@@ -1490,8 +1515,11 @@ function App() {
 
   return (
     <main className={`shell ${recordingViewCompact ? 'recordingRoot' : ''}`}>
+      {/* Deliberately unkeyed. Keying this section on the active view remounts
+          its entire subtree on every switch — including the persistent editor
+          slot below, whose whole purpose is to survive a switch. The per-view
+          remount belongs on the content slot, which the slot sits outside of. */}
       <section
-        key={activeAppView}
         className={`editorShell ${activeAppView === 'recording' && recording.state !== 'recording' ? 'recordingShell' : ''}`}
         data-ui-shell="recording-studio"
         data-active-app-view={activeAppView}
@@ -1810,6 +1838,9 @@ function App() {
             <ProjectPreview
               project={project}
               recording={recording}
+              // The clips the Editor has on this timeline. Recording edit is a
+              // window onto the same timeline, so it draws them too.
+              editorLayers={editorLayers}
               onProjectChange={applyProjectChange}
               onExportMode={exportProjectWithMode}
               onCancelExport={cancelExport}
@@ -1853,6 +1884,9 @@ function App() {
             // Same project state Recording edit composites, so both views are
             // literally drawn by the same renderer from the same state.
             previewProject={(project as unknown as StyledPreviewProject | null) ?? null}
+            // What the Editor has on the timeline, held by the app so Recording
+            // edit draws the same clips without waiting for a save.
+            onLayersChange={setEditorLayers}
           />
         </div>
       </section>
@@ -3906,6 +3940,7 @@ function getProjectCameraWarning(project: ProjectState) {
 function ProjectPreview({
   project,
   recording,
+  editorLayers = { above: [], below: [] },
   onProjectChange,
   onExportMode,
   onCancelExport,
@@ -3927,6 +3962,8 @@ function ProjectPreview({
 }: {
   project: ProjectState;
   recording: RecordingStatus;
+  /** Clips the Editor has on this timeline, already split by track order. */
+  editorLayers?: { above: EditorOverlayLayer[]; below: EditorOverlayLayer[] };
   onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
   onExportMode: (mode: ExportMode, documentOverride?: ProjectState['document'] | null) => void;
   onCancelExport: () => void;
@@ -4790,7 +4827,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" overlayLayersAbove={editorLayers.above} overlayLayersBelow={editorLayers.below} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it

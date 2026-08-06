@@ -1,7 +1,7 @@
 import React from 'react';
 import { getStyledCanvasResolution } from '@rough-cut/project-model';
 import { StyledVideoPreview, type StyledPreviewProject, type EditorOverlayLayer } from './styled-video-preview';
-import { resolveRecordingTimeSec, splitLayersByRecordingTrack } from './editor-timeline-placement.mjs';
+import { resolveOverlayLayers, resolveRecordingTimeSec } from './editor-timeline-placement.mjs';
 
 type FreecutUrlResult = {
   ok: boolean;
@@ -22,6 +22,15 @@ type FreecutEditorSurfaceProps = {
    * compositor Rough Cut already has paints over the Editor's viewer.
    */
   previewProject?: StyledPreviewProject | null;
+  /**
+   * Publishes the Editor's layer stack to the app.
+   *
+   * One timeline, many views: a clip added here belongs to the project, not to
+   * this view, so every other view has to be able to draw it. Reported already
+   * split by track order and with sources resolved, so no other view has to
+   * repeat that reasoning.
+   */
+  onLayersChange?: (layers: { above: EditorOverlayLayer[]; below: EditorOverlayLayer[] }) => void;
 };
 
 /** Where the Editor's viewer sits inside the iframe, and what it is showing. */
@@ -38,33 +47,10 @@ type FreecutViewerMessage = {
   tracks?: { id?: string; order?: number }[];
 };
 
-// Both the placement maths and the track-order split live in a plain module so
-// they are unit-testable and so any other view compositing this timeline uses
-// exactly the same arithmetic rather than a second copy that drifts.
-
-/**
- * FreeCut resolves media by id. Its item src is either absent or scoped to the
- * embedded server, so it is not a usable source for the host compositor. Keep
- * the canonical id and address the same live media endpoint from the host.
- */
-function resolveOverlayLayerSource(
-  layer: EditorOverlayLayer,
-  freecutUrl: string,
-  projectId: string | null,
-): EditorOverlayLayer {
-  if (!projectId || !layer.mediaId) return layer;
-  try {
-    return {
-      ...layer,
-      src: new URL(
-        `/__rough_cut__/media/${encodeURIComponent(projectId)}/${encodeURIComponent(layer.mediaId)}`,
-        freecutUrl,
-      ).href,
-    };
-  } catch {
-    return layer;
-  }
-}
+// The placement maths, the track-order split and the media-URL resolution all
+// live in a plain module so they are unit-testable, and so every view
+// compositing this timeline uses exactly the same arithmetic rather than a
+// second copy that drifts.
 
 type FreecutReadyMessage = {
   type: 'freecut-ready' | 'freecut:ready' | 'freecut-boot' | 'freecut-error';
@@ -80,7 +66,7 @@ type FreecutCommandMessage = {
   command?: { opId?: string; projectId?: string; payload?: { project?: { id?: string } } };
 };
 
-export function FreecutEditorSurface({ projectId, projectVersion = 0, active = true, previewProject = null }: FreecutEditorSurfaceProps) {
+export function FreecutEditorSurface({ projectId, projectVersion = 0, active = true, previewProject = null, onLayersChange }: FreecutEditorSurfaceProps) {
   // Position and playhead of the Editor's viewer, reported by the embedded
   // editor. Null until it reports, which is also our signal that the embedded
   // build is old enough to lack the bridge — in that case nothing is painted
@@ -268,6 +254,16 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
     };
   }, [result]);
 
+  // Hand the layer stack to the app so every other view draws the same clips.
+  // Keyed on content: the viewer message also carries the rectangle and the
+  // playhead, which change constantly and mean nothing to anyone else.
+  const publishedLayers = viewer && result?.url ? resolveOverlayLayers(viewer, result.url, projectId) : { above: [], below: [] };
+  const publishedLayersKey = JSON.stringify(publishedLayers);
+  React.useEffect(() => {
+    onLayersChange?.(JSON.parse(publishedLayersKey));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, see above
+  }, [publishedLayersKey]);
+
   React.useEffect(() => {
     if (!result?.ok || !result.url) return undefined;
     const frame = window.requestAnimationFrame(() => {
@@ -374,8 +370,8 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
               // renders empty, and only the layers on other tracks are drawn.
               recordingAbsent={resolveRecordingTimeSec(viewer) === null}
               isPlaying={viewer.playing}
-              overlayLayersAbove={splitLayersByRecordingTrack(viewer).above.map((layer) => resolveOverlayLayerSource(layer, result.url!, projectId))}
-              overlayLayersBelow={splitLayersByRecordingTrack(viewer).below.map((layer) => resolveOverlayLayerSource(layer, result.url!, projectId))}
+              overlayLayersAbove={resolveOverlayLayers(viewer, result.url, projectId).above}
+              overlayLayersBelow={resolveOverlayLayers(viewer, result.url, projectId).below}
               timeMode="timeline"
               showControls={false}
             />
