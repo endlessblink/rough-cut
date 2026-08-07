@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createAsset, createClip, createProject, createTrack } from '../../../../packages/project-model/dist/index.js';
+import { createAsset, createClip, createProject, createTrack, PROJECT_ASPECT_RATIO_LABELS } from '../../../../packages/project-model/dist/index.js';
 import { createFreecutHost, describeStyledProgram, findCompletedStyledCache, fromFreecutProject, toFreecutProject } from './freecut-host.mjs';
 import { saveProjectFile } from './project-files.mjs';
 
@@ -529,4 +529,68 @@ test('FreeCut uses shared source assets and preserves compositor timeline metada
   assert.deepEqual(saved.composition.transitions, transitions);
   assert.deepEqual(saved.composition.tracks[0].clips[0].effects, effects);
   assert.deepEqual(saved.composition.tracks[0].clips[0].keyframes, keyframes);
+});
+
+// ---------------------------------------------------------------------------
+// The frame belongs to the project, not to a view. Recording edit offers wide,
+// vertical, square, classic, tall and portrait, and the compositor cuts the
+// program to whichever is chosen — so the Editor, which is a second window onto
+// that same program, must open on the same frame. Handing it the source
+// recording's size instead left a vertical project on a 16:9 viewer with the
+// picture letterboxed inside it.
+// ---------------------------------------------------------------------------
+test('the Editor canvas is the frame the project was cut to, not the source recording size', () => {
+  const base = createProject({ id: 'aspect-demo', name: 'Aspect demo' });
+  const from = (aspectRatio) => toFreecutProject(
+    {
+      ...base,
+      settings: { ...base.settings, resolution: { width: 1920, height: 1080 }, aspectRatio },
+    },
+    '/tmp/aspect.roughcut',
+  ).metadata;
+
+  // Every frame Recording edit offers, not a sample: a ratio missing here is a
+  // project that opens in the Editor on the wrong frame.
+  const expected = {
+    '16:9': { width: 1920, height: 1080 },
+    '9:16': { width: 1080, height: 1920 },
+    '1:1': { width: 1920, height: 1920 },
+    '4:3': { width: 1920, height: 1440 },
+    '3:4': { width: 1440, height: 1920 },
+    '4:5': { width: 1536, height: 1920 },
+    // 'auto' keeps the recording's own shape, so a 16:9 source opens wide.
+    auto: { width: 1920, height: 1080 },
+  };
+  assert.deepEqual(Object.keys(expected).sort(), Object.keys(PROJECT_ASPECT_RATIO_LABELS).sort());
+  for (const [ratio, size] of Object.entries(expected)) {
+    const canvas = from(ratio);
+    assert.deepEqual({ width: canvas.width, height: canvas.height }, size, `${ratio} opens on the wrong frame`);
+  }
+});
+
+test('the program the Editor plays is described at the project frame, not the source frame', () => {
+  const base = createProject({ id: 'program-aspect', name: 'Program aspect' });
+  const asset = createAsset('recording', '/tmp/screen.mkv', {
+    duration: 90,
+    metadata: { width: 1920, height: 1080, fps: 30 },
+  });
+  const track = createTrack('video', { name: 'Screen Recording', index: 0 });
+  const clip = createClip(asset.id, track.id, { timelineIn: 0, timelineOut: 90, sourceIn: 0, sourceOut: 90 });
+  const document = {
+    ...base,
+    settings: { ...base.settings, resolution: { width: 1920, height: 1080 }, aspectRatio: '9:16' },
+    assets: [asset],
+    composition: { duration: 90, tracks: [{ ...track, clips: [clip] }], transitions: [] },
+  };
+
+  const freecut = toFreecutProject(document, '/tmp/program-aspect.roughcut', {
+    mediaId: `${asset.id}__program`,
+    sourceAssetId: asset.id,
+  });
+  const program = freecut.media.find((item) => item.id === `${asset.id}__program`);
+  assert.ok(program, 'the composited program must be in the media library');
+  assert.deepEqual({ width: program.width, height: program.height }, { width: 1080, height: 1920 });
+  // The raw source asset keeps its own native size — it is not the composite.
+  const source = freecut.media.find((item) => item.id === asset.id);
+  assert.deepEqual({ width: source.width, height: source.height }, { width: 1920, height: 1080 });
 });

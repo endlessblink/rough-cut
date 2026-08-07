@@ -3,6 +3,7 @@ import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path
 import { stat } from 'node:fs/promises';
 import { listRecordingProjectPaths } from './project-gallery.mjs';
 import { openProjectFile, saveProjectFile, validateProjectPath } from './project-files.mjs';
+import { getStyledCanvasResolution } from '@rough-cut/project-model';
 // Deliberately no import from './export-service.mjs'. Serving the Editor its
 // media must not be able to reach an encoder at all — see the note below.
 
@@ -127,8 +128,30 @@ function hasStoredFreecutTimeline(document) {
   return Boolean(stored && Array.isArray(stored.tracks) && stored.tracks.length > 0);
 }
 
+/**
+ * The canvas both views share.
+ *
+ * `settings.resolution` is the *source* recording's size and never changes — the
+ * cursor layer and the compositor both read it as their coordinate space. The
+ * shape of the finished program is `settings.aspectRatio`, which the user picks
+ * in Recording edit and which Recording edit's preview and Export already resolve
+ * through `getStyledCanvasResolution`. Handing the Editor the source size instead
+ * left it on a 16:9 viewer while the program was vertical, so Rough Cut's
+ * compositor painted a letterboxed picture into a wide black frame: two views of
+ * one timeline that did not agree on the frame. Derive it the same way here and
+ * the Editor shows every aspect Recording edit accepts.
+ */
+export function freecutCanvasResolution(document) {
+  return getStyledCanvasResolution({
+    aspectRatio: document?.settings?.aspectRatio ?? 'auto',
+    sourceWidth: numberOr(document?.settings?.resolution?.width, 1920),
+    sourceHeight: numberOr(document?.settings?.resolution?.height, 1080),
+  });
+}
+
 export function toFreecutProject(document, roughCutPath, styledProgram = null) {
   const fps = numberOr(document.settings?.frameRate, 30);
+  const canvas = freecutCanvasResolution(document);
   const assets = Array.isArray(document.assets) ? document.assets : [];
   const tracks = Array.isArray(document.composition?.tracks) ? document.composition.tracks : [];
   const items = [];
@@ -198,8 +221,10 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     fileSize: 0,
     mimeType: 'video/mp4',
     duration: numberOr(document.composition?.duration, 0) / fps,
-    width: numberOr(document.settings?.resolution?.width, 1920),
-    height: numberOr(document.settings?.resolution?.height, 1080),
+    // The program IS the canvas — it is the composite the user chose the shape
+    // of, not a raw source, so it carries the styled canvas size.
+    width: canvas.width,
+    height: canvas.height,
     fps,
     codec: '',
     bitrate: 0,
@@ -235,8 +260,8 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     duration: numberOr(document.composition?.duration, 0),
     schemaVersion: FREECUT_SCHEMA_VERSION,
     metadata: {
-      width: numberOr(document.settings?.resolution?.width, 1920),
-      height: numberOr(document.settings?.resolution?.height, 1080),
+      width: canvas.width,
+      height: canvas.height,
       fps,
       backgroundColor: document.settings?.backgroundColor ?? '#000000',
     },

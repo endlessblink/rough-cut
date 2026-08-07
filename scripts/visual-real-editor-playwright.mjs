@@ -52,7 +52,10 @@ try {
   }, null, { timeout: 30000 });
   await page.waitForSelector('[data-ui-region="freecut-editor-surface"]', { timeout: 30000 });
   await page.waitForFunction(() => document.querySelector('[data-freecut-ready="true"]') !== null, null, { timeout: 60000 });
-  await page.waitForTimeout(1500);
+  // Readiness is the host's handshake, not the Editor's own project load — it
+  // still has a migration/"Upgrading project…" pass in front of the viewer, and
+  // capturing through that photographs a blank stage.
+  await page.waitForTimeout(Number(process.env.ROUGH_CUT_REAL_EDITOR_SETTLE_MS || 1500));
 
   const geometry = await page.evaluate(() => {
     const box = (selector) => {
@@ -72,6 +75,28 @@ try {
   // Capture the complete virtual desktop while the packaged app is live; a
   // page screenshot can crop Electron's lower timeline even when the window
   // itself is healthy.
+  // Raise the app first. The capture is of the whole root window, so anything the
+  // user (or another agent) has in front of Electron is what gets photographed —
+  // a screenshot of somebody else's terminal passes every geometry check.
+  //
+  // Matched by PID, not by title. Another Rough Cut window — the user's own copy,
+  // or a leftover from an earlier run — carries the same title, and picking one of
+  // those photographed a completely different project while the geometry probe
+  // happily reported the launched window's healthy numbers.
+  let windowId = null;
+  for (let attempt = 0; attempt < 5 && !windowId; attempt += 1) {
+    windowId = findAppWindow(app.process().pid);
+    if (!windowId) spawnSync('sleep', ['1']);
+  }
+  if (!windowId) throw new Error('Could not find the launched app window to raise.');
+  let focused = '';
+  for (let attempt = 0; attempt < 5 && focused !== windowId; attempt += 1) {
+    spawnSync('xdotool', ['windowactivate', '--sync', windowId], { encoding: 'utf8' });
+    spawnSync('xdotool', ['windowraise', windowId], { encoding: 'utf8' });
+    spawnSync('sleep', ['1']);
+    focused = spawnSync('xdotool', ['getactivewindow'], { encoding: 'utf8' }).stdout.trim();
+  }
+  if (focused !== windowId) throw new Error(`The app window is not frontmost (active=${focused}, app=${windowId}).`);
   const desktopCapture = spawnSync('import', ['-window', 'root', screenshotPath], { encoding: 'utf8' });
   if (desktopCapture.status !== 0) throw new Error(`Full desktop capture failed: ${desktopCapture.stderr || desktopCapture.stdout}`);
 
@@ -85,19 +110,58 @@ try {
     && overlay.x + overlay.width <= frame.x + frame.width + epsilon
     && overlay.y + overlay.height <= frame.y + frame.height + epsilon);
   const screenshotSha256 = createHash('sha256').update(readFileSync(screenshotPath)).digest('hex');
+  // The frame is a property of the project, so the Editor's viewer must be the
+  // shape the project was cut to — not the recording's own shape. Without this
+  // the surface geometry looks perfectly healthy while a vertical project is
+  // shown letterboxed inside a wide viewer.
+  const expectedAspect = process.env.ROUGH_CUT_REAL_EDITOR_EXPECT_ASPECT
+    ? (() => {
+      const [w, h] = process.env.ROUGH_CUT_REAL_EDITOR_EXPECT_ASPECT.split(':').map(Number);
+      return w > 0 && h > 0 ? w / h : null;
+    })()
+    : null;
+  const overlayAspect = overlay && overlay.height > 0 ? overlay.width / overlay.height : null;
+  const aspectMatches = expectedAspect === null
+    ? true
+    : Boolean(overlayAspect && Math.abs(overlayAspect - expectedAspect) / expectedAspect < 0.02);
   report = {
-    ok: geometry.ready && geometry.editorChrome && nonZeroGeometry && overlayInsideFrame,
+    ok: geometry.ready && geometry.editorChrome && nonZeroGeometry && overlayInsideFrame && aspectMatches,
     projectPath,
     screenshotPath,
     screenshotSha256,
     geometry,
-    checks: { ready: geometry.ready, editorChrome: geometry.editorChrome, nonZeroGeometry, overlayInsideFrame },
+    aspect: { expected: expectedAspect, actual: overlayAspect },
+    checks: { ready: geometry.ready, editorChrome: geometry.editorChrome, nonZeroGeometry, overlayInsideFrame, aspectMatches },
   };
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exitCode = 1;
 } finally {
   await app.close().catch(() => undefined);
+}
+
+/**
+ * The mapped window belonging to this launch, found through the process tree —
+ * Electron's window is owned by a renderer/helper child, not the pid Playwright
+ * hands back, so a plain `xdotool search --pid` finds nothing.
+ */
+function findAppWindow(rootPid) {
+  const pids = new Set();
+  const walk = (pid) => {
+    if (!pid || pids.has(pid)) return;
+    pids.add(pid);
+    const children = spawnSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' })
+      .stdout.trim().split('\n').filter(Boolean);
+    for (const child of children) walk(Number(child));
+  };
+  walk(rootPid);
+  const titled = spawnSync('xdotool', ['search', '--name', '^Rough Cut MVP$'], { encoding: 'utf8' })
+    .stdout.trim().split('\n').filter(Boolean);
+  for (const id of titled) {
+    const pid = Number(spawnSync('xdotool', ['getwindowpid', id], { encoding: 'utf8' }).stdout.trim());
+    if (pids.has(pid)) return id;
+  }
+  return null;
 }
 
 function loadPlaywright() {

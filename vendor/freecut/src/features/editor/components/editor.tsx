@@ -26,6 +26,7 @@ import {
 } from '@/features/editor/deps/timeline-ui'
 import { toast } from 'sonner'
 import { useEditorHotkeys } from '@/features/editor/hooks/use-editor-hotkeys'
+import { useRoughCutCanvas } from '@/features/editor/hooks/use-rough-cut-canvas'
 import { useAutoSave } from '../hooks/use-auto-save'
 import {
   useTimelineShortcuts,
@@ -728,6 +729,9 @@ export const LoadedEditor = memo(function LoadedEditor({
 
   // Enable transition breakage notifications
   useTransitionBreakageNotifications()
+
+  // Follow the host project's frame — wide, vertical, square and the rest.
+  useRoughCutCanvas()
 
   const timelineDuration = 30
   const isColorWorkspace = workspace === 'color'
