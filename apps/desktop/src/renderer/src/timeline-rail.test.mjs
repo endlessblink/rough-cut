@@ -111,6 +111,38 @@ test('buildTimelineModel renders zoom markers and click events from project meta
   assert.equal(model.lanes.audio.length, 1);
 });
 
+test('buildTimelineModel keeps linked recording audio visible without metadata audio', () => {
+  const base = createProject();
+  const asset = createAsset('recording', '/tmp/recording.mp4', { duration: 300 });
+  const track = { id: 'track-1', type: 'video', name: 'Video', index: 0, locked: false, visible: true, volume: 1, clips: [{ id: 'clip-1', assetId: asset.id, trackId: 'track-1', enabled: true, timelineIn: 0, timelineOut: 300, sourceIn: 0, sourceOut: 300, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0.5, anchorY: 0.5, opacity: 1 }, effects: [], keyframes: [] }] };
+  const document = createProject({
+    assets: [asset],
+    composition: { ...base.composition, duration: 300, tracks: [track] },
+    timeline: { ...base.timeline, sources: [{ assetId: asset.id, mediaType: 'audio' }] },
+  });
+  const model = buildTimelineModel({ document, recording: { duration: 300, fps: 30 }, currentTimeSec: 0, cameraMediaUrl: null });
+
+  assert.equal(model.lanes.audio.length, 1);
+});
+
+test('buildTimelineModel keeps a repaired canonical audio track visible without metadata audio', () => {
+  const base = createProject();
+  const asset = createAsset('recording', '/tmp/recording.mp4', { duration: 90 });
+  const document = createProject({
+    assets: [asset],
+    composition: {
+      ...base.composition,
+      duration: 90,
+      tracks: [
+        { id: 'screen', type: 'video', clips: [{ id: 'screen-clip', assetId: asset.id, trackId: 'screen', timelineIn: 0, timelineOut: 90, sourceIn: 0, sourceOut: 90 }] },
+        { id: 'audio', type: 'audio', clips: [{ id: 'audio-clip', assetId: asset.id, trackId: 'audio', timelineIn: 0, timelineOut: 90, sourceIn: 0, sourceOut: 90 }] },
+      ],
+    },
+  });
+  const model = buildTimelineModel({ document, recording: { fps: 30, duration: 90, audio: null }, currentTimeSec: 0 });
+  assert.deepEqual(model.lanes.audio, [{ id: 'audio:screen-clip', left: 0, width: 100, timelineIn: 0, timelineOut: 90 }]);
+});
+
 test('buildTimelineModel maps recording lanes to canonical timeline time', () => {
   const base = createProject();
   const presentation = createDefaultRecordingPresentation();
@@ -144,6 +176,15 @@ test('buildTimelineModel maps recording lanes to canonical timeline time', () =>
   assert.equal(Math.round(model.lanes.zoom[0].width), 33);
   assert.equal(model.lanes.clicks.length, 1);
   assert.equal(Math.round(model.lanes.clicks[0].left), 33);
+});
+
+test('buildTimelineModel keeps the original asset duration available for extending a trim', () => {
+  const document = recordingDocument(300);
+  const model = buildTimelineModel({ document, recording: { duration: 180, fps: 30 }, currentTimeSec: 1, cameraMediaUrl: null });
+
+  assert.equal(model.durationSec, 10);
+  assert.equal(model.sourceDurationSec, 10);
+  assert.equal(model.trimEndFrame, 300);
 });
 
 test('buildTimelineModel preserves canonical gap and source offset placement', () => {
@@ -202,7 +243,8 @@ test('Recording edit timeline exposes zoom controls and +/- shortcuts', async ()
   assert.match(source, /isTypingTarget\(event\.target\)/);
   assert.match(source, /viewport\.addEventListener\('wheel', handleWheel, \{ passive: false \}\)/);
   assert.match(source, /!event\.ctrlKey && !event\.metaKey/);
-  assert.match(source, /frameAtClientX\(event\.clientX, frameAreaLeft, pixelsPerFrame, timelineDurationFrames\)/);
+  assert.match(source, /const renderedTrack = viewport\.querySelector<HTMLElement>\('\.screenLane \.laneTrack'\)\?\.getBoundingClientRect\(\)/);
+  assert.doesNotMatch(source, /anchorFrame = frameAtClientX\(event\.clientX/);
   assert.match(styles, /\.timelineViewport\s*\{/);
   assert.match(styles, /\.timelineContent\s*\{/);
 });

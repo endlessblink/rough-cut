@@ -857,11 +857,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   height: calc(100vh - 1.8rem - 3.45rem - 3.15rem - 1.75rem - 2px);
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .projectEditor.setupClosed { grid-template-columns: 4rem 0 minmax(0, 1fr) 21rem; }
-.projectEditor.inspectorClosed { grid-template-columns: 4rem 22rem minmax(0, 1fr) 0; }
-.projectEditor.setupClosed.inspectorClosed { grid-template-columns: 4rem 0 minmax(0, 1fr) 0; }
+.projectEditor.inspectorClosed { grid-template-columns: 4rem 22rem minmax(0, 1fr) minmax(0, 0); }
+.projectEditor.setupClosed.inspectorClosed { grid-template-columns: 4rem 0 minmax(0, 1fr) minmax(0, 0); }
 
 .toolRail {
   align-content: start;
@@ -889,6 +890,72 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   background: #232435;
   color: #7aa7ff;
   box-shadow: inset 0 0 0 1px rgb(37 99 235 / 0.28), 0 0 0 4px rgb(37 99 235 / 0.08);
+}
+
+.toolPanelToggle {
+  align-items: center;
+  background: #171822;
+  border: 1px solid var(--strong-line);
+  border-radius: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  justify-content: center;
+  margin-top: 0.35rem;
+  min-height: 3.15rem;
+  padding: 0;
+  width: 2.5rem;
+}
+
+.toolPanelToggle:hover:not(:disabled),
+.toolPanelToggle[aria-pressed="true"] {
+  background: #232435;
+  border-color: rgb(122 167 255 / 0.55);
+  color: #b9d1ff;
+}
+
+.toolPanelToggle span {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.inspectorRailToggle {
+  align-items: center;
+  background: #171822;
+  border: 1px solid var(--strong-line);
+  border-radius: 11px 0 0 11px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  justify-content: center;
+  min-height: 3.15rem;
+  padding: 0;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.5rem;
+  z-index: 3;
+}
+
+.inspectorRailToggle:hover:not(:disabled),
+.inspectorRailToggle[aria-pressed="true"] {
+  background: #232435;
+  border-color: rgb(122 167 255 / 0.55);
+  color: #b9d1ff;
+}
+
+.inspectorRailToggle span {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .setupBoard {
@@ -1491,7 +1558,10 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .templateGrid {
   display: grid;
   gap: 0.35rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* The setup board is a focused control surface, not a gallery. One readable
+   * card per row keeps the template name and aspect-ratio hint intact at the
+   * narrowest supported editor width. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* Compact horizontal card: tiny canvas-shape indicator on the left,
@@ -2478,7 +2548,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .timelineTracks {
   display: grid;
-  gap: 0.28rem;
+  gap: 0.42rem;
   min-height: 0;
   position: relative;
 }
@@ -2509,9 +2579,9 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .timelineLane {
   align-items: stretch;
-  background: #101015;
-  border: 1px solid #2a2a34;
-  border-radius: 10px;
+  background: #171d29;
+  border: 1px solid #354257;
+  border-radius: 4px;
   display: grid;
   grid-template-columns: 4.8rem minmax(0, 1fr);
   min-height: 1.35rem;
@@ -2539,18 +2609,23 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .laneTrack { min-width: 0; position: relative; }
 
-.screenLane { min-height: 1.85rem; }
+.screenLane {
+  background: #1b2637;
+  min-height: 2.1rem;
+}
 
 .screenLane .laneTrack {
+  background: #111c2c;
+  box-shadow: inset 0 1px 0 rgb(148 163 184 / 0.12), inset 0 -1px 0 rgb(2 6 23 / 0.6);
   z-index: 6;
 }
 
 .clipBar {
   align-items: center;
-  background: linear-gradient(180deg, #8fc2ff, #3b82f6);
-  border: 1px solid rgb(255 255 255 / 0.22);
-  border-radius: 10px;
-  color: #061326;
+  background: #29415f;
+  border: 1px solid #6288b7;
+  border-radius: 3px;
+  color: #dbeafe;
   display: flex;
   font-size: 0.78rem;
   font-weight: 760;
@@ -2560,8 +2635,16 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   min-height: 0;
   position: absolute;
   top: 0.25rem;
-  transition: box-shadow 120ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
   z-index: 8;
+}
+
+.clipBar.selectedClip {
+  background: #3e6592;
+  border-color: #dbeafe;
+  box-shadow: inset 0 0 0 2px #8fc2ff, 0 0 0 2px #1e40af;
+  color: #f4f8ff;
+  z-index: 11;
 }
 
 /* While dragging, float the clip above its neighbors with a subtle lift. */
@@ -2641,17 +2724,36 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   flex: 1;
   inset: 0;
   min-height: 100%;
-  padding: 0;
+  padding: 0 0.7rem;
+  text-align: left;
   touch-action: none;
 }
 
 .clipBody:hover:not(:disabled) {
-  background: transparent;
+  background: transparent !important;
   box-shadow: none;
+}
+
+.clipBody,
+.clipBody:focus-visible {
+  background: transparent !important;
+  box-shadow: none;
+  outline: none;
 }
 
 .clipBody:active {
   cursor: grabbing;
+}
+
+/* During an edge trim, keep the selected clip's remaining editable span
+ * legible without painting over neighboring clips or lanes. */
+.trimAvailabilityGuide {
+  border: 1px dashed rgb(167 213 255 / 0.9);
+  border-radius: 7px;
+  inset: 0.22rem;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
 }
 
 .trimHandle {
@@ -2668,14 +2770,16 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 
 .trimHandle::before {
-  background: color-mix(in oklch, var(--accent) 72%, var(--panel));
-  border-radius: 999px;
-  bottom: 0.34rem;
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--ink) 36%, transparent);
+  background: #dbeafe;
+  border-radius: 1px;
+  bottom: 0.22rem;
+  box-shadow: 0 0 0 1px rgb(15 23 42 / 0.5);
   content: '';
+   opacity: 0;
   position: absolute;
-  top: 0.34rem;
-  width: 3px;
+  top: 0.22rem;
+  transition: opacity 100ms ease;
+  width: 2px;
 }
 
 .trimHandle:hover:not(:disabled) {
@@ -2684,7 +2788,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .trimHandle:hover:not(:disabled)::before,
 .trimHandle:focus-visible::before {
+  opacity: 1;
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 24%, transparent);
+}
+
+.clipBar:not(.selectedClip) .trimHandle {
+  pointer-events: none;
 }
 
 .trimHandleStart { left: 0; }
@@ -2693,15 +2802,28 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .trimHandleEnd::before { right: 5px; }
 
 .playhead {
-  background: #7aa7ff;
+  background: #f8fbff;
   bottom: -0.2rem;
-  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.18);
+  box-shadow: 0 0 0 2px rgb(37 99 235 / 0.72), 0 0 12px rgb(147 197 253 / 0.82);
   pointer-events: none;
   position: absolute;
   top: -0.2rem;
   transform: translateX(-50%);
-  width: 2px;
-  z-index: 1;
+  width: 3px;
+  z-index: 31;
+}
+
+.playhead::before {
+  background: #f8fbff;
+  border-radius: 0 0 3px 3px;
+  box-shadow: 0 0 0 2px rgb(37 99 235 / 0.72);
+  content: '';
+  height: 0.5rem;
+  left: 50%;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 0.7rem;
 }
 
 /* Zoom-lane clip — one marker is one clip, styled to match the Screen clip
@@ -3122,6 +3244,51 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   justify-content: center;
 }
 
+/* Recording edit: an attached audio clip must be visually distinct from an
+ * empty lane at a glance, just like the blue Screen clip above it. */
+.audioLane .presenceRegion {
+   background: #1b405c;
+   border-color: #65a7d3;
+   color: #e0f2fe;
+   min-height: 1.15rem;
+}
+.audioLane { min-height: 2.35rem; }
+.audioLane .laneTrack { min-height: 2rem; }
+.audioRegion { isolation: isolate; overflow: hidden; position: absolute; }
+.audioWaveform {
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  inset: 0.18rem 0.22rem;
+  filter: drop-shadow(0 0 1px rgb(224 242 254 / 0.9));
+  opacity: 1;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+.audioRegionLabel {
+  background: rgb(7 24 44 / 0.82);
+  border: 1px solid rgb(224 242 254 / 0.4);
+  border-radius: 999px;
+  line-height: 1;
+  padding: 0.18rem 0.42rem;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
+}
+.audioRegion {
+  border-radius: 3px;
+  bottom: 0.25rem;
+  top: 0.25rem;
+}
+.audioRegion + .audioRegion {
+  border-left-color: rgb(224 242 254 / 0.32);
+}
+.linkedAudioRegion {
+  border-color: #dbeafe;
+  box-shadow: inset 0 0 0 2px #8fc2ff;
+}
+
 .clipBar:hover,
 .timelineRegion:hover,
 .clickMarker:hover,
@@ -3238,8 +3405,9 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   display: flex;
   gap: 0.25rem;
   margin: 0.1rem 0 0.3rem;
-  cursor: pointer;
-  padding-left: 4.8rem;
+  align-items: center;
+  cursor: default;
+  padding-left: 0;
 }
 .timelineToolButton {
   align-items: center;
@@ -3265,6 +3433,14 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   background: rgb(122 167 255 / 0.18);
   border-color: rgb(122 167 255 / 0.45);
   color: var(--text);
+}
+.timelineRangeButton {
+  min-width: 3.25rem;
+  padding: 0 0.5rem;
+  width: auto;
+}
+.timelineRestoreButton {
+  color: var(--muted);
 }
 .timelineToolbarDivider {
   align-self: center;
@@ -7168,24 +7344,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   height: 100%;
   min-height: 0;
   min-width: 0;
-  width: 100%;
-}
-/* The one compositor paints exactly over the Editor's viewer rectangle. The
- * shared preview canvas normally insets itself and rounds its corners, which
- * here left a ring of the Editor's OWN picture visible around ours — one image
- * appearing twice with a border between them. Inside this overlay the canvas
- * fills its box edge to edge, and the box is opaque so nothing shows through. */
-.freecutProgramOverlay {
-  background: #000;
-  overflow: hidden;
-}
-.freecutProgramOverlay .styledPreviewCanvas,
-.freecutProgramOverlay .styledPreviewWebglCanvas {
-  border-radius: 0;
-  box-shadow: none;
-  height: 100%;
-  max-height: 100%;
-  max-width: 100%;
   width: 100%;
 }
 .freecutEditorSurfaceStatus {

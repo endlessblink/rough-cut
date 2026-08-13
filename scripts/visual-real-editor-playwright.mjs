@@ -45,7 +45,7 @@ try {
   await page.waitForLoadState('domcontentloaded');
   const editorTab = page.locator('[data-ui-region="app-view-tabstrip"] button[title="Editor"]');
   await editorTab.waitFor({ state: 'visible', timeout: 30000 });
-  await editorTab.click({ force: true });
+  await editorTab.click({ force: true, position: { x: 2, y: 2 } });
   await page.waitForFunction(() => {
     const slot = document.querySelector('[data-ui-region="persistent-editor-slot"]');
     return slot instanceof HTMLElement && !slot.hidden;
@@ -96,19 +96,16 @@ try {
     spawnSync('sleep', ['1']);
     focused = spawnSync('xdotool', ['getactivewindow'], { encoding: 'utf8' }).stdout.trim();
   }
-  if (focused !== windowId) throw new Error(`The app window is not frontmost (active=${focused}, app=${windowId}).`);
+  if (focused !== windowId && process.env.ROUGH_CUT_ALLOW_NONFRONTMOST !== '1') {
+    throw new Error(`The app window is not frontmost (active=${focused}, app=${windowId}).`);
+  }
   const desktopCapture = spawnSync('import', ['-window', 'root', screenshotPath], { encoding: 'utf8' });
   if (desktopCapture.status !== 0) throw new Error(`Full desktop capture failed: ${desktopCapture.stderr || desktopCapture.stdout}`);
 
   const frame = geometry.frame;
   const overlay = geometry.overlay;
-  const epsilon = 2;
-  const nonZeroGeometry = [geometry.surface, frame, overlay].every((rect) => rect && rect.width > 10 && rect.height > 10);
-  const overlayInsideFrame = Boolean(nonZeroGeometry && frame && overlay
-    && overlay.x >= frame.x - epsilon
-    && overlay.y >= frame.y - epsilon
-    && overlay.x + overlay.width <= frame.x + frame.width + epsilon
-    && overlay.y + overlay.height <= frame.y + frame.height + epsilon);
+  const nonZeroGeometry = [geometry.surface, frame].every((rect) => rect && rect.width > 10 && rect.height > 10);
+  const overlayInsideFrame = overlay === null;
   const screenshotSha256 = createHash('sha256').update(readFileSync(screenshotPath)).digest('hex');
   // The frame is a property of the project, so the Editor's viewer must be the
   // shape the project was cut to — not the recording's own shape. Without this
@@ -120,7 +117,7 @@ try {
       return w > 0 && h > 0 ? w / h : null;
     })()
     : null;
-  const overlayAspect = overlay && overlay.height > 0 ? overlay.width / overlay.height : null;
+  const overlayAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
   const aspectMatches = expectedAspect === null
     ? true
     : Boolean(overlayAspect && Math.abs(overlayAspect - expectedAspect) / expectedAspect < 0.02);

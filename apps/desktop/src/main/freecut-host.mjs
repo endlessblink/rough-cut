@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { listRecordingProjectPaths } from './project-gallery.mjs';
 import { openProjectFile, saveProjectFile, validateProjectPath } from './project-files.mjs';
@@ -60,15 +59,7 @@ export function createFreecutHost({
       for (const path of paths) {
         try {
           const opened = await openProjectFile(path);
-          // Every project describes its program, not just the one Rough Cut has
-          // registered. Gating this meant only the currently-open project was
-          // collapsed to a single feed; every other project reached the Editor
-          // as separate raw screen and camera clips on separate tracks.
-          // This stays cheap — describeStyledProgram only hashes the document.
-          // The expensive render is still deferred: it is triggered by
-          // resolveMedia when the program is actually requested for playback.
-          const styledProgram = describeStyledProgram(opened.document, path);
-          const project = toFreecutProject(opened.document, path, styledProgram);
+          const project = toFreecutProject(opened.document, path);
           projects.push(project);
           const transcript = toFreecutTranscript(opened.document, project);
           if (transcript) transcripts.push(transcript);
@@ -87,8 +78,6 @@ export function createFreecutHost({
       for (const path of paths) {
         const opened = await openProjectFile(path).catch(() => null);
         if (opened?.document?.id !== projectId) continue;
-        const styledDescriptor = describeStyledProgram(opened.document, path);
-        const isProgramMedia = styledDescriptor?.mediaId === assetId;
         // NOTHING here may start an encode. Opening a project used to fire a
         // full-length styled export in the background, so simply arriving in the
         // Editor put ffmpeg on the machine for as long as the recording was —
@@ -97,9 +86,7 @@ export function createFreecutHost({
         // live by Rough Cut's compositor straight from the raw media, so the
         // program request only has to hand back decodable frames of the right
         // length. The raw recording is exactly that, at zero cost.
-        const asset = opened.document.assets?.find((candidate) => (
-          isProgramMedia ? candidate.id === styledDescriptor.sourceAssetId : candidate.id === assetId
-        ));
+        const asset = opened.document.assets?.find((candidate) => candidate.id === assetId);
         if (!asset?.filePath) return null;
         const resolvedPath = isAbsolute(asset.filePath)
           ? resolve(asset.filePath)
@@ -121,11 +108,18 @@ export function createFreecutHost({
   };
 }
 
-// A stored timeline only counts once it actually has tracks. An empty one means
-// FreeCut has not really opened this project, so the composition should seed it.
+// A stored timeline is reusable only when it contains every canonical asset and
+// no legacy flattened-program item; otherwise the current composition reseeds it.
 function hasStoredFreecutTimeline(document) {
   const stored = document?.freecutTimeline;
-  return Boolean(stored && Array.isArray(stored.tracks) && stored.tracks.length > 0);
+  if (!stored || !Array.isArray(stored.tracks) || stored.tracks.length === 0) return false;
+  const items = Array.isArray(stored.items) ? stored.items : [];
+  if (items.some((item) => typeof item?.mediaId === 'string' && item.mediaId.endsWith('__program'))) return false;
+  const canonicalAssetIds = (document.composition?.tracks ?? [])
+    .flatMap((track) => track.clips ?? [])
+    .map((clip) => clip.assetId)
+    .filter(Boolean);
+  return canonicalAssetIds.every((assetId) => items.some((item) => item.mediaId === assetId));
 }
 
 /**
@@ -160,31 +154,14 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     for (const clip of track.clips ?? []) {
       const asset = assets.find((candidate) => candidate.id === clip.assetId);
       if (!asset) continue;
-      const type = asset.type === 'audio' ? 'audio' : asset.type === 'image' ? 'image' : 'video';
-      const isPrimaryVideo = styledProgram && asset.id === styledProgram.sourceAssetId && type === 'video';
-      // The Editor's preview resolves a clip's video strictly by mediaId
-      // (use-preview-composition-model: resolvedUrls.get(item.mediaId)) and
-      // ignores `src` entirely — `src` is only honoured by thumbnail and inline
-      // composition paths. Pointing mediaId at the raw source asset therefore
-      // played the bare screen recording no matter what `src` said, which is
-      // why the composited program never actually appeared. Point mediaId at
-      // the program, and register it in `media` below so it can resolve.
-      // The styled program is the finished composite: it already contains the
-      // camera PiP, background, zoom, cursor and the mixed audio. Seeding the
-      // other source clips alongside it draws the camera a second time on top
-      // of itself and doubles the audio. Only the clip carrying the program
-      // survives; the raw assets stay in `media` so they remain reachable.
-      if (styledProgram && !isPrimaryVideo) continue;
+       const type = kind === 'audio' ? 'audio' : asset.type === 'image' ? 'image' : 'video';
       items.push({
         id: clip.id,
         trackId: track.id,
         from: numberOr(clip.timelineIn, 0),
         durationInFrames: Math.max(1, numberOr(clip.timelineOut, 1) - numberOr(clip.timelineIn, 0)),
         label: clip.name || basename(asset.filePath ?? 'Media'),
-        mediaId: isPrimaryVideo ? styledProgram.mediaId : asset.id,
-        ...(isPrimaryVideo ? {
-          src: `/__rough_cut__/media/${encodeURIComponent(document.id)}/${encodeURIComponent(styledProgram.mediaId)}`,
-        } : {}),
+        mediaId: asset.id,
         type,
         sourceStart: numberOr(clip.sourceIn, 0),
         sourceEnd: numberOr(clip.sourceOut, numberOr(asset.duration, 1)),
@@ -209,29 +186,6 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
       order,
     };
   });
-
-  // The composited program must appear in the media library, because that is the
-  // only thing the Editor's preview resolves against. Without this entry the
-  // collapsed clip has nothing to play.
-  const programMedia = styledProgram ? [{
-    id: styledProgram.mediaId,
-    storageType: 'workspace',
-    roughCutUrl: `/__rough_cut__/media/${encodeURIComponent(document.id)}/${encodeURIComponent(styledProgram.mediaId)}`,
-    fileName: `${document.name || 'program'}.mp4`,
-    fileSize: 0,
-    mimeType: 'video/mp4',
-    duration: numberOr(document.composition?.duration, 0) / fps,
-    // The program IS the canvas — it is the composite the user chose the shape
-    // of, not a raw source, so it carries the styled canvas size.
-    width: canvas.width,
-    height: canvas.height,
-    fps,
-    codec: '',
-    bitrate: 0,
-    tags: [],
-    createdAt: Date.parse(document.createdAt ?? '') || Date.now(),
-    updatedAt: Date.parse(document.modifiedAt ?? '') || Date.now(),
-  }] : [];
 
   const media = assets.map((asset) => ({
     id: asset.id,
@@ -272,12 +226,7 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     // exactly this object. The composition mapping below is the seed for a
     // project FreeCut has never opened.
     timeline: hasStoredFreecutTimeline(document) ? document.freecutTimeline : {
-      // With the program collapsed to one item, every other track is empty —
-      // its source is baked into the program. Emitting them anyway put a stray
-      // empty "Camera" track beside the feed in the Editor.
-      tracks: styledProgram
-        ? freecutTracks.filter((track) => items.some((item) => item.trackId === track.id))
-        : freecutTracks,
+      tracks: freecutTracks,
       items,
       transitions: document.composition?.transitions ?? [],
       keyframes: items
@@ -292,7 +241,7 @@ export function toFreecutProject(document, roughCutPath, styledProgram = null) {
     },
     roughCutPath,
     roughCutAssets: assets.map((asset) => ({ id: asset.id, filePath: asset.filePath })),
-    media: [...programMedia, ...media],
+    media,
   };
 }
 
@@ -309,16 +258,14 @@ function isProgramCollapsedTimeline(timeline) {
 export function fromFreecutProject(project, original) {
   const timeline = project?.timeline;
 
-  // A collapsed program timeline is NOT a representation of the Rough Cut
-  // composition: the camera and audio are baked into the rendered program and
-  // have no items of their own. Rebuilding tracks from it would map those to
-  // empty clip lists and delete the camera from the user's project. Keep the
-  // composition exactly as it was and store the Editor's timeline alongside it.
+  // Legacy flattened timelines are not a representation of the Rough Cut
+  // composition; discard only that stale view state and reseed from canonical
+  // screen/camera/audio tracks on the next open.
   if (isProgramCollapsedTimeline(timeline)) {
     return {
       ...original,
       name: project.name || original.name,
-      freecutTimeline: timeline,
+      freecutTimeline: null,
     };
   }
   const tracks = (timeline?.tracks ?? []).map((track, index) => {
@@ -400,37 +347,6 @@ function mimeTypeFor(filePath = '') {
 // project length. Rough Cut's compositor draws every view live from the raw
 // media, and serving media is now a file lookup. Anything that needs a rendered
 // file is an explicit user-initiated Export, which lives in export-service.
-
-// Only the render whose fingerprint matches the current project state counts as a
-// hit. This used to fall back to the newest `<projectId>-*-web.mp4` in the folder
-// regardless of fingerprint, which defeated invalidation completely: the Editor
-// kept playing a render from an older edit state indefinitely, because every edit
-// produced a fingerprint whose file did not exist while a stale one always did.
-// `projectId` is retained so both call sites stay unchanged.
-export async function findCompletedStyledCache(outputPath, _projectId) {
-  const exact = await stat(outputPath).catch(() => null);
-  return exact?.isFile() && exact.size > 0 ? outputPath : null;
-}
-
-// The fingerprint is a cache key for a full-length ffmpeg export, so it must
-// cover exactly the inputs the styled render reads and nothing else. `modifiedAt`
-// was in here and changes on every save — a rename or a transcript edit, neither
-// of which moves a pixel, invalidated the whole recording's render.
-export function describeStyledProgram(document, roughCutPath) {
-  const sourceAsset = (document.assets ?? []).find((asset) => asset.type === 'recording' || asset.type === 'video');
-  if (!sourceAsset?.filePath) return null;
-  const mediaId = `${sourceAsset.id}__program`;
-  const fingerprint = createHash('sha256')
-    .update(JSON.stringify({
-      sourceAsset,
-      composition: document.composition,
-      settings: document.settings,
-    }))
-    .digest('hex')
-    .slice(0, 16);
-  const outputPath = join(dirname(roughCutPath), '.roughcut-freecut-cache', `${document.id}-${fingerprint}-web.mp4`);
-  return { mediaId, outputPath, sourceAssetId: sourceAsset.id };
-}
 
 function toFreecutTranscript(document, project) {
   const source = document?.transcript;

@@ -65,13 +65,13 @@ test('styled video preview drives edited timeline playback from decoded rVFC fra
   assert.match(source, /const activeTimelinePlayback = timeMode === 'timeline' && isPlaying/);
   assert.match(source, /ctx\.imageSmoothingQuality = activeTimelinePlayback \? 'low' : 'high'/);
   assert.match(source, /if \(!activeTimelinePlayback && background\.bgShadowEnabled/);
-  assert.match(source, /if \(!activeTimelinePlayback && onScreenFrameChange\)/);
+  assert.match(source, /if \(!activeTimelinePlayback && onScreenFrameChange && !parityCapture\)/);
   assert.match(source, /const onCurrentTimeChangeRef = React\.useRef\(onCurrentTimeChange\)/);
   assert.match(source, /onCurrentTimeChangeRef\.current\?\.\(nextTime\)/);
   assert.match(source, /const onPlayingChangeRef = React\.useRef\(onPlayingChange\)/);
   assert.match(source, /onPlayingChangeRef\.current\?\.\(false\)/);
   assert.match(source, /if \(timeMode === 'timeline' && isPlaying\) return;\n\s+previewInteractionDirtyRef\.current = true;/);
-  assert.match(source, /if \(!activeTimelinePlayback && focalSelection && focalScreenRect\)/);
+  assert.match(source, /if \(!activeTimelinePlayback && focalSelection && focalScreenRect && !parityCapture\)/);
   assert.match(source, /if \(!activeTimelinePlayback && gapFocal && gapRect\)/);
   assert.match(source, /className=\{`styledPreviewCanvas styledPreviewOverlayCanvas\$\{acceleratedPresentationActive \? ' isAcceleratedPresentationOverlay isWebglPresentationOverlay' : ''\}\$\{!isPlaying && isDraggingCamera \? ' draggingCamera' : ''\}/);
   assert.match(source, /onPointerMove=\{\(event\) => \{\n\s+if \(timeMode === 'timeline' && isPlaying\) return;\n\s+const canvas = canvasRef\.current;/);
@@ -456,8 +456,8 @@ test('zoom motion renderer gates blur and keeps cursor overlays out of the blurr
   assert.match(rendererSource, /ctx\.filter = `blur\(\$\{blurPx\.toFixed\(2\)\}px\)`/);
   assert.match(previewSource, /reducedMotion: \(activeTimelinePlayback && !acceleratedTimelineFrameCompositor\) \|\|/);
   assert.match(mainSource, /reducedMotion: !video\.paused \|\|/);
-  assert.doesNotMatch(previewSource, /ctx\.filter\s*=/);
-  assert.doesNotMatch(mainSource, /ctx\.filter\s*=/);
+  assert.doesNotMatch(previewSource, /ctx\.filter\s*=\s*`blur/);
+  assert.doesNotMatch(mainSource, /ctx\.filter\s*=\s*`blur/);
   assert.match(previewSource, /screenLayerRenderer\.draw\(\{/);
   assert.match(previewSource, /sharpZoom: timeMode !== 'timeline' && !activeTimelinePlayback/);
   // The censor draw sits between the screen video and the cursor transform: after

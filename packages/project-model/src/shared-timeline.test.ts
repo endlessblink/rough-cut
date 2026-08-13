@@ -3,6 +3,7 @@ import { createAsset, createDefaultRecordingPresentation, createProject, createZ
 import { SharedTimelineSchema } from './schemas.js';
 import {
   collectTimelineInvariantIssues,
+  canonicalizeProjectDocument,
   computeTimelineDuration,
   resolveTimelineLengthFrames,
   type SharedTimeline,
@@ -72,6 +73,51 @@ function timeline(overrides: Partial<SharedTimeline> = {}): SharedTimeline {
     ...overrides,
   };
 }
+
+it('adds a frame-locked audio track for recording sources when canonicalizing', () => {
+  const asset = createAsset('recording', '/tmp/recording.mp4', {
+    duration: 300,
+    metadata: { audio: { micSource: 'mic' } },
+  });
+  const project = createProject({
+    assets: [asset],
+    composition: {
+      duration: 300,
+      tracks: [{
+        id: 'screen-track',
+        type: 'video',
+        name: 'Screen Recording',
+        index: 0,
+        locked: false,
+        visible: true,
+        volume: 1,
+        clips: [{
+          id: 'screen-clip',
+          assetId: asset.id,
+          trackId: 'screen-track',
+          enabled: true,
+          timelineIn: 0,
+          timelineOut: 300,
+          sourceIn: 0,
+          sourceOut: 300,
+        }],
+      }],
+    },
+  });
+
+  const canonical = canonicalizeProjectDocument(project);
+  const audioTrack = canonical.timeline.tracks.find((track) => track.kind === 'audio');
+  expect(audioTrack?.label).toBe('Recording Audio');
+  expect(audioTrack?.clips).toHaveLength(1);
+  expect(audioTrack?.clips[0]).toMatchObject({
+    mediaId: `source:${asset.id}:mic-audio`,
+    linkGroupId: `linked:${asset.id}`,
+    timelineIn: 0,
+    timelineOut: 300,
+    sourceIn: 0,
+    sourceOut: 300,
+  });
+});
 
 describe('shared timeline canonical contract', () => {
   it('canonicalizes imported NLE tracks into mediaId/trackId/linkGroupId clips sorted by timelineIn', () => {

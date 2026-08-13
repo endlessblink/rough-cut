@@ -18,12 +18,22 @@ export function updateRecordingTimelineTrim(
   },
 ): MutableProjectDocument;
 
+export function splitRecordingAtFrame(
+  document: MutableProjectDocument,
+  options: { readonly assetId: string; readonly frame: number },
+): MutableProjectDocument;
+
 export function restoreRecordingSourceEdge(
   document: MutableProjectDocument,
   options: { readonly assetId: string; readonly edge: 'head' | 'tail' | 'left' | 'right' },
 ): MutableProjectDocument;
 
 export function restoreRecordingFullSource(
+  document: MutableProjectDocument,
+  options: { readonly assetId: string },
+): MutableProjectDocument;
+
+export function restoreRecordingOriginalState(
   document: MutableProjectDocument,
   options: { readonly assetId: string },
 ): MutableProjectDocument;

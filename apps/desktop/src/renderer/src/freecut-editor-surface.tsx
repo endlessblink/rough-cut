@@ -1,7 +1,6 @@
 import React from 'react';
-import { getStyledCanvasResolution } from '@rough-cut/project-model';
-import { StyledVideoPreview, type StyledPreviewProject, type EditorOverlayLayer } from './styled-video-preview';
-import { resolveOverlayLayers, resolveRecordingTimeSec } from './editor-timeline-placement.mjs';
+import type { StyledPreviewProject, EditorOverlayLayer } from './styled-video-preview';
+import { resolveOverlayLayers } from './editor-timeline-placement.mjs';
 
 type FreecutUrlResult = {
   ok: boolean;
@@ -15,11 +14,8 @@ type FreecutEditorSurfaceProps = {
   /** False while another view is showing. The surface stays mounted either way. */
   active?: boolean;
   /**
-   * The project Rough Cut's compositor draws. The Editor's own renderer cannot
-   * express camera PiP, zoom markers, click effects or a telemetry-driven
-   * cursor, so matching Recording edit inside it would mean re-implementing the
-   * compositor in a second engine and letting the two drift. Instead the one
-   * compositor Rough Cut already has paints over the Editor's viewer.
+   * Project metadata used to keep linked camera layers out of Recording edit's
+   * compositor while FreeCut renders its own real timeline tracks.
    */
   previewProject?: StyledPreviewProject | null;
   /**
@@ -203,45 +199,6 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
     wasActive.current = active;
   }, [active]);
 
-  // The frame both views share. Recording edit lets the user pick it — wide,
-  // vertical, square, classic, tall, portrait or the recording's own shape — and
-  // the compositor cuts the program to it. The Editor is a second window onto
-  // that same program, so its canvas is the same canvas; anything else shows one
-  // timeline in two different frames.
-  const canvas = React.useMemo(() => getStyledCanvasResolution({
-    aspectRatio: previewProject?.document?.settings?.aspectRatio ?? 'auto',
-    sourceWidth: previewProject?.recording?.width ?? 1920,
-    sourceHeight: previewProject?.recording?.height ?? 1080,
-  }), [previewProject?.document?.settings?.aspectRatio, previewProject?.recording?.width, previewProject?.recording?.height]);
-  const canvasRef = React.useRef(canvas);
-  canvasRef.current = canvas;
-
-  const postCanvas = React.useCallback(() => {
-    frameRef.current?.contentWindow?.postMessage(
-      { type: 'freecut:set-canvas', width: canvasRef.current.width, height: canvasRef.current.height },
-      '*',
-    );
-  }, []);
-
-  // The snapshot that seeds the Editor is read once at boot, so a shape chosen
-  // afterwards has to be pushed. Sending it on every change — and again whenever
-  // the Editor asks, because its project store populates after ours — is what
-  // keeps the two views on one frame without reloading the Editor.
-  React.useEffect(() => {
-    if (!ready) return;
-    postCanvas();
-  }, [ready, canvas.width, canvas.height, postCanvas]);
-
-  React.useEffect(() => {
-    if (!result?.ok || !result.url) return undefined;
-    const onRequest = (event: MessageEvent<{ type?: string }>) => {
-      if (event.source !== frameRef.current?.contentWindow) return;
-      if (event.data?.type === 'freecut:request-canvas') postCanvas();
-    };
-    window.addEventListener('message', onRequest);
-    return () => window.removeEventListener('message', onRequest);
-  }, [result, postCanvas]);
-
   React.useEffect(() => {
     if (!result?.ok || !result.url) return undefined;
     const requestStatus = () => frameRef.current?.contentWindow?.postMessage({ type: 'freecut:request-status' }, '*');
@@ -257,7 +214,20 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
   // Hand the layer stack to the app so every other view draws the same clips.
   // Keyed on content: the viewer message also carries the rectangle and the
   // playhead, which change constantly and mean nothing to anyone else.
-  const publishedLayers = viewer && result?.url ? resolveOverlayLayers(viewer, result.url, projectId) : { above: [], below: [] };
+  const linkedCameraAssetId = (previewProject?.recording as { cameraAssetId?: string } | undefined)?.cameraAssetId ?? null;
+  const publishedLayers = viewer && result?.url
+    ? (() => {
+        const layers = resolveOverlayLayers(viewer, result.url, projectId);
+        // Rough Cut composites the linked camera inside the recording program.
+        // Do not let a stale standalone camera item from the embedded editor
+        // paint over that program while the editor catches up with a restore.
+        const isLinkedCamera = (layer: EditorOverlayLayer) => layer.mediaId === linkedCameraAssetId;
+        return {
+          above: layers.above.filter((layer) => !isLinkedCamera(layer)),
+          below: layers.below.filter((layer) => !isLinkedCamera(layer)),
+        };
+      })()
+    : { above: [], below: [] };
   const publishedLayersKey = JSON.stringify(publishedLayers);
   React.useEffect(() => {
     onLayersChange?.(JSON.parse(publishedLayersKey));
@@ -340,43 +310,6 @@ export function FreecutEditorSurface({ projectId, projectVersion = 0, active = t
           src={result.url}
           allow="clipboard-read; clipboard-write"
         />
-        {/* One compositor draws the picture, and it is Rough Cut's. It is
-            positioned over the Editor's own viewer using the rectangle the
-            Editor reports, so both views are guaranteed to look identical —
-            there is only one renderer. Nothing is pre-rendered: this composites
-            live from the raw media exactly as Recording edit does, so a project
-            shows instantly regardless of its length. */}
-        {viewer && previewProject ? (
-          <div
-            className="freecutProgramOverlay"
-            data-ui-region="freecut-program-overlay"
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              left: viewer.rect.x,
-              top: viewer.rect.y,
-              width: viewer.rect.width,
-              height: viewer.rect.height,
-              // The Editor's gizmos and controls must stay clickable underneath.
-              pointerEvents: 'none',
-            }}
-          >
-            <StyledVideoPreview
-              project={previewProject}
-              // The recording's OWN time under the playhead, not the playhead's.
-              // They differ the moment the clip is moved, trimmed or cut.
-              seekTimeSec={resolveRecordingTimeSec(viewer) ?? 0}
-              // Nothing of the recording exists here: an empty timeline position
-              // renders empty, and only the layers on other tracks are drawn.
-              recordingAbsent={resolveRecordingTimeSec(viewer) === null}
-              isPlaying={viewer.playing}
-              overlayLayersAbove={resolveOverlayLayers(viewer, result.url, projectId).above}
-              overlayLayersBelow={resolveOverlayLayers(viewer, result.url, projectId).below}
-              timeMode="timeline"
-              showControls={false}
-            />
-          </div>
-        ) : null}
         {!ready ? <div className="freecutEditorSurfaceStatus" data-freecut-readiness="waiting">{bootError ?? (booted ? 'FreeCut is waiting for readiness…' : 'Loading FreeCut editor…')}</div> : null}
       </section>
     );

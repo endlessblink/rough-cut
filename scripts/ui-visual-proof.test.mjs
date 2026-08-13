@@ -1,14 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { isUiPath, validateReviewArtifact, UI_PROOF_CHECKLIST } from './ui-visual-proof-lib.mjs';
 
 const testDesktopEntryPath = '/tmp/rough-cut-proof-test.desktop';
 const testProvenancePath = '/tmp/rough-cut-proof-test-provenance.json';
 const testPinnedEntryPath = '/tmp/rough-cut-proof-test-pinned.desktop';
+const runtimeScreenshotPaths = {
+  before: '/tmp/rough-cut-runtime-before.png',
+  change: '/tmp/rough-cut-runtime-change.png',
+  after: '/tmp/rough-cut-runtime-after.png',
+};
 writeFileSync(testDesktopEntryPath, 'Exec=env ROUGH_CUT_DOCK_LAUNCH=1 /tmp/dist/rough-cut-mvp-linux-x64/run.sh\n');
 writeFileSync(testPinnedEntryPath, 'Exec=env ROUGH_CUT_DOCK_LAUNCH=1 /tmp/dist/rough-cut-mvp-linux-x64/dock-launch.sh\n');
+for (const [key, path] of Object.entries(runtimeScreenshotPaths)) writeFileSync(path, `runtime-${key}`);
 writeFileSync(testProvenancePath, JSON.stringify({
   version: 1,
   launchSource: 'installed-desktop-entry',
@@ -17,6 +24,7 @@ writeFileSync(testProvenancePath, JSON.stringify({
   appPath: '/tmp/dist/rough-cut-mvp-linux-x64/resources/app',
   startedAt: new Date().toISOString(),
 }));
+const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
 test('visual proof gate recognizes renderer behavior and presentation files', () => {
   assert.equal(isUiPath('apps/desktop/src/renderer/src/editor.tsx'), true);
@@ -31,6 +39,11 @@ test('visual proof gate ignores backend, generated, and documentation files', ()
   assert.equal(isUiPath('apps/desktop/src/main/index.mjs'), true);
   assert.equal(isUiPath('apps/desktop/dist/renderer/index.js'), false);
   assert.equal(isUiPath('DESIGN.md'), false);
+});
+
+test('the generated desktop entry stamps installed-launch provenance', () => {
+  const prepareDockScript = readFileSync(resolve(import.meta.dirname, 'prepare-linux-dock.sh'), 'utf8');
+  assert.match(prepareDockScript, /Exec=env ROUGH_CUT_DOCK_LAUNCH=1 \$APP_ROOT\/dock-launch\.sh/);
 });
 
 function reviewArtifact(overrides = {}) {
@@ -71,9 +84,9 @@ function reviewArtifact(overrides = {}) {
       observed: true,
       freecutMarker: { version: 'vendored-freecut-1', embedded: true, buildHash: 'build-hash' },
       editorSurface: { ready: true, projectId: 'project-123456' },
-      before: { projectId: 'project-123456', screenshotPath: '/tmp/rough-cut-runtime-before.png', screenshotSha256: '1d0b9e602f7a68dc8c6ff5ca3cf33fe1d28c104a0ffaf37d49621afacb274bca', timelineFingerprint: 'before' },
-      change: { projectId: 'project-123456', screenshotPath: '/tmp/rough-cut-runtime-change.png', screenshotSha256: 'd5b6c8538ba18b41b301e4cc9b3ff531f9ac86d50307f9187ff0296d326d12c1', timelineFingerprint: 'change' },
-      after: { projectId: 'project-123456', screenshotPath: '/tmp/rough-cut-runtime-after.png', screenshotSha256: '3715f168cafbdd5f928b85fe91c00205c3d683ad170ea8b21bf11c970b5bf77d', timelineFingerprint: 'after' },
+      before: { projectId: 'project-123456', screenshotPath: runtimeScreenshotPaths.before, screenshotSha256: sha256(runtimeScreenshotPaths.before), timelineFingerprint: 'before' },
+      change: { projectId: 'project-123456', screenshotPath: runtimeScreenshotPaths.change, screenshotSha256: sha256(runtimeScreenshotPaths.change), timelineFingerprint: 'change' },
+      after: { projectId: 'project-123456', screenshotPath: runtimeScreenshotPaths.after, screenshotSha256: sha256(runtimeScreenshotPaths.after), timelineFingerprint: 'after' },
     },
     ...overrides,
   };

@@ -57,8 +57,10 @@ test('creates a valid project document for a screen recording', () => {
   assert.equal(project.assets[0].metadata.capture, null);
   assert.deepEqual(project.assets[0].metadata.cursorEvents, recording.cursorEvents);
   assert.equal(project.composition.duration, 300);
-  assert.equal(project.composition.tracks.length, 1);
+  assert.equal(project.composition.tracks.length, 2);
   assert.equal(project.composition.tracks[0].clips.length, 1);
+  assert.equal(project.composition.tracks[1].type, 'audio');
+  assert.equal(project.composition.tracks[1].clips[0].assetId, project.assets[0].id);
 });
 
 test('does not pre-apply auto zoom markers from recording click telemetry', () => {
@@ -175,7 +177,7 @@ test('creates linked camera asset and track when webcam recording is present', (
   assert.equal(project.assets[1].pathMode, 'relative');
   assert.equal(project.assets[1].duration, project.composition.duration + 30);
   assert.equal(project.assets[1].metadata.sourceInFrames, 30);
-  assert.equal(project.composition.tracks.length, 2);
+  assert.equal(project.composition.tracks.length, 3);
   assert.equal(project.composition.tracks[1].clips[0].assetId, project.assets[1].id);
   assert.equal(project.composition.tracks[1].clips[0].sourceIn, 30);
   assert.equal(project.composition.tracks[1].clips[0].sourceOut, project.composition.duration + 30);

@@ -20,7 +20,7 @@ export const WAVEFORM_WIDTH = 2048;
 export const WAVEFORM_MIN_WIDTH = 512;
 export const WAVEFORM_MAX_WIDTH = 8192;
 export const WAVEFORM_HEIGHT = 56;
-export const WAVEFORM_COLOR = '4ade80';
+export const WAVEFORM_COLOR = 'e0f2fe';
 
 export function visualsCacheDir(projectPath) {
   return join(dirname(projectPath), '.roughcut-visuals');
@@ -29,7 +29,7 @@ export function visualsCacheDir(projectPath) {
 // `variant` distinguishes zoom buckets (tile count / waveform width) so each
 // resolution caches independently.
 export function visualCacheKey(sourcePath, mtimeMs, kind, variant = 0) {
-  return createHash('sha1').update(`${sourcePath}:${Math.round(mtimeMs)}:${kind}:${variant}:v2`).digest('hex').slice(0, 20);
+  return createHash('sha1').update(`${sourcePath}:${Math.round(mtimeMs)}:${kind}:${variant}:v3`).digest('hex').slice(0, 20);
 }
 
 // Tile count follows the requested zoom bucket (renderer asks for roughly
@@ -73,7 +73,7 @@ export function buildWaveformArgs(sourcePath, outPath, targetWidthPx) {
     '-y',
     '-i', sourcePath,
     '-filter_complex',
-    `aformat=channel_layouts=mono,compand=gain=-6,showwavespic=s=${width}x${WAVEFORM_HEIGHT}:colors=#${WAVEFORM_COLOR}`,
+    `aformat=channel_layouts=mono,compand=gain=-6,showwavespic=s=${width}x${WAVEFORM_HEIGHT}:colors=#${WAVEFORM_COLOR}:scale=sqrt`,
     '-frames:v', '1',
     outPath,
   ];

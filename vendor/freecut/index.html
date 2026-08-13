@@ -18,9 +18,10 @@
     <script>
       (() => {
         document.documentElement.dataset.freecutStatus = 'booting';
-        window.addEventListener('error', (event) => {
-          const message = event.error?.message ?? event.message ?? 'unknown error';
-          console.error('FreeCut bootstrap window error', message);
+  window.addEventListener('error', (event) => {
+    const message = event.error?.message ?? event.message ?? 'unknown error';
+    if (message === 'ResizeObserver loop completed with undelivered notifications.' || message === 'ResizeObserver loop limit exceeded') return;
+    console.error('FreeCut bootstrap window error', message);
           if (window.parent !== window) window.parent.postMessage({ type: 'freecut-error', error: `window: ${message}` }, '*');
         });
         window.addEventListener('unhandledrejection', (event) => {

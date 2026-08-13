@@ -38,11 +38,34 @@ export function frameRangeToPlacement(startFrame, endFrame, fps, durationSec) {
 export function buildTimelineModel({ document, recording, currentTimeSec, cameraMediaUrl }) {
   const fps = Number.isFinite(recording?.fps) && recording.fps > 0 ? recording.fps : 30;
   const adapter = selectRecordingEditModel({ document });
-  const frameDuration = Number.isFinite(recording?.duration) && recording.duration > 0
-    ? recording.duration
-    : adapter.sourceDurationFrames;
   const recordingAsset = adapter.recordingAsset ?? getPrimaryAsset(document);
+  // The project recording metadata can describe the currently visible take
+  // after a trim. The canonical recording asset remains the authority for
+  // how far an edit may be extended back toward the original source.
+  const frameDuration = Number.isFinite(recordingAsset?.duration) && recordingAsset.duration > 0
+    ? recordingAsset.duration
+    : Number.isFinite(recording?.duration) && recording.duration > 0
+      ? recording.duration
+      : adapter.sourceDurationFrames;
   const primaryClip = adapter.primaryClip;
+  const linkedAudioSource = Array.isArray(document?.timeline?.sources)
+    && document.timeline.sources.some((source) => source?.assetId === recordingAsset?.id && source?.mediaType === 'audio');
+  const canonicalAudioTrack = Array.isArray(document?.composition?.tracks)
+    && document.composition.tracks.some((track) => track?.type === 'audio' && (track.clips?.length ?? 0) > 0);
+  const sharedAudioTrack = Array.isArray(document?.timeline?.tracks)
+    && document.timeline.tracks.some((track) => track?.kind === 'audio' && (track.clips?.length ?? 0) > 0);
+  const hasRecordingAsset = Array.isArray(document?.assets)
+    && document.assets.some((asset) => asset?.type === 'recording');
+  // Older recording projects may have no persisted audio metadata even though
+  // the recording asset contains the linked capture audio used by the editor.
+  // A recording asset therefore always exposes the attached Audio lane; the
+  // canonical/shared-track checks preserve support for newer project shapes.
+  const hasRecordingAudio = hasRecordingAsset
+    || recordingAsset?.type === 'recording'
+    || Boolean(recording?.audio)
+    || linkedAudioSource
+    || canonicalAudioTrack
+    || sharedAudioTrack;
   const trimStartFrame = primaryClip ? clampFrame(primaryClip.sourceIn, 0, frameDuration) : 0;
   const lastClip = adapter.screenClips[adapter.screenClips.length - 1] ?? primaryClip;
   const trimEndFrame = lastClip ? clampFrame(lastClip.sourceOut, trimStartFrame + 1, frameDuration) : frameDuration;
@@ -103,6 +126,17 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
         width: Math.max(0, right - left),
       }];
     });
+  const attachedAudioRegions = hasRecordingAudio
+    ? (adapter.screenClips.length > 0
+      ? adapter.screenClips.map((clip, index) => ({
+          id: `audio:${clip.id ?? index}`,
+          left: frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, durationSec).left,
+          width: frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, durationSec).width,
+          timelineIn: clip.timelineIn,
+          timelineOut: clip.timelineOut,
+        }))
+      : [{ id: 'audio', left: 0, width: 100, timelineIn: 0, timelineOut: adapter.timelineDurationFrames }])
+    : [];
 
   return {
     durationSec,
@@ -129,7 +163,7 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
       censor: censorRegions,
       clicks: clickEvents,
       camera: recording?.camera || cameraMediaUrl ? [{ id: 'camera', left: 0, width: 100 }] : [],
-      audio: recording?.audio ? [{ id: 'audio', left: 0, width: 100 }] : [],
+      audio: attachedAudioRegions,
     },
   };
 }

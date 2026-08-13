@@ -33,18 +33,18 @@ export interface RecordingTemplatePreset {
 export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
   {
     id: 'tutorial-16-9',
-    label: 'FocuSee Split',
-    description: 'FocuSee-style 16:9 canvas with a vertical camera panel beside a wider screen recording.',
-    layoutLabel: 'Camera + screen',
+    label: 'Side-by-side · 16:9',
+    description: '16:9 side-by-side layout with your vertical camera panel beside the horizontal screen recording.',
+    layoutLabel: 'Vertical camera + horizontal screen',
     aspectRatio: '16:9',
     backgroundPresetId: 'graphite-contours',
     camera: { position: 'center', shape: 'rounded', aspectRatio: '9:16', size: 100, roundness: 32, visible: true },
     cameraFrame: { x: 0.105, y: 0.17, w: 0.245, h: 0.66 },
-    screenFrame: { x: 0.385, y: 0.17, w: 0.53, h: 0.66 },
+    screenFrame: { x: 0.385, y: 0.30, w: 0.53, h: 0.40 },
   },
   {
     id: 'youtube-16-9',
-    label: 'FocuSee YouTube',
+    label: 'Screen + camera bubble · 16:9',
     description: 'FocuSee-style YouTube layout with wide screen recording and circular camera bubble over the lower-left.',
     layoutLabel: 'Screen + bubble',
     aspectRatio: '16:9',
@@ -55,7 +55,7 @@ export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
   },
   {
     id: 'mobile-9-16',
-    label: 'FocuSee 9:16',
+    label: 'Portrait stack · 9:16',
     description: 'FocuSee-style portrait stack with screen and camera arranged as separate layout panels.',
     layoutLabel: 'Portrait stack',
     aspectRatio: '9:16',
@@ -66,7 +66,7 @@ export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
   },
   {
     id: 'square-1-1',
-    label: 'Recordly',
+    label: 'Square + camera bubble · 1:1',
     description: 'Recordly-style dynamic webcam bubble over a square demo canvas.',
     layoutLabel: 'Smart bubble',
     aspectRatio: '1:1',
@@ -77,7 +77,7 @@ export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
   },
   {
     id: 'reel-4-5',
-    label: 'Tella 4:5',
+    label: 'Screen dominant · 4:5',
     description: 'Tella-style screen-dominant feed layout with the camera kept below the content.',
     layoutLabel: 'Screen dominant',
     aspectRatio: '4:5',
@@ -88,7 +88,7 @@ export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
   },
   {
     id: 'portrait-3-4',
-    label: 'FocuSee 3:4',
+    label: 'Vertical split · 3:4',
     description: 'FocuSee-style vertical layout with separated screen and camera regions.',
     layoutLabel: 'Vertical split',
     aspectRatio: '3:4',
@@ -99,7 +99,7 @@ export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
   },
   {
     id: 'classic-4-3',
-    label: 'Tella 4:3',
+    label: 'Half split · 4:3',
     description: 'Tella-style 50/50 split for demos where the presenter should not cover screen content.',
     layoutLabel: '50/50 split',
     aspectRatio: '4:3',
@@ -110,7 +110,7 @@ export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
   },
   {
     id: 'native-auto',
-    label: 'Screen Studio Native',
+    label: 'Native canvas · Auto',
     description: 'Screen Studio-style native canvas with screen focus and a compact camera bubble.',
     layoutLabel: 'Native bubble',
     aspectRatio: 'auto',

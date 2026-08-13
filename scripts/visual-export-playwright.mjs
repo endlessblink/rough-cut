@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openProjectFile } from '../apps/desktop/src/main/project-files.mjs';
 import { saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
+import { acquireExportTestLock } from './export-test-lock.mjs';
+
+acquireExportTestLock(
+  join(tmpdir(), 'rough-cut-video-export-test.lock'),
+);
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-visual-export-'));
 const sourceProjectPath = process.env.ROUGH_CUT_VISUAL_PROJECT_PATH || null;

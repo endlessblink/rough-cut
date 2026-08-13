@@ -15,19 +15,19 @@ const base = {
   lastPublishedAtMs: 1_000,
 };
 
-test('timeline playback republishes the canonical playhead every 50ms', () => {
-  assert.equal(TIMELINE_PLAYHEAD_PUBLISH_INTERVAL_MS, 50);
+test('timeline playback republishes the canonical playhead within one display frame', () => {
+  assert.equal(TIMELINE_PLAYHEAD_PUBLISH_INTERVAL_MS, 16);
   assert.equal(
     shouldPublishTimelinePlayhead({
       ...base,
-      nowMs: base.lastPublishedAtMs + 49,
+      nowMs: base.lastPublishedAtMs + 15,
     }),
     false,
   );
   assert.equal(
     shouldPublishTimelinePlayhead({
       ...base,
-      nowMs: base.lastPublishedAtMs + 50,
+      nowMs: base.lastPublishedAtMs + 16,
     }),
     true,
   );

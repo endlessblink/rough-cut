@@ -36,7 +36,7 @@ Version=1.0
 Name=Rough Cut MVP
 Comment=Launch the Rough Cut editor
 Path=$APP_ROOT
-Exec=$APP_ROOT/dock-launch.sh
+Exec=env ROUGH_CUT_DOCK_LAUNCH=1 $APP_ROOT/dock-launch.sh
 Icon=$ICON_PATH
 Terminal=false
 Categories=AudioVideo;Video;

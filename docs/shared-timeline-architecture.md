@@ -1,13 +1,13 @@
 # Shared Timeline Architecture
 
-Rough Cut has one timeline. Recording edit and NLE are two canonical toolsets over that same timeline.
+Rough Cut has one timeline. Recording edit and FreeCut Editor are two canonical toolsets over that same timeline.
 
-Neither surface is a read-only projection, a collapsed derivative, or a separate edit model. Recording edit presents simpler screen-recording tools. NLE presents advanced track and clip tools. Both must mutate the same project timeline through the same project-change path.
+Neither surface is a read-only projection, a collapsed derivative, or a separate edit model. Recording edit presents simpler screen-recording tools. FreeCut Editor presents advanced track and clip tools. Both must mutate the same project timeline through the same project-change path.
 
 ## Invariant
 
 - One shared project timeline model owns persisted edit decisions.
-- Recording edit and NLE both read from and write to that model.
+- Recording edit and FreeCut Editor both read from and write to that model.
 - Switching tabs must not reinterpret, flatten, drop, duplicate, or fork timeline edits.
 - Preview and export resolve from the same composition/EDL model used by both toolsets.
 - Component-local state may hold transient interaction previews only, never persisted timeline truth.
@@ -35,7 +35,7 @@ Recording edit:
 - Must write those edits to the shared timeline model.
 - Must faithfully reflect timeline edits made by NLE when they affect the screen-recording workflow.
 
-NLE:
+FreeCut Editor:
 
 - Presents advanced track/clip editing tools.
 - Can expose split, trim, drag, multi-track, generated assets, captions, and overlays.
@@ -92,7 +92,7 @@ Do not mutate project state on every pointermove. Do not let UI-only preview sta
 2. Define the shared timeline schema for sources, tracks, clips, linked groups, markers/effects, and export settings. Done in TASK-207.
 3. Migrate Recording edit cuts/trims into the shared timeline without changing export output.
 4. Route Recording edit actions through shared timeline selectors/actions.
-5. Route NLE actions through shared timeline selectors/actions.
+5. Route FreeCut Editor actions through shared timeline selectors/actions.
 6. Rebuild trim with local preview sessions and edge hit-zones.
 7. Build export composition/EDL from the shared timeline.
 8. Add cross-tool sync and migration smoke coverage.

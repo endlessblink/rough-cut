@@ -227,6 +227,7 @@ window.addEventListener('unhandledrejection', (event) => {
 })
 
 window.addEventListener('error', (event) => {
+  if (isBenignResizeObserverError(event)) return
   log.error('Uncaught error:', event.error)
 })
 
@@ -298,6 +299,7 @@ window.addEventListener('message', (event) => {
 })
 
 window.addEventListener('error', (event) => {
+  if (isBenignResizeObserverError(event)) return
   postHostDiagnostic({ type: 'freecut-error', error: event.error?.message ?? event.message ?? 'FreeCut script error' })
 })
 window.addEventListener('unhandledrejection', (event) => {
@@ -314,3 +316,9 @@ void i18nReady.then(() => {
     </StrictMode>,
   )
 })
+
+function isBenignResizeObserverError(event: ErrorEvent): boolean {
+  const message = event.message || event.error?.message || ''
+  return message === 'ResizeObserver loop completed with undelivered notifications.'
+    || message === 'ResizeObserver loop limit exceeded'
+}

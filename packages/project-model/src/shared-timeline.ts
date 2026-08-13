@@ -138,10 +138,11 @@ export function canonicalizeProjectDocument(document: ProjectDocument): ProjectD
   const importTracks = rawTimelineTracks.length > 0
     ? canonicalTimelineTracksFromUnknown(rawTimelineTracks, sources, linkedGroups)
     : canonicalTimelineTracks(importNleTracksForDocument(document), sources, linkedGroups);
+  const timelineTracks = ensureRecordingAudioTracks(importTracks, document.assets ?? [], sources, linkedGroups);
   const timeline: Timeline = {
     sources,
     linkedGroups,
-    tracks: importTracks,
+    tracks: timelineTracks,
     markers: mergeById(baseTimeline.markers, arrayFrom(rawTimeline['markers']) as TimelineMarker[]),
     effects: mergeById(baseTimeline.effects, arrayFrom(rawTimeline['effects']) as TimelineEffect[]),
     exportSettings: document.exportSettings,
@@ -303,6 +304,58 @@ function canonicalTimelineTracks(
       .map((clip) => canonicalTimelineClip(clip, track, sources, linkedGroups))
       .sort((a, b) => a.timelineIn - b.timelineIn || a.timelineOut - b.timelineOut || a.id.localeCompare(b.id)),
   }));
+}
+
+function ensureRecordingAudioTracks(
+  tracks: readonly TimelineTrack[],
+  assets: readonly Asset[],
+  sources: readonly MediaReference[],
+  linkedGroups: readonly TimelineLinkedGroup[],
+): TimelineTrack[] {
+  const nextTracks = [...tracks];
+  let nextIndex = Math.max(-1, ...nextTracks.map((track) => track.index)) + 1;
+
+  for (const asset of assets) {
+    if (asset.type !== 'recording' || !isRecord(asset.metadata) || !isRecord(asset.metadata.audio)) continue;
+    const linkedGroupId = linkedGroups.find((group) => group.id === `linked:${asset.id}`)?.id;
+    const screenClips = nextTracks
+      .filter((track) => track.kind === 'video')
+      .flatMap((track) => track.clips)
+      .filter((clip) => clip.source?.id === asset.id || clip.mediaId === `source:${asset.id}:screen`);
+    if (!linkedGroupId || screenClips.length === 0) continue;
+    if (nextTracks.some((track) => track.kind === 'audio' && track.clips.some((clip) => clip.linkGroupId === linkedGroupId))) continue;
+
+    const preferredKind = isRecord(asset.metadata.audio) && typeof asset.metadata.audio.systemAudioSource === 'string'
+      ? 'system-audio'
+      : 'mic-audio';
+    const audioSource = sources.find((source) => source.assetId === asset.id && source.kind === preferredKind)
+      ?? sources.find((source) => source.assetId === asset.id && source.mediaType === 'audio');
+    if (!audioSource) continue;
+
+    const trackId = `recording-audio:${asset.id}`;
+    nextTracks.push({
+      id: trackId,
+      kind: 'audio',
+      index: nextIndex++,
+      label: 'Recording Audio',
+      enabled: true,
+      locked: false,
+      muted: false,
+      clips: screenClips.map((screenClip, clipIndex) => ({
+        id: `${trackId}:clip:${clipIndex}`,
+        mediaId: audioSource.id,
+        trackId,
+        linkGroupId: linkedGroupId,
+        timelineIn: screenClip.timelineIn,
+        timelineOut: screenClip.timelineOut,
+        sourceIn: screenClip.sourceIn,
+        sourceOut: screenClip.sourceOut,
+        source: { kind: 'project-asset', id: asset.id },
+      })),
+    });
+  }
+
+  return nextTracks;
 }
 
 function canonicalTimelineTracksFromUnknown(

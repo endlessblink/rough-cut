@@ -64,4 +64,8 @@ test('studio window profile restores normal editor bounds', async () => {
     source.includes('window.maximize()'),
     'studio maximization must call the native BrowserWindow maximize API',
   );
+  assert.ok(
+    source.includes("window.once('ready-to-show', () => maximizeStudioWindow(window))"),
+    'studio maximization must be reasserted after the native surface is visible',
+  );
 });

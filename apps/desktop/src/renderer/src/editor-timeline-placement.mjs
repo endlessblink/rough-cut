@@ -73,7 +73,7 @@ export function splitLayersByRecordingTrack(viewer) {
  * project file already carries the Editor's tracks and items, so read them
  * directly and let the live report take over when it arrives.
  */
-export function viewerFromStoredTimeline(document, { frame = 0, fps = 30 } = {}) {
+export function viewerFromStoredTimeline(document, { frame = 0, fps = 30, recordingAssetId = null, cameraAssetId = null } = {}) {
   const stored = document?.freecutTimeline;
   if (!stored || !Array.isArray(stored.items) || stored.items.length === 0) return null;
   return {
@@ -88,7 +88,9 @@ export function viewerFromStoredTimeline(document, { frame = 0, fps = 30 } = {})
       type: item?.type,
       // The clip carrying Rough Cut's recording is the one the compositor draws
       // itself; everything else is drawn as a layer around it.
-      isRecording: String(item?.mediaId ?? '').endsWith('__program'),
+      isRecording: String(item?.mediaId ?? '').endsWith('__program')
+        || item?.mediaId === recordingAssetId
+        || item?.mediaId === cameraAssetId,
       trackId: item?.trackId,
       from: item?.from,
       durationInFrames: item?.durationInFrames,

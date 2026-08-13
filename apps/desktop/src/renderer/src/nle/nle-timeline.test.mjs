@@ -201,39 +201,14 @@ test('NLE playback follows the preview media clock instead of a second free-runn
   assert.doesNotMatch(source, /window\.requestAnimationFrame\(tick\)/);
 });
 
-test('NLE shell wires undo and redo through shared edit history controls (TASK-229)', () => {
-  const shell = readFileSync(join(here, 'nle-shell.tsx'), 'utf8');
+test('shipped advanced Editor stays mounted and hands changes to the shared project', () => {
   const main = readFileSync(join(here, '..', 'main.tsx'), 'utf8');
   const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
 
-  assert.match(shell, /canUndo = false/);
-  assert.match(shell, /canRedo = false/);
-  assert.match(shell, /import \{ EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit \} from '\.\.\/edit-history\.mjs'/);
-  assert.match(shell, /const \[timelineHistory, setTimelineHistory\] = React\.useState<NleEditHistory>/);
-  assert.match(shell, /const usesExternalHistory = Boolean\(onUndo \|\| onRedo\)/);
-  assert.match(shell, /if \(recordHistory && !usesExternalHistory\) \{[\s\S]*recordEdit\(history, project\) as NleEditHistory/);
-  assert.match(shell, /onProjectChange\(next, \{[\s\S]*history: recordHistory && usesExternalHistory,[\s\S]*persist: options\.persist/);
-  assert.match(shell, /const result = undoEdit\(timelineHistory, project\)/);
-  assert.match(shell, /onProjectChange\(result\.snapshot, \{ history: false \}\)/);
-  assert.match(shell, /const result = redoEdit\(timelineHistory, project\)/);
-  assert.match(shell, /const historyControls = \(/);
-  assert.match(shell, /aria-label="Undo timeline edit"/);
-  assert.match(shell, /aria-label="Redo timeline edit"/);
-  assert.match(shell, /<ArrowCounterClockwise aria-hidden="true" \/>/);
-  assert.match(shell, /<ArrowClockwise aria-hidden="true" \/>/);
-  assert.match(shell, /if \(\(e\.ctrlKey \|\| e\.metaKey\) && e\.key\.toLowerCase\(\) === 'z'\)/);
-  assert.match(shell, /e\.shiftKey \? requestRedo\(\) : requestUndo\(\)/);
-  assert.match(shell, /if \(usesExternalHistory\) return;[\s\S]*e\.preventDefault\(\)/);
-
-  assert.match(main, /onProjectChange=\{\(next, options\) => applyProjectChange\(/);
-  assert.match(main, /persist: options\?\.persist/);
-  assert.match(main, /canUndo=\{editHistory\.undo\.length > 0\}/);
-  assert.match(main, /canRedo=\{editHistory\.redo\.length > 0\}/);
-  assert.match(main, /onUndo=\{undoProjectEdit\}/);
-  assert.match(main, /onRedo=\{redoProjectEdit\}/);
-
-  assert.match(css, /\.nleHistoryControls\s*{/);
-  assert.match(css, /\.nleHistoryButton:disabled\s*{/);
-  assert.doesNotMatch(shell, />Undo</);
-  assert.doesNotMatch(shell, />Redo</);
+  assert.match(main, /persistentEditorSlot/);
+  assert.match(main, /<FreecutEditorSurface/);
+  assert.match(main, /projectId=\{project\?\.document\?\.id \?\? null\}/);
+  assert.match(main, /projectVersion=\{projectVersion\}/);
+  assert.match(main, /onLayersChange=\{setEditorLayers\}/);
+  assert.match(css, /\.persistentEditorSlot\s*{/);
 });

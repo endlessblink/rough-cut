@@ -1235,6 +1235,15 @@ export const TimelineTrack = memo(function TimelineTrack({ track }: TimelineTrac
         onDrop={handleDrop}
         onContextMenu={handleContextMenu}
       >
+        {trackKind === 'audio' && (
+          <div
+            data-track-label="audio"
+            aria-label={track.name || 'Audio'}
+            className="pointer-events-none absolute left-2 top-2 z-20 rounded border border-white/15 bg-black/75 px-2 py-1 text-[11px] font-medium tracking-wide text-white/90 shadow-sm"
+          >
+            {track.name || 'Audio'}
+          </div>
+        )}
         <div className="relative" style={{ height: `${track.height}px` }}>
           {!isDropDisabled && <TrackDropGhostOverlay trackId={track.id} />}
 

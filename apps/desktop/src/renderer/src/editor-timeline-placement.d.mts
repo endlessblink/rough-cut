@@ -27,7 +27,7 @@ export function splitLayersByRecordingTrack(viewer: EditorViewerMessage | null):
 /** The Editor's saved timeline, in the shape its live bridge reports. */
 export function viewerFromStoredTimeline(
   document: unknown,
-  options?: { frame?: number; fps?: number },
+  options?: { frame?: number; fps?: number; recordingAssetId?: string | null; cameraAssetId?: string | null },
 ): EditorViewerMessage | null;
 
 export function resolveOverlayLayerSource(

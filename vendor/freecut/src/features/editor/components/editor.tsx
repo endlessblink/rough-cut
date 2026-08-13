@@ -34,6 +34,7 @@ import {
 } from '@/features/editor/deps/timeline-hooks'
 import { initTransitionChainSubscription } from '@/features/editor/deps/timeline-subscriptions'
 import { useTimelineStore } from '@/features/editor/deps/timeline-store'
+import { useTimelineCommandStore } from '@/features/editor/deps/timeline-store-contract'
 import { importBundleExportDialog } from '@/features/editor/deps/project-bundle'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library'
 import { useSettingsStore } from '@/features/editor/deps/settings'
@@ -391,11 +392,16 @@ const AutoSaveController = memo(function AutoSaveController({
  */
 function useContinuousSave({ isDirty, projectId }: { isDirty: boolean; projectId: string }) {
   const savingRef = useRef(false)
+  const saveAgainRef = useRef(false)
   const dirtyRef = useRef(isDirty)
   dirtyRef.current = isDirty
 
   const save = useCallback(async () => {
-    if (savingRef.current || !dirtyRef.current) return
+    if (savingRef.current) {
+      saveAgainRef.current = true
+      return
+    }
+    if (!dirtyRef.current) return
     savingRef.current = true
     try {
       await useTimelineStore.getState().saveTimeline(projectId)
@@ -405,6 +411,10 @@ function useContinuousSave({ isDirty, projectId }: { isDirty: boolean; projectId
       logger.error('Continuous save failed:', error)
     } finally {
       savingRef.current = false
+      if (saveAgainRef.current || dirtyRef.current) {
+        saveAgainRef.current = false
+        queueMicrotask(() => void save())
+      }
     }
   }, [projectId])
 
@@ -577,7 +587,15 @@ export const LoadedEditor = memo(function LoadedEditor({
 
     const handleRoughCutProjectUpdate = (event: Event) => {
       const detail = (event as CustomEvent<{ projectId?: string }>).detail
-      if (detail?.projectId !== projectId || useTimelineStore.getState().isDirty) return
+      // A save originating in this editor emits the same host event as an
+      // external project update. Keep the command history alive for that
+      // round-trip; reloading here would erase the undo entry immediately after
+      // the user edits the timeline.
+      if (
+        detail?.projectId !== projectId
+        || useTimelineStore.getState().isDirty
+        || useTimelineCommandStore.getState().canUndo
+      ) return
       void useTimelineStore.getState().loadTimeline(projectId, { allowProjectUpgrade: true }).catch((error) => {
         logger.error('Failed to apply live Rough Cut project update:', error)
       })

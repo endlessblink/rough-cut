@@ -4,8 +4,10 @@ import { createAsset, createClip, createDefaultRecordingPresentation, createProj
 import {
   getRecordingTimelineClip,
   restoreRecordingSourceEdge,
+  restoreRecordingOriginalState,
   rippleDeleteRecordingRange,
   selectRecordingEditModel,
+  splitRecordingAtFrame,
   syncRecordingTimelinePresentation,
   updateRecordingTimelineTrim,
 } from './recording-timeline.mjs';
@@ -27,6 +29,13 @@ function projectWithRecordingAndCamera() {
     },
   });
 }
+
+test('splitRecordingAtFrame splits the linked recording exactly at the requested timeline frame', () => {
+  const project = projectWithRecordingAndCamera();
+  const next = splitRecordingAtFrame(project, { assetId: project.assets[0].id, frame: 123 });
+  const model = selectRecordingEditModel({ document: next, recordingAssetId: project.assets[0].id });
+  assert.deepEqual(model.screenClips.map((clip) => [clip.timelineIn, clip.timelineOut]), [[0, 123], [123, 300]]);
+});
 
 test('getRecordingTimelineClip reads the shared timeline before legacy composition tracks', () => {
   const project = projectWithRecordingAndCamera();
@@ -154,6 +163,57 @@ test('restoreRecordingSourceEdge maps restore UI to the command service', () => 
 
   assert.equal(next.timeline.tracks[0].clips[0].timelineIn, 0);
   assert.equal(next.timeline.tracks[0].clips[0].sourceIn, 0);
+});
+
+test('restoreRecordingOriginalState returns screen, camera, and FreeCut to one full take', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+  const edited = {
+    ...project,
+    settings: { ...project.settings, aspectRatio: '9:16' },
+    assets: project.assets.map((asset) => asset.id === recording.id
+      ? { ...asset, metadata: { ...asset.metadata, recordingEditOriginalAspectRatio: '16:9' } }
+      : asset),
+    assets: project.assets.map((asset) => asset.id === recording.id
+      ? { ...asset, metadata: { ...asset.metadata, recordingEditOriginalAspectRatio: '16:9' }, presentation: { ...asset.presentation, zoom: { ...asset.presentation.zoom, markers: [{ id: 'zoom-1' }] }, censorRegions: [{ id: 'censor-1' }] } }
+      : asset),
+    timeline: {
+      ...project.timeline,
+      tracks: project.timeline.tracks.map((track) => ({ ...track, clips: [{ ...track.clips[0], timelineIn: 20, timelineOut: 80, sourceIn: 20, sourceOut: 80 }, { ...track.clips[0], id: `${track.id}-split`, timelineIn: 80, timelineOut: 300, sourceIn: 80, sourceOut: 300 }] })),
+      markers: [{ id: 'cut-1' }],
+    },
+    freecutTimeline: { currentFrame: 80, items: [
+      { mediaId: recording.cameraAssetId, from: 0, durationInFrames: 300, sourceStart: 0, sourceEnd: 300 },
+      { mediaId: `${recording.id}__program`, from: 80, durationInFrames: 20, sourceStart: 80, sourceEnd: 100 },
+    ] },
+  };
+
+  const next = restoreRecordingOriginalState(edited, { assetId: recording.id });
+
+  assert.equal(next.timeline.markers.length, 0);
+  assert.equal(next.settings.aspectRatio, '16:9');
+  assert.equal(next.timeline.effects.length, 3);
+  assert.deepEqual(next.timeline.tracks.map((track) => track.clips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut])), [[[0, 300, 0, 300]], [[0, 300, 0, 300]]]);
+  assert.equal(next.assets[0].presentation.zoom.markers.length, 0);
+   assert.deepEqual(next.assets[0].presentation.censorRegions, [{ id: 'censor-1' }]);
+  assert.equal(next.freecutTimeline.currentFrame, 0);
+   assert.deepEqual(next.freecutTimeline.items, [{ mediaId: `${recording.id}__program`, from: 0, durationInFrames: 300, sourceStart: 0, sourceEnd: 300, trimStart: 0, trimEnd: 0 }]);
+});
+
+test('restoreRecordingOriginalState infers the original canvas ratio when an older recording lacks the baseline metadata', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+  const edited = {
+    ...project,
+    settings: { ...project.settings, aspectRatio: '4:5' },
+    assets: project.assets.map((asset) => asset.id === recording.id
+      ? { ...asset, metadata: { ...asset.metadata, width: 1920, height: 1080 } }
+      : asset),
+  };
+
+  const next = restoreRecordingOriginalState(edited, { assetId: recording.id });
+
+  assert.equal(next.settings.aspectRatio, '16:9');
 });
 
 test('rippleDeleteRecordingRange splits boundaries and removes a middle range', () => {

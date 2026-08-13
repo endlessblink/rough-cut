@@ -2651,17 +2651,24 @@ async function sourceHasAudioStream(inputPath, signal = null) {
  * catches genuine runaways. Set ROUGH_CUT_EXPORT_MEMORY_MAX=off to disable.
  */
 const DEFAULT_EXPORT_MEMORY_MAX = '32G';
+const DEFAULT_EXPORT_CPU_QUOTA = '400%';
+const DEFAULT_EXPORT_IO_WEIGHT = '20';
 
 export function memoryCappedCommand(command, args) {
   if (command !== 'ffmpeg' || process.platform !== 'linux') return null;
   const cap = (process.env.ROUGH_CUT_EXPORT_MEMORY_MAX ?? DEFAULT_EXPORT_MEMORY_MAX).trim();
-  if (!cap || cap === '0' || cap.toLowerCase() === 'off') return null;
+  const cpuQuota = (process.env.ROUGH_CUT_EXPORT_CPU_QUOTA ?? DEFAULT_EXPORT_CPU_QUOTA).trim();
+  const ioWeight = (process.env.ROUGH_CUT_EXPORT_IO_WEIGHT ?? DEFAULT_EXPORT_IO_WEIGHT).trim();
+  if ((!cap || cap === '0' || cap.toLowerCase() === 'off') &&
+      (!cpuQuota || cpuQuota === '0' || cpuQuota.toLowerCase() === 'off') &&
+      (!ioWeight || ioWeight === '0' || ioWeight.toLowerCase() === 'off')) return null;
   return {
     command: 'systemd-run',
     args: [
       '--user', '--scope', '-q', '--collect',
-      '-p', `MemoryMax=${cap}`,
-      '-p', 'MemorySwapMax=0',
+      ...(cap && cap !== '0' && cap.toLowerCase() !== 'off' ? ['-p', `MemoryMax=${cap}`, '-p', 'MemorySwapMax=0'] : []),
+      ...(cpuQuota && cpuQuota !== '0' && cpuQuota.toLowerCase() !== 'off' ? ['-p', `CPUQuota=${cpuQuota}`] : []),
+      ...(ioWeight && ioWeight !== '0' && ioWeight.toLowerCase() !== 'off' ? ['-p', `IOWeight=${ioWeight}`] : []),
       command,
       ...args,
     ],

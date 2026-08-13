@@ -89,6 +89,17 @@ export function createProjectForRecording({ recording, now = new Date() }) {
         sourceOut: cameraSourceInFrames + durationFrames,
       })
     : null;
+  // Keep the recording's embedded/linked audio attached even for older capture
+  // sessions whose metadata did not persist an `audio` object. The recording
+  // asset is the shared source for both the screen and audio lanes.
+  const audioTrack = createTrack('audio', { name: 'Recording Audio', index: cameraTrack ? 2 : 1 });
+  const audioClip = createClip(recordingAsset.id, audioTrack.id, {
+    name: `${name} audio`,
+    timelineIn: 0,
+    timelineOut: durationFrames,
+    sourceIn: 0,
+    sourceOut: durationFrames,
+  });
 
   return validateProject(
     createProject({
@@ -105,9 +116,11 @@ export function createProjectForRecording({ recording, now = new Date() }) {
       assets: cameraAsset ? [recordingAsset, cameraAsset] : [recordingAsset],
       composition: {
         duration: durationFrames,
-        tracks: cameraTrack && cameraClip
-          ? [{ ...track, clips: [clip] }, { ...cameraTrack, clips: [cameraClip] }]
-          : [{ ...track, clips: [clip] }],
+        tracks: [
+          { ...track, clips: [clip] },
+          ...(cameraTrack && cameraClip ? [{ ...cameraTrack, clips: [cameraClip] }] : []),
+          { ...audioTrack, clips: [audioClip] },
+        ],
         transitions: [],
       },
       exportSettings: {
@@ -245,6 +258,7 @@ export async function openProjectFile(projectPath) {
   }
   document = await resolveProjectAssetPaths(projectPath, document);
   await migrateCursorEventAlignment(document);
+  ensureRecordingAudioTrack(document);
   return {
     path: projectPath,
     document,
@@ -256,6 +270,34 @@ export async function openProjectFile(projectPath) {
       ? { path: backupPath, size: backupInfo.size, modifiedAt: backupInfo.mtime.toISOString() }
       : null,
   };
+}
+
+function ensureRecordingAudioTrack(document) {
+  const assets = Array.isArray(document?.assets) ? document.assets : [];
+  const tracks = Array.isArray(document?.composition?.tracks) ? document.composition.tracks : [];
+  const recording = assets.find((asset) => asset?.type === 'recording');
+  if (!recording || tracks.some((track) => track?.type === 'audio')) return;
+
+  const screenTrack = tracks.find((track) => track?.type === 'video' && track.clips?.some((clip) => clip.assetId === recording.id));
+  const screenClips = screenTrack?.clips?.filter((clip) => clip.assetId === recording.id) ?? [];
+  if (screenClips.length === 0) return;
+
+  const trackId = `recording-audio:${recording.id}`;
+  const index = Math.max(-1, ...tracks.map((track) => Number.isFinite(track?.index) ? track.index : -1)) + 1;
+  document.composition.tracks.push({
+    ...createTrack('audio', { name: 'Recording Audio', index }),
+    id: trackId,
+    clips: screenClips.map((clip, clipIndex) => ({
+      ...createClip(recording.id, trackId, {
+        name: `${recording.filePath?.split('/').pop() ?? 'Recording'} audio`,
+        timelineIn: clip.timelineIn,
+        timelineOut: clip.timelineOut,
+        sourceIn: clip.sourceIn,
+        sourceOut: clip.sourceOut,
+      }),
+      id: `${trackId}:clip:${clipIndex}`,
+    })),
+  });
 }
 
 // One-time migration for projects saved before cursor events were aligned

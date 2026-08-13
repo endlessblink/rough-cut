@@ -5,6 +5,7 @@ REPO="/media/endlessblink/data/my-projects/ai-development/content-creation/rough
 REQUEST_FILE="${ROUGH_CUT_HOST_READINESS_REQUEST_FILE:-/tmp/rough-cut-host-readiness-runner.request}"
 STATUS_FILE="${ROUGH_CUT_HOST_READINESS_STATUS_FILE:-/tmp/rough-cut-host-readiness-runner.status.json}"
 LOG_FILE="${ROUGH_CUT_HOST_READINESS_LOG_FILE:-/tmp/rough-cut-host-readiness-runner.log}"
+REAL_PROJECT_PATH="${ROUGH_CUT_REAL_PROJECT_PATH:-/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut}"
 
 cd "$REPO"
 
@@ -51,6 +52,33 @@ run_gate() {
     smoke-package)
       pnpm smoke:package
       ;;
+    regression-lab)
+      pnpm test:regression-lab
+      ;;
+    editor-regression)
+      pnpm test:editors
+      ;;
+    edit-sync)
+      pnpm test:edit-sync "$REAL_PROJECT_PATH"
+      ;;
+    real-editor)
+      node scripts/visual-real-editor-playwright.mjs "$REAL_PROJECT_PATH"
+      ;;
+    restore-control)
+      node scripts/visual-restore-control-playwright.mjs "$REAL_PROJECT_PATH"
+      ;;
+    recording-editor-interactions)
+      node scripts/recording-editor-interactions-playwright.mjs "$REAL_PROJECT_PATH"
+      ;;
+    export-entrypoints)
+      pnpm visual:export-entrypoints "$REAL_PROJECT_PATH"
+      ;;
+    preview-export-parity)
+      pnpm visual:preview-export-parity "$REAL_PROJECT_PATH"
+      ;;
+    pane-switch)
+      pnpm test:pane-switch "${ROUGH_CUT_PANE_SWITCH_PROJECT_PATH:-/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut}"
+      ;;
     canvas2d-fallback)
       ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 \
       VITE_ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 \
@@ -63,6 +91,11 @@ run_gate() {
       pnpm playback:timeline
       ;;
     full-readiness)
+      pnpm test:regression-lab
+      pnpm test:pane-switch "$REAL_PROJECT_PATH"
+      pnpm test:edit-sync "$REAL_PROJECT_PATH"
+      pnpm visual:export-entrypoints "$REAL_PROJECT_PATH"
+      pnpm visual:preview-export-parity "$REAL_PROJECT_PATH"
       pnpm smoke:ui
       pnpm playback:timeline
       pnpm --filter @rough-cut/project-model build
@@ -83,7 +116,7 @@ run_gate() {
       ;;
     *)
       echo "Unknown readiness gate: $gate" >&2
-      echo "Allowed: smoke-ui playback-timeline nle-linked nle-export-parity smoke-styled-export smoke-package canvas2d-fallback full-readiness" >&2
+    echo "Allowed: smoke-ui playback-timeline nle-linked nle-export-parity smoke-styled-export smoke-package regression-lab editor-regression edit-sync real-editor restore-control recording-editor-interactions export-entrypoints preview-export-parity pane-switch canvas2d-fallback full-readiness" >&2
       return 64
       ;;
   esac

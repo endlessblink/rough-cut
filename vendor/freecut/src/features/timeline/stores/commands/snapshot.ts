@@ -160,6 +160,10 @@ export function restoreSnapshot(snapshot: TimelineSnapshot): void {
   usePlaybackStore.getState().setBusAudioEq(snapshot.busAudioEq)
   usePlaybackStore.getState().setMasterBusDb(snapshot.masterBusDb ?? 0)
 
+  // Undo/redo changes the live timeline just like any other edit. Mark it dirty
+  // so the continuous-save boundary persists the restored snapshot as well.
+  useTimelineSettingsStore.getState().markDirty()
+
   // Restore current project metadata so canvas/project changes undo with the editor history.
   restoreProjectMetadata(snapshot)
 }

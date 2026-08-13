@@ -1,5 +1,6 @@
 import {
   canonicalizeProjectDocument,
+  createDefaultRecordingPresentation,
   resolveTimelineLengthFrames,
   restoreFullSource,
   restoreSourceEdge,
@@ -42,6 +43,16 @@ export function updateRecordingTimelineTrim(document, { assetId, cameraAssetId =
   return nextDocument;
 }
 
+export function splitRecordingAtFrame(document, { assetId, frame }) {
+  if (!document || !assetId) return document;
+  const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
+  const splitFrame = Math.round(Number(frame));
+  if (!Number.isFinite(splitFrame)) return document;
+  const clip = model.screenClips.find((item) => splitFrame > item.timelineIn && splitFrame < item.timelineOut);
+  if (!clip) return document;
+  return splitClip(model.document, { clipId: clip.id, frame: splitFrame }).document;
+}
+
 export function restoreRecordingSourceEdge(document, { assetId, edge }) {
   const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
   const clip = edge === 'head' ? model.screenClips[0] : model.screenClips[model.screenClips.length - 1];
@@ -54,6 +65,129 @@ export function restoreRecordingFullSource(document, { assetId }) {
   const clip = model.primaryClip;
   if (!clip) return document;
   return restoreFullSource(model.document, { clipId: clip.id }).document;
+}
+
+/**
+ * Return the recording to the clean state created when the take was saved.
+ * This is intentionally broader than trim undo: it removes split clips,
+ * hidden ranges, generated zoom/censor state, and stale FreeCut placement in
+ * one canonical operation so the screen and camera stay frame-locked.
+ */
+export function restoreRecordingOriginalState(document, { assetId }) {
+  const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
+  const recording = model.recordingAsset;
+  if (!recording || !document?.timeline) return document;
+
+  const duration = Math.max(1, Math.round(recording.duration ?? model.sourceDurationFrames));
+  const cameraAssetId = recording.cameraAssetId ?? null;
+  const originalAspectRatio = inferOriginalRecordingAspectRatio(recording.metadata)
+    ?? recording.metadata?.recordingEditOriginalAspectRatio
+    ?? 'auto';
+  const linkedGroupId = `linked:${recording.id}`;
+  const sourceIds = new Set([
+    `source:${recording.id}:screen`,
+    `source:${recording.id}:camera`,
+    `source:${recording.id}:system-audio`,
+    `source:${recording.id}:mic-audio`,
+  ]);
+  const nextAssets = (document.assets ?? []).map((asset) => {
+    if (asset.id !== recording.id) return asset;
+    const presentation = createDefaultRecordingPresentation();
+    // Censors are intentional content edits, not continuity edits. Keep them
+    // when restoring the recording's untouched frame order and compositor.
+    if (Array.isArray(asset.presentation?.censorRegions)) {
+      presentation.censorRegions = asset.presentation.censorRegions;
+    }
+    return { ...asset, presentation };
+  });
+  const nextTimelineTracks = (document.timeline.tracks ?? []).map((track) => {
+    if (track.linkedGroupId !== linkedGroupId && !track.clips?.some((clip) => sourceIds.has(clip.mediaId))) return track;
+    const clips = (track.clips ?? []).filter((clip) => sourceIds.has(clip.mediaId));
+    if (clips.length === 0) return track;
+    const first = clips[0];
+    const assetIdForClip = first.source?.id ?? (first.mediaId.endsWith(':camera') ? cameraAssetId : recording.id);
+    return {
+      ...track,
+      clips: [{
+        ...first,
+        timelineIn: 0,
+        timelineOut: duration,
+        sourceIn: 0,
+        sourceOut: duration,
+        source: { kind: 'project-asset', id: assetIdForClip },
+      }],
+    };
+  });
+  const nextComposition = {
+    ...document.composition,
+    duration,
+    tracks: (document.composition?.tracks ?? []).map((track) => ({
+      ...track,
+      clips: (track.clips ?? []).map((clip) => {
+        if (clip.assetId !== recording.id && clip.assetId !== cameraAssetId) return clip;
+        return { ...clip, timelineIn: 0, timelineOut: duration, sourceIn: 0, sourceOut: duration };
+      }),
+    })),
+  };
+  const nextFreecutTimeline = document.freecutTimeline && typeof document.freecutTimeline === 'object'
+    ? {
+        ...document.freecutTimeline,
+        currentFrame: 0,
+        // The camera is part of Rough Cut's linked recording compositor.  A
+        // standalone FreeCut camera item is an edited duplicate and paints the
+        // camera over the whole program, which is exactly the continuity break
+        // this recovery action must remove.
+        items: (document.freecutTimeline.items ?? []).filter((item) => item.mediaId !== cameraAssetId).map((item) => {
+          const isProgram = item.mediaId === `${recording.id}__program`;
+          const isCamera = item.mediaId === cameraAssetId;
+          if (!isProgram && !isCamera) return item;
+          return {
+            ...item,
+            from: 0,
+            durationInFrames: duration,
+            sourceStart: 0,
+            sourceEnd: duration,
+            trimStart: 0,
+            trimEnd: 0,
+          };
+        }),
+      }
+    : document.freecutTimeline;
+
+  return syncRecordingTimelinePresentation({
+    ...document,
+    settings: {
+      ...(document.settings ?? {}),
+      aspectRatio: originalAspectRatio,
+    },
+    assets: nextAssets,
+    composition: nextComposition,
+    timeline: {
+      ...document.timeline,
+      tracks: nextTimelineTracks,
+      markers: [],
+      effects: [],
+    },
+    freecutTimeline: nextFreecutTimeline,
+  }, recording.id);
+}
+
+function inferOriginalRecordingAspectRatio(metadata) {
+  const width = Number(metadata?.width);
+  const height = Number(metadata?.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  const ratio = width / height;
+  const known = [
+    ['16:9', 16 / 9],
+    ['9:16', 9 / 16],
+    ['4:5', 4 / 5],
+    ['5:4', 5 / 4],
+    ['4:3', 4 / 3],
+    ['3:4', 3 / 4],
+    ['1:1', 1],
+  ];
+  const match = known.find(([, knownRatio]) => Math.abs(ratio - knownRatio) < 0.02);
+  return match?.[0] ?? null;
 }
 
 export function rippleDeleteRecordingRange(document, { assetId, startFrame, endFrame, idFactory }) {

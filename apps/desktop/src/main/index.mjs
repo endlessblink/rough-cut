@@ -34,6 +34,7 @@ import { createStabilizationService } from './stabilization-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
 import { getFreecutEditorUrl, getFreecutStatus, openFreecutEditor } from './freecut-window.mjs';
 import { createFreecutHost } from './freecut-host.mjs';
+import { createFreecutCommandQueue } from './freecut-command-queue.mjs';
 import { persistTranscriptToProject } from './transcription-project-persistence.mjs';
 import { createTranscriptionRuntime } from './transcription-runtime.mjs';
 import {
@@ -107,6 +108,7 @@ protocol.registerSchemesAsPrivileged([
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const recordingsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'recordings');
 const freecutHost = createFreecutHost({ recordingsDir, allowedRoots: [recordingsDir] });
+const freecutCommandQueue = createFreecutCommandQueue();
 
 function quitSmokeApp(exitCode = process.exitCode ?? 0) {
   app.quit();
@@ -247,7 +249,13 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
       nodeIntegration: false,
     },
   });
-  if (!isRecorder && !smokeBounds) maximizeStudioWindow(window);
+  if (!isRecorder && !smokeBounds) {
+    // Some window managers ignore an immediate maximize while the native
+    // surface is still being created. Re-assert it once the window is visible
+    // so the editor cannot open as a clipped, partially hidden work surface.
+    maximizeStudioWindow(window);
+    window.once('ready-to-show', () => maximizeStudioWindow(window));
+  }
 
   window.webContents.on('console-message', (event, level, message, line, sourceId) => {
     const details = event && typeof event === 'object' && 'level' in event ? event : null;
@@ -694,20 +702,26 @@ ipcMain.handle(IPC_CHANNELS.APP_APPLY_FREECUT_COMMAND, async (_event, command = 
   if (!project || typeof project !== 'object') return { ok: false, reason: 'missing-project' };
   if (typeof command.opId !== 'string' || typeof command.projectId !== 'string') return { ok: false, reason: 'missing-command-identity' };
   if (project.id !== command.projectId) return { ok: false, reason: 'project-id-mismatch' };
-  try {
-    await freecutHost.saveProject(project);
-    const projectVersion = Date.now();
-    for (const window of BrowserWindow.getAllWindows()) {
-      // Tagged so the renderer can tell its own Editor's writes apart from an
-      // external change. With continuous saving these arrive constantly, and a
-      // blind re-read on each one would re-parse the project from disk and wipe
-      // Recording edit's undo history while the user is typing in the Editor.
-      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PROJECT_UPDATED, { projectId: project.id, projectVersion, origin: 'freecut' });
-    }
-    return { ok: true, opId: command.opId, projectVersion };
-  } catch (error) {
-    return { ok: false, opId: command.opId, reason: error instanceof Error ? error.message : String(error) };
-  }
+  return freecutCommandQueue.enqueue({
+    projectId: project.id,
+    opId: command.opId,
+    run: async () => {
+      try {
+        await freecutHost.saveProject(project);
+        const projectVersion = Date.now();
+        for (const window of BrowserWindow.getAllWindows()) {
+          // Tagged so the renderer can tell its own Editor's writes apart from an
+          // external change. With continuous saving these arrive constantly, and a
+          // blind re-read on each one would re-parse the project from disk and wipe
+          // Recording edit's undo history while the user is typing in the Editor.
+          if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PROJECT_UPDATED, { projectId: project.id, projectVersion, origin: 'freecut' });
+        }
+        return { ok: true, opId: command.opId, projectVersion };
+      } catch (error) {
+        return { ok: false, opId: command.opId, reason: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  });
 });
 ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);

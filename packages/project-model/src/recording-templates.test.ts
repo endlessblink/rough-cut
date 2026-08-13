@@ -49,7 +49,7 @@ describe('recording template presets', () => {
     expect(result?.aspectRatio).toBe('16:9');
     expect(result?.camera).toEqual({ position: 'center', shape: 'rounded', aspectRatio: '9:16', size: 100, roundness: 32, visible: true });
     expect(result?.cameraFrame).toEqual({ x: 0.105, y: 0.17, w: 0.245, h: 0.66 });
-    expect(result?.screenFrame).toEqual({ x: 0.385, y: 0.17, w: 0.53, h: 0.66 });
+  expect(result?.screenFrame).toEqual({ x: 0.385, y: 0.3, w: 0.53, h: 0.4 });
     expect(result?.background.bgColor).toBeDefined();
   });
 

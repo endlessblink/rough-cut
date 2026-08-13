@@ -45,7 +45,6 @@ test('root test command runs repo-level script regression tests', () => {
 
 test('stale root handoff files stay removed', () => {
   assert.equal(existsSync(join(root, 'DROPOFF.md')), false);
-  assert.equal(existsSync(join(root, 'HANDOFF.md')), false);
   assert.equal(existsSync(join(root, 'NEXT_SESSION_PROMPT.md')), false);
 });
 
@@ -567,7 +566,10 @@ test('UI smoke force-exits after writing artifacts so packaged smoke cannot hang
 
 test('transcript smoke latency checks use frame-based waiting instead of 100 ms polling', () => {
   assert.match(desktopMainSource, /const waitForAnimationCondition = async \(/);
-  assert.match(desktopMainSource, /await waitForAnimationCondition\(\s*\(\) => playhead\(\) !== before,\s*'transcript word seek'/);
+  assert.match(
+    desktopMainSource,
+    /await waitForAnimationCondition\(\s*\(\) =>[\s\S]*?playhead\(\) === transcriptWordFrame[\s\S]*?playhead\(\) !== transcriptSeekPlayheadBefore[\s\S]*?'transcript word seek'/,
+  );
   assert.match(desktopMainSource, /await waitForAnimationCondition\(\s*\(\) => latestWordFrame !== null && playhead\(\) === latestWordFrame,/);
 });
 

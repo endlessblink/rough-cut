@@ -4,7 +4,36 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForImport, createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCensorSourceFilters, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCensorSourceFilters, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+
+test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
+  const previous = {
+    memory: process.env.ROUGH_CUT_EXPORT_MEMORY_MAX,
+    cpu: process.env.ROUGH_CUT_EXPORT_CPU_QUOTA,
+    io: process.env.ROUGH_CUT_EXPORT_IO_WEIGHT,
+  };
+  delete process.env.ROUGH_CUT_EXPORT_MEMORY_MAX;
+  delete process.env.ROUGH_CUT_EXPORT_CPU_QUOTA;
+  delete process.env.ROUGH_CUT_EXPORT_IO_WEIGHT;
+  try {
+    const scoped = memoryCappedCommand('ffmpeg', ['-version']);
+    assert.deepEqual(scoped.args.slice(0, 14), [
+      '--user', '--scope', '-q', '--collect',
+      '-p', 'MemoryMax=32G', '-p', 'MemorySwapMax=0',
+      '-p', 'CPUQuota=400%', '-p', 'IOWeight=20',
+      'ffmpeg', '-version',
+    ]);
+  } finally {
+    for (const [key, value] of Object.entries({
+      ROUGH_CUT_EXPORT_MEMORY_MAX: previous.memory,
+      ROUGH_CUT_EXPORT_CPU_QUOTA: previous.cpu,
+      ROUGH_CUT_EXPORT_IO_WEIGHT: previous.io,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));

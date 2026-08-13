@@ -4,6 +4,7 @@
 
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useTimelineStore } from '../../stores/timeline-store'
+import { useTimelineCommandStore } from '../../stores/timeline-command-store'
 import { useZoomStore, getZoomTo100Handler } from '../../stores/zoom-store'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { HOTKEY_OPTIONS } from '@/config/hotkeys'
@@ -21,7 +22,7 @@ export function useUIShortcuts(callbacks: TimelineShortcutCallbacks) {
     hotkeys.UNDO,
     (event) => {
       event.preventDefault()
-      useTimelineStore.temporal.getState().undo()
+      useTimelineCommandStore.getState().undo()
       if (callbacks.onUndo) {
         callbacks.onUndo()
       }
@@ -38,7 +39,7 @@ export function useUIShortcuts(callbacks: TimelineShortcutCallbacks) {
     hotkeys.REDO,
     (event) => {
       event.preventDefault()
-      useTimelineStore.temporal.getState().redo()
+      useTimelineCommandStore.getState().redo()
       if (callbacks.onRedo) {
         callbacks.onRedo()
       }

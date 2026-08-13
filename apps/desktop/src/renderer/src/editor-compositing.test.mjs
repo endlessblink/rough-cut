@@ -120,39 +120,13 @@ test('Editor layers play with the timeline instead of seeking every frame', () =
   assert.match(source, /drift > 0\.35/);
 });
 
-// --- The user saw: "the border is still there... it seems duplicated". -------
-// The shared preview canvas insets itself and rounds its corners, so a ring of
-// the Editor's own picture stayed visible around Rough Cut's.
-
-test('the compositor fills the Editor viewer exactly, with nothing showing behind', () => {
-  const css = styles();
-
-  const scoped = css.slice(css.indexOf('.freecutProgramOverlay'));
-  assert.ok(scoped.length > 0, 'expected overlay-scoped rules');
-  assert.match(scoped, /\.freecutProgramOverlay \.styledPreviewCanvas[\s\S]{0,400}max-width: 100%/);
-  assert.match(scoped, /\.freecutProgramOverlay \.styledPreviewCanvas[\s\S]{0,400}border-radius: 0/);
-  assert.match(scoped, /\.freecutProgramOverlay \{[\s\S]{0,200}background: #000/);
-});
-
-test('the host positions its compositor over the Editor viewer rectangle', () => {
+test('the advanced editor owns one real timeline surface without a second compositor overlay', () => {
   const source = surface();
 
-  assert.match(source, /className="freecutProgramOverlay"/);
-  assert.match(source, /left: viewer\.rect\.x/);
-  assert.match(source, /pointerEvents: 'none'/);
-});
-
-// --- The user saw: the recording still on screen past the end of the clip. ---
-// It was being composited at the raw playhead time, so where the clip sits, what
-// it is trimmed to and any hole cut in it made no difference to the picture.
-
-test('the compositor is given the recording\'s own time, not the playhead\'s', () => {
-  const source = surface();
-
-  assert.match(source, /seekTimeSec=\{resolveRecordingTimeSec\(viewer\)/);
-  assert.match(source, /recordingAbsent=\{resolveRecordingTimeSec\(viewer\) === null\}/);
-  // The arithmetic must come from the shared module, not a second copy here.
-  assert.match(source, /from '\.\/editor-timeline-placement\.mjs'/);
+  assert.match(source, /className="freecutEditorFrame"/);
+  assert.doesNotMatch(source, /StyledVideoPreview/);
+  assert.doesNotMatch(source, /freecutProgramOverlay/);
+  assert.match(source, /freecut-command/);
 });
 
 test('an empty timeline position renders empty, with the layers on it still drawn', () => {
@@ -210,7 +184,7 @@ test('Recording edit draws the same clips the Editor has', () => {
 
   // The app holds the stack, not whichever view happens to be open.
   assert.match(app, /const \[editorLayers, setEditorLayers\] = React\.useState/);
-  assert.match(app, /onLayersChange=\{setEditorLayers\}/);
+  assert.match(app, /onLayersChange=\{handleEditorLayersChange\}/);
   // ...and Recording edit's own player is given it.
   assert.match(app, /overlayLayersAbove=\{editorLayers\.above\} overlayLayersBelow=\{editorLayers\.below\}/);
 });
@@ -221,7 +195,8 @@ test('a restart shows the Editor\'s clips before the Editor has loaded', () => {
   // Seeded from what the project already knows, so the first frame after a
   // restart is right rather than catching up once the Editor reports in.
   assert.match(app, /viewerFromStoredTimeline\(project\?\.document/);
-  assert.match(app, /setEditorLayers\(resolveOverlayLayers\(viewer, freecutMediaUrl, projectId\)\)/);
+  assert.match(app, /const resolvedLayers = resolveOverlayLayers\(viewer, freecutMediaUrl, projectId\)/);
+  assert.match(app, /setEditorLayers\(filterLinkedRecordingLayers\(resolvedLayers\)\)/);
 });
 
 // --- The trap that made two of the fixes above look like they did nothing. ---

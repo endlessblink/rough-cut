@@ -370,11 +370,11 @@ export const TimelineHeader = memo(function TimelineHeader({
   } as const
 
   const handleUndo = () => {
-    useTimelineStore.temporal.getState().undo()
+    useTimelineCommandStore.getState().undo()
   }
 
   const handleRedo = () => {
-    useTimelineStore.temporal.getState().redo()
+    useTimelineCommandStore.getState().redo()
   }
 
   return (

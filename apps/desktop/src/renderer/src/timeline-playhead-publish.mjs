@@ -1,4 +1,6 @@
-export const TIMELINE_PLAYHEAD_PUBLISH_INTERVAL_MS = 50;
+// Keep the React-owned timeline indicator within one display frame budget at
+// ordinary playback rates; the media/render loop remains the clock authority.
+export const TIMELINE_PLAYHEAD_PUBLISH_INTERVAL_MS = 16;
 
 export function shouldPublishTimelinePlayhead({
   timeMode,

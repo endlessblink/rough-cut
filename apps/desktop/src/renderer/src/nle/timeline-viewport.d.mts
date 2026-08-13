@@ -9,6 +9,13 @@ export function frameToContentX(frame: number, pixelsPerFrame: number): number;
 export function snapThresholdFrames(pixelsPerFrame: number): number;
 export function zoomStep(currentPpf: number | null, direction: 1 | -1, viewWidthPx: number, durationFrames: number): number | null;
 export function scrollLeftForAnchor(anchorFrame: number, pixelsPerFrame: number, pointerOffsetPx: number): number;
+export function scrollLeftForPlayheadZoom(
+  playheadFrame: number,
+  currentPpf: number,
+  nextPpf: number,
+  currentScrollLeft: number,
+  labelWidthPx?: number,
+): number;
 export function scrollLeftForPlayheadFollow(
   playheadContentX: number,
   currentScrollLeft: number,

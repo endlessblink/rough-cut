@@ -947,10 +947,23 @@ export function StyledVideoPreview({
   }, [src]);
 
   React.useEffect(() => {
+    // A template/project update owns the frame again. Never let an old,
+    // transient pointer drag override the newly persisted screen/camera frame.
+    screenDragRef.current = null;
+    screenDragOriginRef.current = null;
+    cameraDragRef.current = null;
+    cameraDragOriginRef.current = null;
+  }, [project]);
+
+  React.useEffect(() => {
     onSourceMediaDurationChange?.(sourceDurationSec);
   }, [sourceDurationSec, onSourceMediaDurationChange]);
 
   React.useEffect(() => {
+    const parityTarget = typeof window === 'undefined'
+      ? null
+      : window as unknown as Record<string, unknown>;
+    if (parityTarget) parityTarget.__roughCutBackgroundImageReady = !background.bgImage;
     if (!background.bgImage) {
       backgroundImageRef.current = null;
       return undefined;
@@ -959,13 +972,16 @@ export function StyledVideoPreview({
     image.src = background.bgImage;
     image.onload = () => {
       backgroundImageRef.current = image;
+      if (parityTarget) parityTarget.__roughCutBackgroundImageReady = true;
       screenLayerRendererRef.current?.prepareBackgroundImage?.(image);
     };
     image.onerror = () => {
       backgroundImageRef.current = null;
+      if (parityTarget) parityTarget.__roughCutBackgroundImageReady = false;
     };
     return () => {
       if (backgroundImageRef.current === image) backgroundImageRef.current = null;
+      if (parityTarget) parityTarget.__roughCutBackgroundImageReady = false;
     };
   }, [background.bgImage]);
 
@@ -1151,6 +1167,17 @@ export function StyledVideoPreview({
     if (!video || !canvas) return undefined;
     const screenVideo = video;
 
+    // Clear render-derived layout evidence when this loop is rebuilt. Template
+    // changes replace the project snapshot and the next draw is authoritative;
+    // retaining the previous frame here makes callers accept stale geometry.
+    if (typeof window !== 'undefined') {
+      const target = window as unknown as Record<string, unknown>;
+      delete target.__roughCutCanvasScreenRect;
+      delete target.__roughCutCanvasCameraRect;
+      delete target.__roughCutCameraFramePresent;
+      delete target.__roughCutPreviewRenderDebug;
+    }
+
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       publishScreenLayerRendererStats({
@@ -1197,6 +1224,7 @@ export function StyledVideoPreview({
     let rafId = 0;
     let videoFrameCallbackId: number | null = null;
     let watchdogId: number | null = null;
+    let disposed = false;
     let lastTickAtMs: number | null = null;
     let lastExpectedDisplayTimeMs: number | null = null;
     let expectedDisplaySampleCount = 0;
@@ -1377,7 +1405,14 @@ export function StyledVideoPreview({
     }
 
     function tick(_now?: number, metadata?: RoughCutVideoFrameMetadata) {
-      if (!video || !canvas || !ctx) return;
+      if (disposed || !video || !canvas || !ctx) return;
+      // Multiple preview surfaces can exist while switching editor views. An
+      // offscreen monitor must not draw or publish telemetry for the active UI.
+      if (canvas.getClientRects().length === 0) {
+        scheduleNextDraw();
+        return;
+      }
+      const parityCapture = Boolean((window as unknown as Record<string, unknown>).__roughCutParityCapture);
       const tickAtMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const tickDeltaMs = lastTickAtMs !== null ? tickAtMs - lastTickAtMs : 0;
       const tickDeltaSec = Math.max(0, Math.min(0.25, tickDeltaMs / 1000));
@@ -1646,6 +1681,26 @@ export function StyledVideoPreview({
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = activeTimelinePlayback ? 'low' : 'high';
       const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
+      (window as unknown as Record<string, unknown>).__roughCutPreviewRenderDebug = {
+        src,
+        cameraSrc,
+        screenCurrentSrc: video.currentSrc,
+        cameraCurrentSrc: cameraVideo?.currentSrc ?? null,
+        screenVideoSize: { width: video.videoWidth, height: video.videoHeight },
+        cameraVideoSize: cameraVideo ? { width: cameraVideo.videoWidth, height: cameraVideo.videoHeight } : null,
+        screenVideoTime: video.currentTime,
+        cameraVideoTime: cameraVideo?.currentTime ?? null,
+        renderer: screenLayerRenderer.kind,
+        screenLayer,
+        frame: {
+          screenFrame: frame.screenFrame ?? null,
+          cameraFrame: frame.cameraFrame ?? null,
+          cameraPresentation: frame.cameraPresentation ?? null,
+          screenCrop: frame.screenCrop ?? null,
+          cameraCrop: frame.cameraCrop ?? null,
+        },
+        dragScreenRect: screenDragRef.current,
+      };
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
       const previousMotionFrame = resolveCurrentFrame(Math.max(0, renderFrame - 1));
       const nextMotionFrame = resolveCurrentFrame(renderFrame + 1);
@@ -1669,8 +1724,21 @@ export function StyledVideoPreview({
       const screenX = snapPlaybackCoord(resolvedScreenFrame.x + (resolvedScreenFrame.w - screenWidth) / 2);
       const screenY = snapPlaybackCoord(resolvedScreenFrame.y + (resolvedScreenFrame.h - screenHeight) / 2);
       const effectiveScreenDrawScale = screenWidth / screenSource.w;
+      Object.assign((window as unknown as Record<string, unknown>).__roughCutPreviewRenderDebug as Record<string, unknown>, {
+        canvas: { width: canvasWidth, height: canvasHeight },
+        resolvedScreenFrame,
+        resolvedScreenRect: { x: screenX, y: screenY, w: screenWidth, h: screenHeight },
+        resolvedCameraRect: cameraRectRef.current,
+        overlayDiag: (window as unknown as Record<string, unknown>).__roughCutOverlayDiag ?? null,
+      });
       const screenRadius = Math.max(0, Math.min(background.bgCornerRadius, Math.min(screenWidth, screenHeight) / 2));
       screenRectRef.current = { x: screenX, y: screenY, w: screenWidth, h: screenHeight };
+      (window as unknown as Record<string, unknown>).__roughCutCanvasScreenRect = {
+        x: screenX / canvasWidth,
+        y: screenY / canvasHeight,
+        w: screenWidth / canvasWidth,
+        h: screenHeight / canvasHeight,
+      };
       screenRadiusRef.current = screenRadius;
       markDrawPhase('resolve-layout');
       if (acceleratedTimelineFrameCompositor) {
@@ -1686,7 +1754,7 @@ export function StyledVideoPreview({
         });
         publishScreenLayerRendererStats(backgroundLayerStats);
       }
-      if (!activeTimelinePlayback && editablePreview && alignmentGridVisibleRef.current) {
+      if (!activeTimelinePlayback && editablePreview && alignmentGridVisibleRef.current && !parityCapture) {
         drawAlignmentGrid(ctx, canvasWidth, canvasHeight);
       }
       // Layers on tracks BELOW the recording. Track order is z-order, and the
@@ -1981,8 +2049,12 @@ export function StyledVideoPreview({
         ctx.stroke();
         ctx.restore();
       }
-      if (!activeTimelinePlayback && onScreenFrameChange) drawEditorFrameControls(ctx, screenRectRef.current, '#38bdf8');
+      if (!activeTimelinePlayback && onScreenFrameChange && !parityCapture) drawEditorFrameControls(ctx, screenRectRef.current, '#38bdf8');
       markDrawPhase('screen-decoration');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.filter = 'none';
       ctx.save();
       addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
       ctx.clip();
@@ -2068,7 +2140,7 @@ export function StyledVideoPreview({
       publishScreenLayerRendererStats(cursorLayerStats);
       ctx.restore();
       ctx.restore();
-      if (zoomSafety) {
+      if (zoomSafety && !parityCapture) {
         drawZoomAuthoringSafetyOverlay(ctx, zoomSafety, cursorPos, {
           screenX,
           screenY,
@@ -2083,7 +2155,7 @@ export function StyledVideoPreview({
         });
       }
       markDrawPhase('cursor');
-      if (nextOffscreen) {
+      if (nextOffscreen && !parityCapture) {
         drawCursorOffscreenMarker(ctx, nextOffscreen, cursorPos, {
           screenX,
           screenY,
@@ -2099,6 +2171,10 @@ export function StyledVideoPreview({
       }
       if (cameraVideo && cameraFrameForDraw && cameraSourceForDraw) {
         try {
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.filter = 'none';
           const cameraLayerStats = screenLayerRenderer.drawCamera({
             ctx,
             video: cameraVideo,
@@ -2118,7 +2194,7 @@ export function StyledVideoPreview({
           // advancing. Keep the screen frame alive and draw PiP on the next
           // decoded camera frame instead of killing the whole preview loop.
         }
-        if (!activeTimelinePlayback && onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrameForDraw, '#f59e0b', frame.cameraPresentation);
+        if (!activeTimelinePlayback && onCameraFrameChange && !parityCapture) drawEditorFrameControls(ctx, cameraFrameForDraw, '#f59e0b', frame.cameraPresentation);
       }
       markDrawPhase('camera-pip');
       // Layers on tracks ABOVE the recording, drawn once the WHOLE recording
@@ -2131,7 +2207,7 @@ export function StyledVideoPreview({
       publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
       const focalSelection = selectedZoomFocalRef.current;
       const focalScreenRect = screenRectRef.current;
-      if (!activeTimelinePlayback && focalSelection && focalScreenRect) {
+      if (!activeTimelinePlayback && focalSelection && focalScreenRect && !parityCapture) {
         const live = focalDragRef.current ?? { x: focalSelection.x, y: focalSelection.y };
         const focalCx = focalScreenRect.x + live.x * focalScreenRect.w;
         const focalCy = focalScreenRect.y + live.y * focalScreenRect.h;
@@ -2169,6 +2245,7 @@ export function StyledVideoPreview({
     }
     scheduleNextDraw();
     return () => {
+      disposed = true;
       recordPlaybackDebug('render-loop-cleanup', {
         renderLoopId,
         timeMode,
@@ -3255,6 +3332,7 @@ function drawEditorOverlayLayers(
       else if (cached) ctx.drawImage(cached, x, y, w, h);
       report.push({
         id: layer.id,
+        mediaId: layer.mediaId ?? null,
         type: 'video',
         drawn: ready || Boolean(cached),
         reason: ready ? 'drawn' : cached ? 'held-last-frame' : 'source-not-decodable',

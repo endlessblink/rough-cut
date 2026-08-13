@@ -77,6 +77,7 @@ test('AppViewId union and APP_VIEWS registry agree on the five shipped views', a
 test('main.tsx has a render branch for each AppViewId and a URL-allowlist entry', async () => {
   const source = await readSource('main.tsx');
   const ids = extractAppViewIds(await readSource('app-views.ts'));
+  const { APP_VIEW_IDS: allowlist } = await import('./boot-app-view.mjs');
 
   for (const id of ids) {
     if (id === 'editor') {
@@ -95,12 +96,44 @@ test('main.tsx has a render branch for each AppViewId and a URL-allowlist entry'
       );
     }
     // Every real view must be acceptable as a ?view= URL param so the
-    // main process can deep-link into it.
+    // main process can deep-link into it. The allowlist lives in
+    // boot-app-view.mjs, which main.tsx defers to for both the initial view
+    // and the view a deep-linked project lands on.
     assert.ok(
-      source.includes(`requested === '${id}'`),
-      `main.tsx URL-allowlist must accept \`?view=${id}\``,
+      allowlist.includes(id),
+      `boot-app-view.mjs URL-allowlist must accept \`?view=${id}\``,
     );
   }
+  assert.ok(
+    source.includes('resolveRequestedAppView'),
+    'main.tsx must resolve `?view=` through boot-app-view.mjs',
+  );
+});
+
+// Leaving the Editor must hide it, never unmount it: unmounting tears down the
+// embedded editor's document along with any edit not yet written, which is the
+// "my layer disappeared" bug. The persistent slot exists to guarantee that, but
+// a `key` on an ancestor silently overrules it — React remounts the whole keyed
+// subtree on every view change, slot and all. The shell section carried exactly
+// such a key, so the slot was persistent in name only.
+test('the persistent editor slot is not inside a keyed subtree', async () => {
+  const source = await readSource('main.tsx');
+  // Match the JSX tag itself. Looking for the bare attribute text also hits the
+  // `[data-ui-shell="recording-studio"]` querySelector string further up, which
+  // made this guard pass while reading a completely different part of the file.
+  const shellTag = source.match(/<section\n(?:\s+[^\n>]*\n)*?\s+data-ui-shell="recording-studio"\n(?:\s+[^\n>]*\n)*?\s*>/);
+  assert.ok(shellTag, 'the editor shell section was not found in main.tsx');
+  const shellOpeningTag = shellTag[0];
+  assert.ok(
+    !shellOpeningTag.includes('key={activeAppView}'),
+    'the editor shell must not be keyed on the active view — it would remount the persistent editor slot on every switch',
+  );
+  // The per-view remount belongs on the content slot, which the persistent
+  // editor slot is deliberately kept outside of.
+  assert.ok(
+    source.includes('<div key={activeAppView} className="editorContentSlot"'),
+    'the view-keyed remount must stay on the editor content slot',
+  );
 });
 
 test('recording view switches the native window into the compact profile', async () => {

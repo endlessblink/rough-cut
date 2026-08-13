@@ -79,6 +79,23 @@ export function scrollLeftForAnchor(anchorFrame, pixelsPerFrame, pointerOffsetPx
   return Math.max(0, Number(anchorFrame) * Number(pixelsPerFrame) - Number(pointerOffsetPx));
 }
 
+// Keep the playhead at the same screen position while changing zoom. The
+// current scroll is part of the equation because the playhead may already be
+// scrolled into view; using the pointer as an anchor makes zoom drift away
+// from the edit location.
+export function scrollLeftForPlayheadZoom(playheadFrame, currentPpf, nextPpf, currentScrollLeft, labelWidthPx = 0) {
+  const frame = Number(playheadFrame);
+  const current = Number(currentPpf);
+  const next = Number(nextPpf);
+  const scroll = Number(currentScrollLeft);
+  const label = Number(labelWidthPx);
+  if (![frame, current, next, scroll, label].every(Number.isFinite) || current <= 0 || next <= 0) {
+    return Number.isFinite(scroll) ? Math.max(0, scroll) : 0;
+  }
+  const playheadViewportOffset = label + frame * current - scroll;
+  return Math.max(0, label + frame * next - playheadViewportOffset);
+}
+
 export function scrollLeftForPlayheadFollow(playheadContentX, currentScrollLeft, viewWidthPx, contentWidthPx, options = {}) {
   const playheadX = Number(playheadContentX);
   const scrollLeft = Number(currentScrollLeft);

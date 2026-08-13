@@ -9,6 +9,7 @@ import {
   frameToContentX,
   resolvePixelsPerFrame,
   scrollLeftForAnchor,
+  scrollLeftForPlayheadZoom,
   scrollLeftForPlayheadFollow,
   snapThresholdFrames,
   stepScrollLeftTowardTarget,
@@ -87,6 +88,20 @@ test('scrollLeftForAnchor keeps the anchor frame under the pointer', () => {
   // from container left → scrollLeft 600 keeps it under the pointer.
   assert.equal(scrollLeftForAnchor(4500, 0.2, 300), 600);
   assert.equal(scrollLeftForAnchor(10, 0.1, 300), 0, 'never negative');
+});
+
+test('scrollLeftForPlayheadZoom keeps the playhead at the same screen position', () => {
+  const currentScroll = 600;
+  const nextScroll = scrollLeftForPlayheadZoom(4500, 0.2, 0.3, currentScroll, 80);
+  const before = 80 + 4500 * 0.2 - currentScroll;
+  const after = 80 + 4500 * 0.3 - nextScroll;
+  assert.equal(after, before);
+  assert.equal(nextScroll, 1050);
+});
+
+test('scrollLeftForPlayheadZoom is safe for invalid zoom values', () => {
+  assert.equal(scrollLeftForPlayheadZoom(10, 0, 1, 42, 80), 42);
+  assert.equal(scrollLeftForPlayheadZoom(10, 1, 0, 42, 80), 42);
 });
 
 test('scrollLeftForPlayheadFollow does nothing while the playhead is in the follow zone', () => {
