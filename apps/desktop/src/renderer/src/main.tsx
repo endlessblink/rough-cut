@@ -4093,6 +4093,7 @@ function ProjectPreview({
   }, [censorDrawArmed]);
   const [sourceMediaDurationSec, setSourceMediaDurationSec] = React.useState<number | null>(null);
   const isTimelineScrubbingRef = React.useRef(false);
+  const [timelineScrubbing, setTimelineScrubbing] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const [userTemplates, setUserTemplates] = React.useState<UserRecordingTemplate[]>([]);
@@ -4874,10 +4875,13 @@ function ProjectPreview({
 
   function handleTimelineScrubStart() {
     isTimelineScrubbingRef.current = true;
+    setTimelineScrubbing(true);
+    setPreviewPlaying(false);
   }
 
   function handleTimelineScrubEnd(nextTimeSec: number) {
     isTimelineScrubbingRef.current = false;
+    setTimelineScrubbing(false);
     setCurrentTimeSec(nextTimeSec);
     setTimelineSeekSec(nextTimeSec);
   }
@@ -4959,7 +4963,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" overlayLayersAbove={editorLayers.above} overlayLayersBelow={editorLayers.below} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} overlayLayersAbove={editorLayers.above} overlayLayersBelow={editorLayers.below} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it
@@ -5189,6 +5193,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const [clipDragPreview, setClipDragPreview] = React.useState<{ clipId: string; timelineIn: number; timelineOut: number } | null>(null);
   const [timelinePanning, setTimelinePanning] = React.useState(false);
   const [selectedScreenClipId, setSelectedScreenClipId] = React.useState<string | null>(null);
+  const [selectedScreenClipIds, setSelectedScreenClipIds] = React.useState<string[]>([]);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const pendingScrollLeftRef = React.useRef<number | null>(null);
@@ -5200,7 +5205,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const timelineTrackWidthPx = contentWidthPx(timelineDurationFrames, pixelsPerFrame);
   const timelineContentWidthPx = TIMELINE_LABEL_WIDTH_PX + timelineTrackWidthPx;
   const timelineZoomedIn = timelineZoomPpf !== null && timelineTrackWidthPx > timelineViewWidthPx + 1;
-  const waveformWidthPx = Math.max(512, Math.min(8192, Math.ceil(timelineTrackWidthPx / 256) * 256));
+  const waveformWidthPx = Math.max(1024, Math.min(16384, Math.ceil(timelineTrackWidthPx / 128) * 128));
   const [waveformUrl, setWaveformUrl] = React.useState<string | null>(null);
   const timelineZoomInDisabled = pixelsPerFrame >= MAX_PIXELS_PER_FRAME;
   const playheadFollowContentXRef = React.useRef(0);
@@ -6198,7 +6203,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       left: `calc(${placement.left}% + 1px)`,
       width: `max(0px, calc(${placement.width}% - 2px))`,
     });
-    const baseline = trimDragBaseline.find((clip) => clip.id === region.id);
+    const baseline = trimDragPreview ? trimDragBaseline.find((clip) => clip.id === region.id) : null;
     const stableLeft = baseline?.left ?? region.left;
     const stableWidth = baseline?.width ?? region.width;
     if (clipDragPreview?.clipId === region.id) {
@@ -6219,6 +6224,19 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     }
     const placement = frameRangeToPlacement(region.timelineIn ?? 0, trimDragPreview.frame, fps, model.durationSec);
     return separated(placement);
+  }
+
+  function linkedScreenRegionForAudio(audioRegion: { id: string; timelineIn?: number; timelineOut?: number }) {
+    const sourceClipId = audioRegion.id.startsWith('audio:') ? audioRegion.id.slice('audio:'.length) : audioRegion.id;
+    return model.lanes.screen.find((screenRegion) => {
+      if (screenRegion.id === sourceClipId) return true;
+      return Number.isFinite(screenRegion.timelineIn)
+        && Number.isFinite(screenRegion.timelineOut)
+        && Number.isFinite(audioRegion.timelineIn)
+        && Number.isFinite(audioRegion.timelineOut)
+        && Math.round(screenRegion.timelineIn ?? -1) === Math.round(audioRegion.timelineIn ?? -2)
+        && Math.round(screenRegion.timelineOut ?? -1) === Math.round(audioRegion.timelineOut ?? -2);
+    }) ?? null;
   }
 
   return (
@@ -6277,10 +6295,11 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               trackTitle={cutModeActive ? 'Drag to mark a cut range' : 'Click or drag to seek'}
             >
           {model.lanes.screen.map((region, index) => (
-             <div key={region.id} className={`clipBar ${selectedScreenClipId === region.id ? 'selectedClip' : ''} ${clipDragPreview?.clipId === region.id || trimDragPreview?.clipId === region.id ? 'dragging' : ''}`} style={screenRegionStyle(region)} data-recording-clip-id={region.id} aria-label={`${selectedScreenClipId === region.id ? 'Selected ' : ''}Screen clip ${index + 1}`}>
+              <div key={region.id} className={`clipBar ${selectedScreenClipIds.includes(region.id) ? 'selectedClip' : ''} ${clipDragPreview?.clipId === region.id || trimDragPreview?.clipId === region.id ? 'dragging' : ''}`} style={screenRegionStyle(region)} data-recording-clip-id={region.id} data-recording-timeline-in={Math.round(region.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? 0)} aria-label={`${selectedScreenClipIds.includes(region.id) ? 'Selected ' : ''}Screen section ${index + 1}`}>
+                {index > 0 ? <span className="clipCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? 0)} aria-hidden="true" /> : null}
               {selectedScreenClipId === region.id && trimDragPreview?.clipId === region.id ? <span className="trimAvailabilityGuide" aria-hidden="true" /> : null}
               {selectedScreenClipId === region.id ? <button type="button" role="slider" className="trimHandle trimHandleStart" data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} /> : null}
-              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={() => { if (!cutModeActive) { setSelectedScreenClipId(region.id); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: 'Source clip selected from the timeline.' }); } }}><Icon name="frame" /> Clip</button>
+              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}><Icon name="frame" /> Clip</button>
               {selectedScreenClipId === region.id ? <button type="button" role="slider" className="trimHandle trimHandleEnd" data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} /> : null}
             </div>
           ))}
@@ -6296,6 +6315,16 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             const placement = frameRangeToPlacement(range.startFrame - model.trimStartFrame, range.endFrame - model.trimStartFrame, fps, model.durationSec);
             return <button key={range.id} type="button" className="hiddenCutRange" aria-label={`Restore cut ${formatClock((range.startFrame - model.trimStartFrame) / fps)} to ${formatClock((range.endFrame - model.trimStartFrame) / fps)}`} title="Restore this hidden middle range" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} onClick={() => onRestoreCut(range.id)}>Restore cut</button>;
           })}
+            </TimelineLane>
+            <TimelineLane label="Audio" className="audioLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+           {model.lanes.audio.length > 0
+             ? model.lanes.audio.map((region, index) => { const linkedScreen = model.lanes.screen[index] ?? linkedScreenRegionForAudio(region); const baseline = trimDragPreview && linkedScreen ? trimDragBaseline.find((clip) => clip.id === linkedScreen.id) : null; const left = baseline?.left ?? linkedScreen?.left ?? region.left; const width = baseline?.width ?? linkedScreen?.width ?? region.width; const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={{ left: `calc(${left}% + 1px)`, width: `max(0px, calc(${width}% - 2px))` }} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
+                  {index > 0 ? <span className="clipCutBoundary audioCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} aria-hidden="true" /> : null}
+                 {waveformUrl ? <span className="audioWaveform" aria-hidden="true" style={{ backgroundImage: `url("${waveformUrl}")` }} /> : null}
+                 <span className="audioSilenceGuide" aria-hidden="true" />
+                  <span className="audioRegionLabel">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
+                </button>; })
+             : <p>No audio track.</p>}
             </TimelineLane>
             <TimelineLane label="Zoom" className="zoomLane" aria-label="Zoom markers" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
           {zoomSelectionPreview ? <div className="zoomSelectionMarquee" style={{ left: `${zoomSelectionPreview.left}%`, width: `${zoomSelectionPreview.width}%` }} aria-hidden="true" /> : null}
@@ -6434,14 +6463,6 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
           {model.lanes.camera.length > 0
             ? model.lanes.camera.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'camera', label: 'Camera track', detail: 'Camera presence selected from the timeline.' })}>Camera</button>)
             : <p>No camera track.</p>}
-            </TimelineLane>
-            <TimelineLane label="Audio" className="audioLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
-           {model.lanes.audio.length > 0
-              ? model.lanes.audio.map((region, index) => { const baseline = trimDragBaseline[index]; const left = baseline?.left ?? region.left; const width = baseline?.width ?? region.width; return <button key={region.id} type="button" className={`presenceRegion audioRegion ${selectedScreenClipId === model.lanes.screen[index]?.id ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} style={{ left: `calc(${left}% + 1px)`, width: `max(0px, calc(${width}% - 2px))` }} onClick={() => { if (model.lanes.screen[index]) setSelectedScreenClipId(model.lanes.screen[index].id); onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: 'Audio follows the linked screen clip.' }); }}>
-                {waveformUrl ? <span className="audioWaveform" aria-hidden="true" style={{ backgroundImage: `url("${waveformUrl}")` }} /> : null}
-                 <span className="audioRegionLabel">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
-               </button>; })
-            : <p>No audio track.</p>}
             </TimelineLane>
           </div>
         </div>
@@ -6669,6 +6690,8 @@ export function LegacyVideoPreview({
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
+  const seekInFlightRef = React.useRef<Promise<void> | null>(null);
+  const resolveSeekRef = React.useRef<(() => void) | null>(null);
   const previewInteractionDirtyRef = React.useRef(false);
   // Active drag state for the camera PiP. cameraDragRef holds the in-flight
   // normalized rect so the tick can render it before we persist on pointer-up.
@@ -6772,35 +6795,45 @@ export function LegacyVideoPreview({
     if (!seekingRef.current) flushPendingExternalSeek();
   }, [seekTimeSec, cameraSourceOffsetSec]);
 
-  function flushPendingExternalSeek() {
+  function flushPendingExternalSeek(): Promise<void> {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video) return Promise.resolve();
     const requestedTime = pendingSeekRef.current;
     if (requestedTime === null) {
       seekingRef.current = false;
-      return;
+      return seekInFlightRef.current ?? Promise.resolve();
     }
     const maxTime = video.duration || requestedTime;
     const nextTime = Math.max(trimStartSec, Math.min(visibleTimeToSourceTime(requestedTime), Math.min(effectiveTrimEndSec, maxTime)));
     pendingSeekRef.current = null;
     if (Math.abs(video.currentTime - nextTime) < 0.05) {
       seekingRef.current = false;
-      return;
+      return Promise.resolve();
     }
     seekingRef.current = true;
+    if (!seekInFlightRef.current) {
+      seekInFlightRef.current = new Promise<void>((resolve) => {
+        resolveSeekRef.current = resolve;
+      });
+    }
     video.currentTime = nextTime;
     syncCameraTime(nextTime);
     const nextVisibleTime = sourceTimeToVisibleTime(nextTime);
     setCurrentTime(nextVisibleTime);
     onCurrentTimeChange?.(nextVisibleTime);
+    return seekInFlightRef.current;
   }
 
   function handleSeekSettled() {
     if (pendingSeekRef.current !== null) {
+      seekingRef.current = false;
       flushPendingExternalSeek();
       return;
     }
     seekingRef.current = false;
+    resolveSeekRef.current?.();
+    resolveSeekRef.current = null;
+    seekInFlightRef.current = null;
   }
 
   // Per-frame canvas render loop: drawImage video + zoom transform + cursor.
@@ -7087,6 +7120,9 @@ export function LegacyVideoPreview({
 
     if (video.paused) {
       try {
+        if (pendingSeekRef.current !== null || seekingRef.current) {
+          await (seekInFlightRef.current ?? flushPendingExternalSeek());
+        }
         const atEnd = video.ended || sourceTimeToVisibleTime(video.currentTime) >= visibleDuration - 1 / fps;
         if (atEnd) {
           const startTime = visibleTimeToSourceTime(0);
@@ -7529,7 +7565,7 @@ function formatElapsed(ms: number) {
 }
 
 function isEditableShortcutTarget(target: EventTarget | null) {
-  return target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [contenteditable="true"]'));
+  return target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
 }
 
 function clampUnit(value: number, min = 0): number {

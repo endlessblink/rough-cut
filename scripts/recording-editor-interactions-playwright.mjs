@@ -35,6 +35,15 @@ const app = await electron.launch({
 
 try {
   const page = await app.firstWindow();
+  const runtimeFailures = [];
+  page.on('crash', () => runtimeFailures.push('renderer crashed'));
+  page.on('close', () => runtimeFailures.push('editor window closed'));
+  app.on('close', () => runtimeFailures.push('electron app closed'));
+  const waitForEditor = async (ms, label) => {
+    if (page.isClosed()) throw new Error(`Live editor closed before ${label}; ${runtimeFailures.join('; ') || 'no runtime event was reported'}`);
+    await page.waitForTimeout(ms);
+    if (page.isClosed()) throw new Error(`Live editor closed during ${label}; ${runtimeFailures.join('; ') || 'no runtime event was reported'}`);
+  };
   await page.waitForLoadState('domcontentloaded');
   const recordingTab = page.locator('[data-ui-region="app-view-tabstrip"] button[title="Recording edit"]');
   await recordingTab.waitFor({ state: 'attached', timeout: 30000 });
@@ -43,9 +52,6 @@ try {
   const sourceVideos = page.locator('video.hiddenSource');
   await sourceVideos.first().waitFor({ state: 'attached', timeout: 30000 });
   await page.waitForTimeout(1500);
-  for (let index = 0; index < await sourceVideos.count(); index += 1) {
-    await sourceVideos.nth(index).screenshot({ path: join(outputRoot, `source-video-${index}.png`) });
-  }
   const sourceVideoDebug = await sourceVideos.evaluateAll((nodes) => nodes.map((node) => ({
     src: node.getAttribute('src'),
     currentSrc: node.currentSrc,
@@ -55,6 +61,65 @@ try {
     videoWidth: node.videoWidth,
     videoHeight: node.videoHeight,
   })));
+  const readPreviewMediaEvidence = () => page.locator('.styledPreviewCanvas').evaluate((node) => {
+    if (!(node instanceof HTMLCanvasElement) || node.width === 0 || node.height === 0) {
+      return { hasVisibleMedia: false, width: node instanceof HTMLCanvasElement ? node.width : 0, height: node instanceof HTMLCanvasElement ? node.height : 0 };
+    }
+    const context = node.getContext('2d', { willReadFrequently: true });
+    if (!context) return { hasVisibleMedia: false, width: node.width, height: node.height };
+    const sampleWidth = 64;
+    const sampleHeight = 36;
+    const sample = context.getImageData(0, 0, node.width, node.height).data;
+    let visiblePixels = 0;
+    let minLuma = 255;
+    let maxLuma = 0;
+    for (let y = 0; y < sampleHeight; y += 1) {
+      for (let x = 0; x < sampleWidth; x += 1) {
+        const sourceX = Math.min(node.width - 1, Math.floor((x + 0.5) * node.width / sampleWidth));
+        const sourceY = Math.min(node.height - 1, Math.floor((y + 0.5) * node.height / sampleHeight));
+        const offset = (sourceY * node.width + sourceX) * 4;
+        const luma = 0.2126 * sample[offset] + 0.7152 * sample[offset + 1] + 0.0722 * sample[offset + 2];
+        minLuma = Math.min(minLuma, luma);
+        maxLuma = Math.max(maxLuma, luma);
+        if (Math.max(sample[offset], sample[offset + 1], sample[offset + 2]) > 8) visiblePixels += 1;
+      }
+    }
+    const visibleFraction = visiblePixels / (sampleWidth * sampleHeight);
+    return {
+      hasVisibleMedia: visibleFraction > 0.02 && maxLuma - minLuma > 6,
+      width: node.width,
+      height: node.height,
+      visibleFraction,
+      minLuma,
+      maxLuma,
+    };
+  });
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('.styledPreviewCanvas');
+    if (!(canvas instanceof HTMLCanvasElement) || canvas.width === 0 || canvas.height === 0) return false;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return false;
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let visible = 0;
+    let min = 255;
+    let max = 0;
+    const sampleWidth = 64;
+    const sampleHeight = 36;
+    for (let y = 0; y < sampleHeight; y += 1) {
+      for (let x = 0; x < sampleWidth; x += 1) {
+        const sourceX = Math.min(canvas.width - 1, Math.floor((x + 0.5) * canvas.width / sampleWidth));
+        const sourceY = Math.min(canvas.height - 1, Math.floor((y + 0.5) * canvas.height / sampleHeight));
+        const offset = (sourceY * canvas.width + sourceX) * 4;
+        const luma = 0.2126 * pixels[offset] + 0.7152 * pixels[offset + 1] + 0.0722 * pixels[offset + 2];
+        min = Math.min(min, luma);
+        max = Math.max(max, luma);
+        if (Math.max(pixels[offset], pixels[offset + 1], pixels[offset + 2]) > 8) visible += 1;
+      }
+    }
+    return visible / (sampleWidth * sampleHeight) > 0.02 && max - min > 6;
+  }, null, { timeout: 60000 });
+  const initialPreviewMedia = await readPreviewMediaEvidence();
+  if (!initialPreviewMedia.hasVisibleMedia) throw new Error(`Visible preview canvas is blank despite ready source media: ${JSON.stringify({ sourceVideoDebug, initialPreviewMedia })}`);
   const timelineTool = page.locator('nav[aria-label="Editor tools"] button[aria-label="Timeline"]');
   await timelineTool.waitFor({ state: 'visible', timeout: 30000 });
   await timelineTool.evaluate((button) => button.click());
@@ -64,6 +129,68 @@ try {
   await surface.waitFor({ state: 'visible', timeout: 30000 });
   await ruler.waitFor({ state: 'visible', timeout: 30000 });
   await screenTrack.waitFor({ state: 'visible', timeout: 30000 });
+  const readLinkedLaneBoxes = async () => page.evaluate(() => ({
+    screen: [...document.querySelectorAll('.screenLane [data-recording-clip-id]')].map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        id: node.getAttribute('data-recording-clip-id'),
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        timelineIn: Number(node.getAttribute('data-recording-timeline-in')),
+        timelineOut: Number(node.getAttribute('data-recording-timeline-out')),
+        boundaryFrame: Number(node.querySelector('[data-recording-cut-boundary-frame]')?.getAttribute('data-recording-cut-boundary-frame') ?? NaN),
+      };
+    }),
+    audio: [...document.querySelectorAll('.audioLane [data-recording-audio-clip-id]')].map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        id: node.getAttribute('data-recording-audio-clip-id'),
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        timelineIn: Number(node.getAttribute('data-recording-timeline-in')),
+        timelineOut: Number(node.getAttribute('data-recording-timeline-out')),
+        boundaryFrame: Number(node.querySelector('[data-recording-cut-boundary-frame]')?.getAttribute('data-recording-cut-boundary-frame') ?? NaN),
+      };
+    }),
+  }));
+  const assertLinkedLaneGeometry = (label, lanes) => {
+    if (lanes.screen.length !== lanes.audio.length) throw new Error(`${label} changed linked lane counts: ${JSON.stringify(lanes)}`);
+    const mismatches = lanes.screen.flatMap((screenClip, index) => {
+      const audioClip = lanes.audio[index];
+      if (!audioClip) return [{ index, screenClip, audioClip: null }];
+      const leftErrorPx = Math.abs(screenClip.left - audioClip.left);
+      const rightErrorPx = Math.abs(screenClip.right - audioClip.right);
+      const frameMismatch = screenClip.timelineIn !== audioClip.timelineIn
+        || screenClip.timelineOut !== audioClip.timelineOut
+        || (Number.isFinite(screenClip.boundaryFrame) && screenClip.boundaryFrame !== audioClip.boundaryFrame);
+      return !frameMismatch && leftErrorPx <= 0.5 && rightErrorPx <= 0.5 ? [] : [{ index, leftErrorPx, rightErrorPx, screenClip, audioClip }];
+    });
+    if (mismatches.length > 0) throw new Error(`${label} left Screen and Audio boundaries misaligned: ${JSON.stringify(mismatches)}`);
+  };
+  const persistedProject = JSON.parse(readFileSync(projectPath, 'utf8'));
+  const persistedRecording = persistedProject.assets?.find((asset) => asset.type === 'recording');
+  const expectedPersistedRanges = [...new Map((persistedProject.timeline?.tracks ?? [])
+    .filter((track) => track.kind === 'video')
+    .flatMap((track) => track.clips ?? [])
+    .filter((clip) => clip.mediaId === `source:${persistedRecording?.id}:screen`)
+    .map((clip) => [
+      `${Math.round(clip.timelineIn)}:${Math.round(clip.timelineOut)}`,
+      [Math.round(clip.timelineIn), Math.round(clip.timelineOut)],
+    ])).values()];
+  const assertPersistedRangesRendered = (label, lanes) => {
+    if (expectedPersistedRanges.length === 0) return;
+    const expected = JSON.stringify(expectedPersistedRanges);
+    const actualScreen = JSON.stringify(lanes.screen.map((clip) => [clip.timelineIn, clip.timelineOut]));
+    const actualAudio = JSON.stringify(lanes.audio.map((clip) => [clip.timelineIn, clip.timelineOut]));
+    if (actualScreen !== expected || actualAudio !== expected) {
+      throw new Error(`${label} did not render the persisted recording ranges in both lanes: ${JSON.stringify({ expectedPersistedRanges, actualScreen: lanes.screen, actualAudio: lanes.audio })}`);
+    }
+  };
+  const initialLinkedLanes = await readLinkedLaneBoxes();
+  assertPersistedRangesRendered('initial loaded timeline', initialLinkedLanes);
+  assertLinkedLaneGeometry('initial loaded timeline', initialLinkedLanes);
   await restoreOriginalRecording(page);
   await page.waitForTimeout(500);
 
@@ -73,11 +200,82 @@ try {
 
   const rulerBox = await ruler.boundingBox();
   if (!rulerBox) throw new Error('Timeline ruler is not measurable.');
+  const fps = 30;
   const seekAt = async (fraction) => {
     await page.mouse.click(rulerBox.x + rulerBox.width * fraction, rulerBox.y + rulerBox.height / 2);
     await page.waitForTimeout(250);
     return page.locator('.playhead').evaluate((node) => Number.parseFloat(getComputedStyle(node).left));
   };
+  const seekToExactFrame = async (frame) => {
+    await page.locator('.timelineScrubber').evaluate((node, value) => {
+      const input = node;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, String(value));
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, frame / fps);
+    try {
+      await page.waitForFunction((expectedFrame) => {
+        const value = Number(document.querySelector('.timelineScrubber')?.value);
+        return Number.isFinite(value) && Math.round(value * 30) === expectedFrame;
+      }, frame, { timeout: 1500 });
+    } catch {
+      const scrubber = page.locator('.timelineScrubber');
+      await scrubber.focus();
+      await page.keyboard.press('Home');
+      for (let index = 0; index < frame; index += 1) await page.keyboard.press('ArrowRight');
+      await page.waitForFunction((expectedFrame) => {
+        const value = Number(document.querySelector('.timelineScrubber')?.value);
+        return Number.isFinite(value) && Math.round(value * 30) === expectedFrame;
+      }, frame, { timeout: 3000 });
+    }
+    await page.waitForTimeout(250);
+  };
+  await seekToExactFrame(3);
+  const beforeHeadSplit = await page.locator('.screenLane [data-recording-clip-id]').count();
+  await page.keyboard.press('s');
+  await page.waitForTimeout(900);
+  const afterHeadSplit = await page.locator('.screenLane [data-recording-clip-id]').count();
+  if (afterHeadSplit !== beforeHeadSplit + 1) throw new Error(`S did not split the first three frames: ${beforeHeadSplit} -> ${afterHeadSplit}`);
+  const headSplitLanes = await readLinkedLaneBoxes();
+  assertLinkedLaneGeometry('three-frame head split', headSplitLanes);
+  if (headSplitLanes.screen[0]?.timelineOut !== 3 || headSplitLanes.audio[0]?.timelineOut !== 3) {
+    throw new Error(`Three-frame head split landed at different boundaries: ${JSON.stringify(headSplitLanes)}`);
+  }
+  const headSplitPreview = await readPreviewMediaEvidence();
+  if (!headSplitPreview.hasVisibleMedia) throw new Error(`Three-frame head split rendered a black/blank preview: ${JSON.stringify(headSplitPreview)}`);
+  const headSplitWaveforms = await page.locator('.audioLane [data-recording-audio-clip-id]').evaluateAll((nodes) => nodes.map((node) => {
+    const region = node.getBoundingClientRect();
+    const waveform = node.querySelector('.audioWaveform');
+    const waveformRect = waveform?.getBoundingClientRect();
+    return { regionWidth: region.width, waveformWidth: waveformRect?.width ?? 0, background: waveform ? getComputedStyle(waveform).backgroundImage : 'none' };
+  }));
+  if (headSplitWaveforms.some((item) => item.waveformWidth <= 0 || item.background === 'none' || Math.abs(item.waveformWidth - item.regionWidth) > 1)) {
+    throw new Error(`Three-frame head split distorted the audio waveform: ${JSON.stringify(headSplitWaveforms)}`);
+  }
+  await restoreOriginalRecording(page);
+  await page.locator('.screenLane .clipBody').first().click({ force: true });
+  const headTrimHandle = page.locator('.screenLane [data-recording-trim-edge="head"]').first();
+  await headTrimHandle.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(900);
+  const headTrimLanes = await readLinkedLaneBoxes();
+  assertLinkedLaneGeometry('one-frame head trim', headTrimLanes);
+  if (headTrimLanes.screen[0]?.timelineIn !== 1 || headTrimLanes.audio[0]?.timelineIn !== 1) {
+    throw new Error(`One-frame head trim landed at different boundaries: ${JSON.stringify(headTrimLanes)}`);
+  }
+  const headTrimPreview = await readPreviewMediaEvidence();
+  if (!headTrimPreview.hasVisibleMedia) throw new Error(`One-frame head trim rendered a black/blank preview: ${JSON.stringify(headTrimPreview)}`);
+  const headTrimWaveforms = await page.locator('.audioLane [data-recording-audio-clip-id]').evaluateAll((nodes) => nodes.map((node) => {
+    const region = node.getBoundingClientRect();
+    const waveform = node.querySelector('.audioWaveform');
+    const waveformRect = waveform?.getBoundingClientRect();
+    return { regionWidth: region.width, waveformWidth: waveformRect?.width ?? 0, background: waveform ? getComputedStyle(waveform).backgroundImage : 'none' };
+  }));
+  if (headTrimWaveforms.some((item) => item.waveformWidth <= 0 || item.background === 'none' || Math.abs(item.waveformWidth - item.regionWidth) > 1)) {
+    throw new Error(`One-frame head trim distorted the audio waveform: ${JSON.stringify(headTrimWaveforms)}`);
+  }
+  await restoreOriginalRecording(page);
   const firstSeek = await seekAt(0.22);
   const secondSeek = await seekAt(0.67);
   if (!(secondSeek > firstSeek + 10)) throw new Error(`Ruler seek did not move the playhead: ${firstSeek} -> ${secondSeek}`);
@@ -125,7 +323,7 @@ try {
     return Boolean(button && !button.disabled);
   }, null, { timeout: 30000 });
   await splitTemplate.click({ force: true });
-  await page.waitForTimeout(1000);
+  await waitForEditor(1000, '16:9 template stabilization');
   const splitCanvas = await page.locator('.styledPreviewCanvas').evaluate((node) => {
     const rect = node.getBoundingClientRect();
     return { ratio: rect.height > 0 ? rect.width / rect.height : null, computedAspect: getComputedStyle(node).aspectRatio };
@@ -134,18 +332,19 @@ try {
   await page.waitForFunction(() => {
     const debug = (window).__roughCutPreviewRenderDebug;
     const frame = debug?.frame;
+    const near = (value, expected) => Number.isFinite(value) && Math.abs(value - expected) < 0.003;
     return Boolean(
       (window).__roughCutCameraFramePresent
       && (window).__roughCutCanvasCameraRect
       && (window).__roughCutCanvasScreenRect
-      && frame?.screenFrame?.x === 0.385
-      && frame?.screenFrame?.y === 0.3
-      && frame?.screenFrame?.w === 0.53
-      && frame?.screenFrame?.h === 0.4
-      && frame?.cameraFrame?.x === 0.105
-      && frame?.cameraFrame?.y === 0.17
-      && frame?.cameraFrame?.w === 0.245
-      && frame?.cameraFrame?.h === 0.66
+      && near(frame?.screenFrame?.x, 0.385)
+      && near(frame?.screenFrame?.y, 0.3)
+      && near(frame?.screenFrame?.w, 0.53)
+      && near(frame?.screenFrame?.h, 0.4)
+      && near(frame?.cameraFrame?.x, 0.105)
+      && near(frame?.cameraFrame?.y, 0.17)
+      && near(frame?.cameraFrame?.w, 0.245)
+      && near(frame?.cameraFrame?.h, 0.66)
     );
   }, null, { timeout: 60000 });
   const splitGeometry = await page.evaluate(() => ({
@@ -267,6 +466,8 @@ try {
       acceleratedFrame: accelerated instanceof HTMLCanvasElement ? accelerated.toDataURL('image/png') : null,
     };
   });
+  const postSeekPreviewMedia = await readPreviewMediaEvidence();
+  if (!postSeekPreviewMedia.hasVisibleMedia) throw new Error(`Visible preview canvas became blank after timeline/template interaction: ${JSON.stringify(postSeekPreviewMedia)}`);
   if (postSeekRenderDebug.canvasFrame) writeFileSync(join(outputRoot, 'template-post-seek-canvas.png'), Buffer.from(postSeekRenderDebug.canvasFrame.split(',')[1], 'base64'));
   if (postSeekRenderDebug.acceleratedFrame) writeFileSync(join(outputRoot, 'template-post-seek-accelerated.png'), Buffer.from(postSeekRenderDebug.acceleratedFrame.split(',')[1], 'base64'));
   writeFileSync(join(outputRoot, 'template-post-seek-debug.json'), `${JSON.stringify(postSeekRenderDebug.debug, null, 2)}\n`);
@@ -301,6 +502,17 @@ try {
   const playheadSamples = [];
   const readPlayhead = () => page.locator('.playhead').evaluate((node) => Number.parseFloat(getComputedStyle(node).left));
   playheadSamples.push(await readPlayhead());
+  await page.evaluate(() => {
+    const video = document.querySelector('video.hiddenSource');
+    const target = window;
+    target.__roughCutPlaybackTrace = [];
+    if (!video) return;
+    for (const eventName of ['play', 'playing', 'pause', 'ended', 'seeking', 'seeked', 'timeupdate']) {
+      video.addEventListener(eventName, () => {
+        target.__roughCutPlaybackTrace.push({ eventName, currentTime: video.currentTime, paused: video.paused, readyState: video.readyState });
+      });
+    }
+  });
   await playButton.click({ force: true });
   for (let index = 0; index < 5; index += 1) {
     await page.waitForTimeout(100);
@@ -311,7 +523,8 @@ try {
   const screenPlayback = playbackState[0];
   if (!screenPlayback || screenPlayback.paused || screenPlayback.currentTime <= 0) {
     const playbackDebug = await page.evaluate(() => (window).__roughCutTimelinePlaybackDebug ?? null);
-    throw new Error(`Media did not start from the clicked point: ${JSON.stringify(playbackState)}; debug=${JSON.stringify(playbackDebug)}`);
+    const playbackTrace = await page.evaluate(() => (window).__roughCutPlaybackTrace ?? []);
+    throw new Error(`Media did not start from the clicked point: ${JSON.stringify(playbackState)}; debug=${JSON.stringify({ playbackDebug, playbackTrace })}`);
   }
   if (playheadSamples.some((value, index) => index > 0 && value < playheadSamples[index - 1] - 0.5)) throw new Error(`Playhead jumped backward after click-to-play: ${playheadSamples.join(' -> ')}`);
   const framePlayback = await page.evaluate(() => new Promise((resolve) => {
@@ -335,6 +548,30 @@ try {
   await page.waitForTimeout(500);
   await page.keyboard.press('k');
   await page.waitForTimeout(500);
+  await seekAt(0.12);
+  await playButton.click({ force: true });
+  await page.waitForTimeout(600);
+  await playButton.click({ force: true });
+  const scrubber = page.locator('.timelineScrubber');
+  const scrubberBox = await scrubber.boundingBox();
+  if (!scrubberBox) throw new Error('Timeline scrubber is not measurable for drag-to-play verification.');
+  const dragStartX = scrubberBox.x + scrubberBox.width * 0.12;
+  const dragEndX = scrubberBox.x + scrubberBox.width * 0.72;
+  await page.mouse.move(dragStartX, scrubberBox.y + scrubberBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(dragEndX, scrubberBox.y + scrubberBox.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const releasedTimelineSec = await scrubber.inputValue();
+  const releasedTimeSec = Number(releasedTimelineSec);
+  if (!Number.isFinite(releasedTimeSec) || releasedTimeSec < 10) throw new Error(`Scrub drag did not commit a far released position: ${releasedTimelineSec}`);
+  const releasedPlayhead = await readPlayhead();
+  await playButton.click({ force: true });
+  await page.waitForTimeout(500);
+  const afterDragPlayback = await page.locator('video.hiddenSource').first().evaluate((node) => ({ currentTime: node.currentTime, paused: node.paused }));
+  if (afterDragPlayback.paused || afterDragPlayback.currentTime < releasedTimeSec - 0.05) throw new Error(`Playback did not start from the released playhead: ${JSON.stringify({ releasedTimeSec, releasedPlayhead, afterDragPlayback })}`);
+  await playButton.click({ force: true });
+  await page.waitForTimeout(300);
   await seekAt(0.4);
 
   const timelineFingerprint = async () => page.locator('.screenLane [data-recording-clip-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-recording-clip-id')).join('|'));
@@ -350,15 +587,16 @@ try {
   const splitPlayhead = await page.locator('.playhead').boundingBox();
   const splitBoundaryError = splitClip && splitPlayhead ? Math.abs((splitClip.x + splitClip.width) - splitPlayhead.x) : Infinity;
   if (!Number.isFinite(splitBoundaryError) || splitBoundaryError > 3) throw new Error(`S split away from the playhead by ${splitBoundaryError}px`);
+  assertLinkedLaneGeometry('S split', await readLinkedLaneBoxes());
   const changeTimelineFingerprint = await timelineFingerprint();
   await page.screenshot({ path: runtimeChangePath, timeout: 60000 });
 
-  const restore = page.getByRole('button', { name: 'Restore original recording' });
+  const restore = page.locator('button.timelineRestoreButton[aria-label="Restore original recording"]');
   await restore.waitFor({ state: 'visible', timeout: 30000 });
   const restoreOriginal = async () => {
     await restore.waitFor({ state: 'visible', timeout: 30000 });
     await page.waitForFunction(() => {
-      const button = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent?.trim() === 'Restore original recording');
+      const button = document.querySelector('button.timelineRestoreButton[aria-label="Restore original recording"]');
       return Boolean(button && !button.disabled);
     }, null, { timeout: 30000 });
     await restore.click({ force: true });
@@ -402,6 +640,8 @@ try {
   await page.waitForTimeout(900);
   const beforeRippleDelete = await page.locator('.screenLane [data-recording-clip-id]').count();
   if (beforeRippleDelete !== 3) throw new Error(`Ripple-delete setup did not create three clips: ${beforeRippleDelete}`);
+  const linkedAudioBeforeDelete = await page.locator('.audioLane [data-recording-audio-clip-id]').count();
+  if (linkedAudioBeforeDelete !== beforeRippleDelete) throw new Error(`Linked audio did not split with video: ${beforeRippleDelete} video clips -> ${linkedAudioBeforeDelete} audio clips`);
   const middleClip = page.locator('.screenLane .clipBody').nth(1);
   const middleClipBox = await middleClip.boundingBox();
   if (!middleClipBox) throw new Error('Middle clip is not measurable for ripple delete.');
@@ -412,10 +652,18 @@ try {
     return { count: 1, borderColor: style.borderColor, boxShadow: style.boxShadow, background: style.backgroundImage };
   }).catch(() => ({ count: 0, borderColor: '', boxShadow: '', background: '' }));
   if (selectedClipState.count !== 1 || !selectedClipState.boxShadow || selectedClipState.boxShadow === 'none') throw new Error(`Selected clip state is not unmistakable: ${JSON.stringify(selectedClipState)}`);
+  const selectedAudioState = await page.locator('.audioLane .linkedAudioRegion').count();
+  if (selectedAudioState !== 1) throw new Error(`Selecting a video clip did not select exactly one linked audio clip: ${selectedAudioState}`);
   await page.keyboard.press('Backspace');
   await page.waitForTimeout(1200);
   const afterRippleDelete = await page.locator('.screenLane [data-recording-clip-id]').count();
-  if (afterRippleDelete !== 2) throw new Error(`Backspace did not delete the selected clip: ${beforeRippleDelete} -> ${afterRippleDelete}`);
+  if (afterRippleDelete !== 2) {
+    const remainingClipIds = await page.locator('.screenLane [data-recording-clip-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-recording-clip-id')));
+    const timelineDebug = await page.evaluate(() => (window).__roughCutTimelineInteractionDebug ?? null);
+    throw new Error(`Backspace did not delete exactly the selected clip: ${beforeRippleDelete} -> ${afterRippleDelete}; remaining=${JSON.stringify(remainingClipIds)}; debug=${JSON.stringify(timelineDebug)}`);
+  }
+  const linkedAudioAfterDelete = await page.locator('.audioLane [data-recording-audio-clip-id]').count();
+  if (linkedAudioAfterDelete !== afterRippleDelete) throw new Error(`Backspace left linked audio behind: ${afterRippleDelete} video clips -> ${linkedAudioAfterDelete} audio clips`);
   const rippleClipBoxes = await page.locator('.screenLane [data-recording-clip-id]').evaluateAll((nodes) => nodes.map((node) => {
     const rect = node.getBoundingClientRect();
     return { left: rect.left, right: rect.right, width: rect.width };
@@ -465,6 +713,7 @@ try {
   const adjacentTrimAudio = page.locator('.audioLane [data-recording-audio-clip-id]');
   if (await adjacentTrimScreen.count() !== 2 || await adjacentTrimAudio.count() !== 2) throw new Error('Adjacent trim setup did not create linked screen and audio clips.');
   await page.locator('.screenLane .clipBody').first().click({ force: true });
+  await page.locator('.screenLane .selectedClip').first().waitFor({ state: 'visible', timeout: 5000 });
   await page.waitForTimeout(250);
   const adjacentTail = page.locator('.screenLane [data-recording-trim-edge="tail"]').first();
   const adjacentTailBox = await adjacentTail.boundingBox();
@@ -480,7 +729,7 @@ try {
     const rect = node.getBoundingClientRect();
     return { left: rect.left, right: rect.right, width: rect.width };
   }));
-  if (await page.locator('.trimAvailabilityGuide').count() !== 1) throw new Error('Trim availability guide did not appear on the selected clip.');
+  await page.waitForFunction(() => document.querySelectorAll('.trimAvailabilityGuide').length === 1, null, { timeout: 5000 });
   const trimGuidePointerEvents = await page.locator('.trimAvailabilityGuide').evaluate((node) => getComputedStyle(node).pointerEvents);
   if (trimGuidePointerEvents !== 'none') throw new Error(`Trim availability guide intercepted the timeline: ${trimGuidePointerEvents}`);
   if (liveAdjacentScreenBoxes.length !== 2 || liveAdjacentAudioBoxes.length !== 2 || liveAdjacentScreenBoxes.some((box) => box.width <= 0) || liveAdjacentAudioBoxes.some((box) => box.width <= 0)) {
@@ -678,6 +927,7 @@ try {
       rippleDelete: { before: beforeRippleDelete, after: afterRippleDelete, gapPx: rippleGapPx, selectedClipState, timelineFingerprint: rippleDeleteFingerprint },
     clickToPlay: { playheadSamples, framePlayback },
     audioWaveform: { background: waveformBackground, alignment: audioAlignment },
+    previewMedia: { initial: initialPreviewMedia, postSeek: postSeekPreviewMedia },
     templates: { count: templateWidths.length, minWidth: Math.min(...templateWidths), splitCanvas, splitGeometry, postSplitSeekGeometry, renderedTemplateGeometry, delayedTemplateGeometry, postSeekTemplateGeometry, postSeekRenderDebug: postSeekRenderDebug.debug },
     sourceVideoDebug,
       trim: { initialTailFrame, shorterTailFrame, longerTailFrame },
@@ -699,10 +949,10 @@ function loadPlaywright() {
 }
 
 async function restoreOriginalRecording(page) {
-  const restore = page.getByRole('button', { name: 'Restore original recording' });
+  const restore = page.locator('button.timelineRestoreButton[aria-label="Restore original recording"]');
   await restore.waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => {
-    const button = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent?.trim() === 'Restore original recording');
+    const button = document.querySelector('button.timelineRestoreButton[aria-label="Restore original recording"]');
     return Boolean(button && !button.disabled);
   }, null, { timeout: 30000 });
   await restore.click({ force: true });

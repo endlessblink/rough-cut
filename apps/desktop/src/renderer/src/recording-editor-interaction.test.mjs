@@ -8,12 +8,18 @@ const templates = readFileSync(join(import.meta.dirname, '../../../../../package
 const recordingTimeline = readFileSync(join(import.meta.dirname, 'recording-timeline.mjs'), 'utf8');
 const styles = readFileSync(join(import.meta.dirname, 'styles.css'), 'utf8');
 const interactionHarness = readFileSync(join(import.meta.dirname, '../../../../../scripts/recording-editor-interactions-playwright.mjs'), 'utf8');
+const hostRunner = readFileSync(join(import.meta.dirname, '../../../../../scripts/host-readiness-runner.sh'), 'utf8');
+const packageLinux = readFileSync(join(import.meta.dirname, '../../../../../scripts/package-linux.mjs'), 'utf8');
 
 test('recording editor makes the whole timeline surface seekable', () => {
   assert.match(source, /className="visualTimeline"[^\n]+onPointerDownCapture=\{handleTimelineSurfacePointerDown\}/);
   assert.match(source, /function handleTimelineSurfacePointerDown[\s\S]+beginSeekDrag\(track, event\.currentTarget/);
   assert.match(source, /function beginClipMoveDrag[\s\S]+onScrubStart\(\)[\s\S]+onScrub\(/);
   assert.match(source, /const maxIn = Math\.max\(minIn, next \? Math\.round\(next\.timelineIn \?\? 0\) - duration : sourceFrameDuration - duration\)/);
+  assert.match(source, /const \[timelineScrubbing, setTimelineScrubbing\]/);
+  assert.match(source, /function handleTimelineScrubStart\(\)[\s\S]+setTimelineScrubbing\(true\)[\s\S]+setPreviewPlaying\(false\)/);
+  assert.match(source, /function handleTimelineScrubEnd\(nextTimeSec: number\)[\s\S]+setTimelineScrubbing\(false\)[\s\S]+setTimelineSeekSec\(nextTimeSec\)/);
+  assert.match(source, /<VideoPreview[\s\S]+scrubbing=\{timelineScrubbing\}/);
 });
 
 test('recording editor keeps controls outside the seek surface', () => {
@@ -28,9 +34,39 @@ test('recording editor makes the attached audio clip visible', () => {
   assert.match(source, /data-recording-audio-clip-id=\{region\.id\}/);
   assert.match(source, /getClipVisual\(\{[\s\S]+kind: 'waveform'/);
   assert.match(source, /className="audioWaveform"/);
+  assert.match(source, /className="audioSilenceGuide"/);
+  assert.match(source, /function linkedScreenRegionForAudio\([\s\S]+timelineIn[\s\S]+timelineOut/);
+  assert.match(source, /const linkedSelected = Boolean\(linkedScreen && selectedScreenClipIds\.includes\(linkedScreen\.id\)\)/);
+  assert.match(source, /const left = baseline\?\.left \?\? linkedScreen\?\.left \?\? region\.left/);
+  assert.match(source, /const width = baseline\?\.width \?\? linkedScreen\?\.width \?\? region\.width/);
+  assert.match(source, /const linkedScreen = model\.lanes\.screen\[index\] \?\? linkedScreenRegionForAudio\(region\)/);
+  assert.doesNotMatch(source, /selectedScreenClipId === model\.lanes\.screen\[index\]\?\.id/);
   assert.match(styles, /\.audioLane \.presenceRegion\s*\{[\s\S]+background:\s*#1b405c/);
   assert.match(styles, /\.audioWaveform\s*\{[\s\S]+filter:\s*drop-shadow/);
+  assert.match(styles, /\.audioSilenceGuide\s*\{[\s\S]+border-top:\s*1px dashed/);
   assert.match(styles, /\.linkedAudioRegion\s*\{[\s\S]+box-shadow:/);
+  assert.match(source, /selectedScreenClipIds\.includes\(region\.id\)/);
+  assert.match(source, /event\.shiftKey \? \(current\.includes\(region\.id\)/);
+  assert.match(source, /clipCutBoundary/);
+  assert.match(styles, /\.clipCutBoundary\s*\{[\s\S]+box-shadow:/);
+  assert.match(source, /const waveformWidthPx = Math\.max\(1024, Math\.min\(16384/);
+});
+
+test('recording editor keeps Space for playback and does not let camera buttons swallow it', () => {
+  assert.doesNotMatch(source, /closest\('input, textarea, select, button, \[contenteditable="true"\]\)/);
+  assert.match(source, /event\.key\.toLowerCase\(\) === 's'[\s\S]+splitAtPlayhead/);
+  assert.match(source, /if \(pendingSeekRef\.current !== null \|\| seekingRef\.current\)[\s\S]+await \(seekInFlightRef\.current \?\? flushPendingExternalSeek\(\)\)[\s\S]+await video\.play\(\)/);
+  assert.match(source, /onSeeked=\{handleSeekSettled\}/);
+});
+
+test('recording editor E2E targets the real 33-minute recording used for acceptance', () => {
+  assert.match(hostRunner, /REAL_PROJECT_PATH=.*rough-cut-2026-07-25T12-18-16-524Z\.roughcut/);
+});
+
+test('dock launcher isolates each packaged renderer build from stale Electron processes', () => {
+  assert.match(packageLinux, /BUNDLE_ID=.*basename/);
+  assert.match(packageLinux, /PROFILE_ROOT=.*rough-cut-mvp\/dock\/\$BUNDLE_ID/);
+  assert.match(packageLinux, /--user-data-dir=\$PROFILE_ROOT/);
 });
 
 test('recording editor keeps template choices readable in the setup board', () => {
@@ -96,11 +132,21 @@ test('recording editor protects the other core gesture contracts', () => {
   assert.match(source, /const renderedPpf = renderedTrack[\s\S]+renderedTrack\.width \/ timelineDurationFrames/);
   assert.match(source, /const zoomAnchorScreenXRef = React\.useRef<number \| null>\(null\)/);
   assert.match(source, /const currentScreenX = playhead[\s\S]+el\.scrollLeft \+ currentScreenX - anchorScreenX/);
+  assert.match(interactionHarness, /drag-to-play verification/);
+  assert.match(interactionHarness, /releasedTimelineSec/);
+  assert.match(interactionHarness, /afterDragPlayback\.currentTime < releasedTimeSec/);
+  assert.match(interactionHarness, /readPreviewMediaEvidence/);
+  assert.match(interactionHarness, /initialPreviewMedia\.hasVisibleMedia/);
+  assert.match(interactionHarness, /postSeekPreviewMedia\.hasVisibleMedia/);
+  assert.match(interactionHarness, /const assertLinkedLaneGeometry = \(label, lanes\) =>[\s\S]+left Screen and Audio boundaries misaligned/);
+  assert.match(interactionHarness, /assertLinkedLaneGeometry\('S split', await readLinkedLaneBoxes\(\)\)/);
+  assert.match(interactionHarness, /const initialLinkedLanes = await readLinkedLaneBoxes\(\)/);
+  assert.match(interactionHarness, /assertLinkedLaneGeometry\('initial loaded timeline', initialLinkedLanes\)/);
 });
 
 test('recording editor makes clip selection and ripple deletion unmistakable', () => {
   assert.match(source, /selectedScreenClipId/);
-  assert.match(source, /className=\{`clipBar \$\{selectedScreenClipId === region\.id \? 'selectedClip' : ''\}/);
+  assert.match(source, /className=\{`clipBar \$\{selectedScreenClipIds\.includes\(region\.id\) \? 'selectedClip' : ''\}/);
   assert.match(source, /const separated = \(placement: \{ left: number; width: number \}\)/);
   assert.match(source, /width: `max\(0px, calc\(\$\{placement\.width\}% - 2px\)\)`/);
   assert.doesNotMatch(source, /clipDeleteButton|Delete screen clip/);
@@ -115,6 +161,8 @@ test('recording editor makes clip selection and ripple deletion unmistakable', (
   assert.match(styles, /\.screenLane \.laneTrack\s*\{[\s\S]+background:\s*#111c2c/);
   assert.match(styles, /\.clipBar\.selectedClip\s*\{[\s\S]+box-shadow: inset 0 0 0 2px #8fc2ff/);
   assert.match(source, /Trimming is an edge edit, not a ripple edit/);
+  assert.match(source, /const baseline = trimDragPreview \? trimDragBaseline\.find/);
+  assert.match(source, /const baseline = trimDragPreview && linkedScreen \? trimDragBaseline\.find/);
 });
 
 test('recording editor makes the left panel state explicit', () => {

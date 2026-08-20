@@ -2639,6 +2639,11 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   z-index: 8;
 }
 
+.clipBar:not(.selectedClip) {
+  border-color: #7d9fc8;
+  box-shadow: inset 0 0 0 1px rgb(226 238 255 / 0.08);
+}
+
 .clipBar.selectedClip {
   background: #3e6592;
   border-color: #dbeafe;
@@ -3259,9 +3264,18 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   background-position: center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
-  inset: 0.18rem 0.22rem;
+  /* Tiny linked cuts can be only a few pixels wide; an inner inset collapses
+   * their waveform to zero and makes Screen/Audio appear out of sync. */
+  inset: -1px;
   filter: drop-shadow(0 0 1px rgb(224 242 254 / 0.9));
   opacity: 1;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+.audioSilenceGuide {
+  border-top: 1px dashed rgb(219 234 254 / 0.48);
+  inset: 50% 0.22rem auto;
   pointer-events: none;
   position: absolute;
   z-index: 0;
@@ -3279,7 +3293,22 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .audioRegion {
   border-radius: 3px;
   bottom: 0.25rem;
+  min-height: 0;
+  padding: 0;
   top: 0.25rem;
+}
+.clipCutBoundary {
+  background: #f8fbff;
+  box-shadow: 0 0 0 1px rgb(15 23 42 / 0.9), 0 0 8px rgb(147 197 253 / 0.85);
+  inset: 0 auto 0 0;
+  pointer-events: none;
+  position: absolute;
+  width: 3px;
+  z-index: 3;
+}
+.audioCutBoundary {
+  background: #fef3c7;
+  box-shadow: 0 0 0 1px rgb(30 41 59 / 0.95), 0 0 7px rgb(251 191 36 / 0.8);
 }
 .audioRegion + .audioRegion {
   border-left-color: rgb(224 242 254 / 0.32);

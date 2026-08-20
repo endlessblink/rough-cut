@@ -30,11 +30,116 @@ function projectWithRecordingAndCamera() {
   });
 }
 
+function projectWithAllLinkedRecordingLanes() {
+  const recording = createAsset('recording', '/tmp/screen.mp4', { duration: 360, cameraAssetId: 'camera-asset', presentation: createDefaultRecordingPresentation() });
+  const camera = createAsset('video', '/tmp/camera.mp4', { id: 'camera-asset', duration: 420, metadata: { isCamera: true, sourceInFrames: 23 } });
+  const lanes = [
+    { kind: 'video', name: 'Screen', index: 0, mediaId: `source:${recording.id}:screen`, sourceIn: 11 },
+    { kind: 'video', name: 'Camera', index: 1, mediaId: `source:${recording.id}:camera`, sourceIn: 23 },
+    { kind: 'audio', name: 'System audio', index: 2, mediaId: `source:${recording.id}:system-audio`, sourceIn: 37 },
+    { kind: 'audio', name: 'Mic', index: 3, mediaId: `source:${recording.id}:mic-audio`, sourceIn: 41 },
+  ];
+  const tracks = lanes.map((lane) => {
+    const track = createTrack(lane.kind, { name: lane.name, index: lane.index });
+    return {
+      ...track,
+      clips: [
+        {
+          ...createClip(recording.id, track.id, { timelineIn: 0, timelineOut: 300, sourceIn: lane.sourceIn, sourceOut: lane.sourceIn + 300 }),
+          mediaId: lane.mediaId,
+          linkGroupId: `linked:${recording.id}`,
+        },
+      ],
+    };
+  });
+  return createProject({
+    assets: [recording, camera],
+    composition: { duration: 300, tracks, transitions: [] },
+  });
+}
+
+function recordingLaneClips(document, assetId) {
+  const sourcePrefix = `source:${assetId}:`;
+  return document.timeline.tracks
+    .map((track) => ({ track, clips: track.clips.filter((clip) => clip.mediaId.startsWith(sourcePrefix)) }))
+    .filter(({ clips }) => clips.length > 0);
+}
+
+function assertLinkedRecordingLanes(document, assetId, expectedRanges, expectedSourceStarts, expectedSourceGaps = []) {
+  const lanes = recordingLaneClips(document, assetId);
+  assert.equal(lanes.length, 4, 'all linked recording lanes remain present');
+  const seenLaneRanges = new Set();
+  for (const { track, clips } of lanes) {
+    const sorted = [...clips].sort((left, right) => left.timelineIn - right.timelineIn);
+    assert.deepEqual(sorted.map((clip) => [clip.timelineIn, clip.timelineOut]), expectedRanges, `${track.label} timeline ranges`);
+    const ranges = sorted.map((clip) => `${clip.timelineIn}:${clip.timelineOut}`);
+    assert.equal(new Set(ranges).size, ranges.length, `${track.label} has no duplicate ranges`);
+    assert.ok(sorted.every((clip) => clip.timelineOut > clip.timelineIn), `${track.label} has no zero-width clips`);
+    for (let index = 1; index < sorted.length; index += 1) {
+      assert.equal(sorted[index - 1].timelineOut, sorted[index].timelineIn, `${track.label} timeline is contiguous`);
+      assert.equal(sorted[index].sourceIn - sorted[index - 1].sourceOut, expectedSourceGaps[index - 1] ?? 0, `${track.label} source gap`);
+    }
+    assert.equal(sorted[0]?.sourceIn, expectedSourceStarts[track.label], `${track.label} source start`);
+    seenLaneRanges.add(JSON.stringify(sorted.map((clip) => [clip.timelineIn, clip.timelineOut])));
+  }
+  assert.equal(seenLaneRanges.size, 1, 'linked recording lanes share timeline ranges');
+}
+
 test('splitRecordingAtFrame splits the linked recording exactly at the requested timeline frame', () => {
   const project = projectWithRecordingAndCamera();
   const next = splitRecordingAtFrame(project, { assetId: project.assets[0].id, frame: 123 });
   const model = selectRecordingEditModel({ document: next, recordingAssetId: project.assets[0].id });
   assert.deepEqual(model.screenClips.map((clip) => [clip.timelineIn, clip.timelineOut]), [[0, 123], [123, 300]]);
+});
+
+test('splitRecordingAtFrame splits every linked audio and video lane at the same frame', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+  const audioTrack = createTrack('audio', { name: 'System audio', index: 2 });
+  const audioClip = createClip(recording.id, audioTrack.id, { timelineIn: 0, timelineOut: 300, sourceIn: 0, sourceOut: 300 });
+  const linkedAudioClip = {
+    ...audioClip,
+    mediaId: `source:${recording.id}:system-audio`,
+    linkGroupId: `linked:${recording.id}`,
+  };
+  const withAudio = {
+    ...project,
+    timeline: {
+      ...project.timeline,
+      tracks: [...project.timeline.tracks, { ...audioTrack, clips: [linkedAudioClip] }],
+    },
+  };
+  const next = splitRecordingAtFrame(withAudio, { assetId: recording.id, frame: 123 });
+  for (const track of next.timeline.tracks) {
+    if (!track.clips.some((clip) => clip.mediaId.startsWith(`source:${recording.id}:`))) continue;
+    assert.deepEqual(track.clips.map((clip) => [clip.timelineIn, clip.timelineOut]), [[0, 123], [123, 300]]);
+  }
+});
+
+test('splitRecordingAtFrame reconciles pre-existing audio boundary drift before cutting', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+  const audioTrack = createTrack('audio', { name: 'Mic', index: 2 });
+  const audioClip = createClip(recording.id, audioTrack.id, { timelineIn: 0, timelineOut: 300, sourceIn: 0, sourceOut: 300 });
+  const withDrift = {
+    ...project,
+    timeline: {
+      ...project.timeline,
+      tracks: [...project.timeline.tracks, {
+        ...audioTrack,
+        clips: [
+          { ...audioClip, id: 'audio-left', mediaId: `source:${recording.id}:mic-audio`, linkGroupId: `linked:${recording.id}`, timelineOut: 120, sourceOut: 120 },
+          { ...audioClip, id: 'audio-right', mediaId: `source:${recording.id}:mic-audio`, linkGroupId: `linked:${recording.id}`, timelineIn: 120, sourceIn: 120 },
+        ],
+      }],
+    },
+  };
+
+  const next = splitRecordingAtFrame(withDrift, { assetId: recording.id, frame: 123 });
+  const model = selectRecordingEditModel({ document: next, recordingAssetId: recording.id });
+  const boundaries = (clips) => clips.flatMap((clip) => [clip.timelineIn, clip.timelineOut]).sort((left, right) => left - right);
+  assert.deepEqual(boundaries(model.screenClips), boundaries(model.document.timeline.tracks.find((track) => track.kind === 'audio').clips));
+  assert.ok(model.screenClips.some((clip) => clip.timelineIn === 123));
 });
 
 test('getRecordingTimelineClip reads the shared timeline before legacy composition tracks', () => {
@@ -106,6 +211,28 @@ test('selectRecordingEditModel returns multiple canonical screen clips after spl
   const model = selectRecordingEditModel({ document: split, recordingAssetId: recording.id });
 
   assert.deepEqual(model.screenClips.map((clip) => clip.id), ['screen-a', 'screen-b']);
+});
+
+test('selectRecordingEditModel removes duplicate linked screen ranges before rendering audio', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+  const original = project.timeline.tracks[0].clips[0];
+  const duplicated = {
+    ...project,
+    timeline: {
+      ...project.timeline,
+      tracks: [
+        { ...project.timeline.tracks[0], clips: [original] },
+        { ...project.timeline.tracks[0], id: 'duplicate-track', clips: [{ ...original, id: 'duplicate-screen-range', trackId: 'duplicate-track' }] },
+        ...project.timeline.tracks.slice(1),
+      ],
+    },
+  };
+
+  const model = selectRecordingEditModel({ document: duplicated, recordingAssetId: recording.id });
+
+  assert.equal(model.screenClips.length, 1);
+  assert.deepEqual(model.screenClips.map((clip) => [clip.timelineIn, clip.timelineOut]), [[0, 300]]);
 });
 
 test('selectRecordingEditModel warns for extra unsupported video clips', () => {
@@ -232,6 +359,117 @@ test('rippleDeleteRecordingRange splits boundaries and removes a middle range', 
     [0, 90, 0, 90],
     [90, 240, 150, 300],
   ]);
+});
+
+test('rippleDeleteRecordingRange keeps a one-frame cut at the timeline start linked', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+  let id = 0;
+
+  const next = rippleDeleteRecordingRange(project, {
+    assetId: recording.id,
+    startFrame: 1,
+    endFrame: 3,
+    idFactory: (prefix) => `${prefix}-${id += 1}`,
+  });
+
+  for (const track of next.timeline.tracks.slice(0, 2)) {
+    assert.deepEqual(track.clips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut]), [
+      [0, 1, 0, 1],
+      [1, 298, 3, 300],
+    ]);
+  }
+});
+
+test('rippleDeleteRecordingRange removes a direct range from the true timeline head', () => {
+  const project = projectWithAllLinkedRecordingLanes();
+  const recording = project.assets[0];
+
+  const next = rippleDeleteRecordingRange(project, { assetId: recording.id, startFrame: 0, endFrame: 3 });
+
+  assertLinkedRecordingLanes(next, recording.id, [[0, 297]], { Screen: 14, Camera: 26, 'System audio': 40, Mic: 44 });
+  assert.equal(selectRecordingEditModel({ document: next, recordingAssetId: recording.id }).viewDurationFrames, 297);
+});
+
+test('rippleDeleteRecordingRange preserves linked lanes across repeated small head batches', () => {
+  const project = projectWithAllLinkedRecordingLanes();
+  const recording = project.assets[0];
+  let next = project;
+  let removed = 0;
+  for (const endFrame of [1, 1, 2]) {
+    next = rippleDeleteRecordingRange(next, { assetId: recording.id, startFrame: 0, endFrame });
+    removed += endFrame;
+    assertLinkedRecordingLanes(next, recording.id, [[0, 300 - removed]], {
+      Screen: 11 + removed,
+      Camera: 23 + removed,
+      'System audio': 37 + removed,
+      Mic: 41 + removed,
+    });
+  }
+});
+
+test('splitRecordingAtFrame cuts the moving head with real interior frames on every linked lane', () => {
+  const project = projectWithAllLinkedRecordingLanes();
+  const recording = project.assets[0];
+  let next = splitRecordingAtFrame(project, { assetId: recording.id, frame: 10 });
+  next = splitRecordingAtFrame(next, { assetId: recording.id, frame: 4 });
+  next = splitRecordingAtFrame(next, { assetId: recording.id, frame: 2 });
+
+  assertLinkedRecordingLanes(next, recording.id, [[0, 2], [2, 4], [4, 10], [10, 300]], {
+    Screen: 11,
+    Camera: 23,
+    'System audio': 37,
+    Mic: 41,
+  });
+});
+
+test('rippleDeleteRecordingRange covers cross-boundary, reversed, full, and one-frame-tail cuts', () => {
+  const crossBoundary = projectWithAllLinkedRecordingLanes();
+  const recording = crossBoundary.assets[0];
+  const afterCrossBoundary = rippleDeleteRecordingRange(crossBoundary, { assetId: recording.id, startFrame: 8, endFrame: 12 });
+  assertLinkedRecordingLanes(afterCrossBoundary, recording.id, [[0, 8], [8, 296]], {
+    Screen: 11,
+    Camera: 23,
+    'System audio': 37,
+    Mic: 41,
+  }, [4]);
+
+  const reversedProject = projectWithAllLinkedRecordingLanes();
+  const reversed = rippleDeleteRecordingRange(reversedProject, { assetId: reversedProject.assets[0].id, startFrame: 4, endFrame: 1 });
+  assertLinkedRecordingLanes(reversed, reversedProject.assets[0].id, [[0, 1], [1, 297]], {
+    Screen: 11,
+    Camera: 23,
+    'System audio': 37,
+    Mic: 41,
+  }, [3]);
+
+  const oneFrameTailProject = projectWithAllLinkedRecordingLanes();
+  const oneFrameTail = rippleDeleteRecordingRange(oneFrameTailProject, { assetId: oneFrameTailProject.assets[0].id, startFrame: 0, endFrame: 299 });
+  assertLinkedRecordingLanes(oneFrameTail, oneFrameTailProject.assets[0].id, [[0, 1]], {
+    Screen: 310,
+    Camera: 322,
+    'System audio': 336,
+    Mic: 340,
+  });
+
+  const fullyDeletedProject = projectWithAllLinkedRecordingLanes();
+  const fullyDeleted = rippleDeleteRecordingRange(fullyDeletedProject, { assetId: fullyDeletedProject.assets[0].id, startFrame: 0, endFrame: 300 });
+  assert.equal(recordingLaneClips(fullyDeleted, fullyDeletedProject.assets[0].id).length, 0, 'full recording delete removes every linked lane');
+});
+
+test('updateRecordingTimelineTrim keeps a one-frame head trim identical on linked tracks', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+
+  const next = updateRecordingTimelineTrim(project, {
+    assetId: recording.id,
+    startFrame: 1,
+    endFrame: 299,
+  });
+
+  for (const track of next.timeline.tracks.slice(0, 2)) {
+    assert.deepEqual(track.clips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut]), [[1, 299, 1, 299]]);
+  }
 });
 
 test('Recording edit trim no longer mutates legacy top-level tracks', () => {

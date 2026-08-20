@@ -12,6 +12,7 @@ import {
 } from '@phosphor-icons/react';
 import {
   resolveTimelineLengthFrames,
+  canonicalizeProjectDocument,
   createDefaultCameraPresentation,
   createDefaultRecordingBackgroundStyle,
   getRecordingBackgroundColors,
@@ -209,14 +210,10 @@ function resolveScreenLayerRendererSelection(value: string): ScreenLayerRenderer
 }
 
 function resolveAutoScreenLayerRendererKind(): ScreenLayerRendererKind {
-  if (typeof window === 'undefined') return 'canvas2d';
-  if ('gpu' in navigator) return 'webgpu';
-  const canvas = document.createElement('canvas');
-  try {
-    if (canvas.getContext('webgl2') || canvas.getContext('webgl')) return 'webgl';
-  } catch {
-    // Some sandboxed contexts throw while probing. Canvas2D remains the safe fallback.
-  }
+  // The Recording edit must show the parked frame immediately and reliably.
+  // Accelerated paths remain available through an explicit renderer override;
+  // capability probing alone is not a sufficient signal that video textures
+  // will work in the installed desktop runtime.
   return 'canvas2d';
 }
 
@@ -441,6 +438,7 @@ export function StyledVideoPreview({
   playbackRate = 1,
   showControls = true,
   timeMode = 'source',
+  scrubbing = false,
   onCurrentTimeChange,
   onPlayingChange,
   onCameraFrameChange,
@@ -479,6 +477,8 @@ export function StyledVideoPreview({
   playbackRate?: number;
   showControls?: boolean;
   timeMode?: PreviewTimeMode;
+  /** Timeline scrub is an exclusive paused gesture; playback cannot overwrite its released frame. */
+  scrubbing?: boolean;
   onCurrentTimeChange?: (sec: number) => void;
   onPlayingChange?: (playing: boolean) => void;
   onCameraFrameChange?: (frame: NormalizedRect | null) => void;
@@ -677,6 +677,10 @@ export function StyledVideoPreview({
 
   const src = mediaUrlOverride ?? project.mediaUrl ?? '';
   const cameraSrc = cameraMediaUrlOverride ?? project.cameraMediaUrl ?? '';
+  const canonicalDocument = React.useMemo(
+    () => canonicalizeProjectDocument(project.document as unknown as ProjectDocument),
+    [project.document],
+  );
   const sourceWidth = project.recording?.width ?? 1920;
   const sourceHeight = project.recording?.height ?? 1080;
   const fps = project.recording?.fps ?? 30;
@@ -838,12 +842,12 @@ export function StyledVideoPreview({
 
   function timelineTimeToSourceTime(timelineTimeSec: number) {
     const timelineFrame = Math.max(0, Math.round(timelineTimeSec * fps));
-    const resolved = resolveTimelineFrame(project.document as unknown as ProjectDocument, timelineFrame);
+    const resolved = resolveTimelineFrame(canonicalDocument, timelineFrame);
     return resolved.video ? resolved.video.sourceFrame / fps : null;
   }
 
   function buildTimelinePlaybackSegments(): TimelinePlaybackSegment[] {
-    const document = project.document as unknown as ProjectDocument;
+    const document = canonicalDocument;
     const tracks = Array.isArray(document.timeline?.tracks) ? document.timeline.tracks : [];
     const sources = Array.isArray(document.timeline?.sources) ? document.timeline.sources : [];
     const assets = Array.isArray(document.assets) ? document.assets : [];
@@ -987,14 +991,14 @@ export function StyledVideoPreview({
 
   React.useEffect(() => {
     if (!Number.isFinite(seekTimeSec)) return;
-    if (timeMode === 'timeline' && controlledPlaying === true) {
+    if (timeMode === 'timeline' && (controlledPlaying === true || scrubbing)) {
       updateCurrentTime(Math.max(0, seekTimeSec ?? 0), { notify: false });
       previewInteractionDirtyRef.current = true;
       return;
     }
     pendingSeekRef.current = seekTimeSec ?? 0;
     if (!seekingRef.current) flushPendingExternalSeek();
-  }, [seekTimeSec, cameraSourceOffsetSec, controlledPlaying, timeMode]);
+  }, [seekTimeSec, cameraSourceOffsetSec, controlledPlaying, scrubbing, timeMode]);
 
   React.useEffect(() => {
     const video = videoRef.current;
@@ -1022,6 +1026,14 @@ export function StyledVideoPreview({
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
     if (!video) return;
+    if (scrubbing) {
+      pausePreviewVideo(video);
+      cameraVideo?.pause();
+      activeTimelineSegmentRef.current = null;
+      setInternalPlaying(false);
+      onPlayingChangeRef.current?.(false);
+      return;
+    }
     if (isPlaying) {
       const segments = buildTimelinePlaybackSegments();
       let timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
@@ -1053,7 +1065,7 @@ export function StyledVideoPreview({
       activeTimelineSegmentRef.current = null;
       previewInteractionDirtyRef.current = true;
     }
-  }, [timeMode, isPlaying, project, fps]);
+  }, [timeMode, isPlaying, project, fps, scrubbing]);
 
   function startTimelineSegmentPlayback(segment: TimelinePlaybackSegment, timelineFrame: number) {
     const video = videoRef.current;
@@ -1238,7 +1250,7 @@ export function StyledVideoPreview({
       canvasHeight,
       timelineDuration,
     });
-    const document = project.document as unknown as ProjectDocument;
+    const document = canonicalDocument;
     const cursorEvents = getCursorEvents(document);
     const recordingAssetId = getPrimaryRecordingAsset(document)?.id ?? null;
     const getCursorPositionForFrame = (assetId: string, frame: number) => {
@@ -3508,7 +3520,7 @@ function addRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, wid
 }
 
 function isEditableShortcutTarget(target: EventTarget | null) {
-  return target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [contenteditable="true"]'));
+  return target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
 }
 
 function formatClock(seconds: number) {

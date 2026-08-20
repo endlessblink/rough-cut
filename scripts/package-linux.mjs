@@ -55,7 +55,7 @@ await writeFile(
 
 await writeFile(
   join(artifactRoot, 'dock-launch.sh'),
-  '#!/usr/bin/env bash\nset -euo pipefail\nexec "$(dirname "$0")/run.sh" "$@"\n',
+  '#!/usr/bin/env bash\nset -euo pipefail\nDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nif [[ " $* " == *" --user-data-dir="* ]]; then\n  exec "$DIR/run.sh" "$@"\nfi\nBUNDLE_PATH=""\nfor candidate in "$DIR"/resources/app/apps/desktop/dist/renderer/assets/index-*.js; do\n  if [[ -f "$candidate" ]]; then BUNDLE_PATH="$candidate"; break; fi\ndone\nif [[ -z "$BUNDLE_PATH" ]]; then echo "Packaged renderer bundle is missing" >&2; exit 1; fi\nBUNDLE_ID="$(basename "$BUNDLE_PATH" .js)"\nCONFIG_ROOT="${XDG_CONFIG_HOME:-/home/endlessblink/.config}"\nPROFILE_ROOT="$CONFIG_ROOT/rough-cut-mvp/dock/$BUNDLE_ID"\nmkdir -p "$PROFILE_ROOT"\nexec "$DIR/run.sh" "--user-data-dir=$PROFILE_ROOT" "$@"\n',
   { mode: 0o755 },
 );
 

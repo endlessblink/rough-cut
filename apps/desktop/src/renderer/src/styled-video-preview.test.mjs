@@ -24,8 +24,9 @@ test('styled video preview can resolve timeline-time playback through the shared
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
 
   assert.match(source, /timeMode\?: PreviewTimeMode/);
+  assert.match(source, /canonicalizeProjectDocument\(project\.document as unknown as ProjectDocument\)/);
   assert.match(source, /resolveTimelinePreviewFrame\(document, currentFrame/);
-  assert.match(source, /resolveTimelineFrame\(project\.document as unknown as ProjectDocument, timelineFrame\)/);
+  assert.match(source, /resolveTimelineFrame\(canonicalDocument, timelineFrame\)/);
   // The empty-frame path now also covers the case where the Editor placed the
   // recording somewhere that does not cover the playhead, so this reads as one
   // branch with two ways in. Its job is unchanged: no clip here, draw nothing.
@@ -169,8 +170,8 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(source, /function resolveScreenLayerRendererSelection\(value: string\): ScreenLayerRendererKind/);
   assert.match(source, /if \(normalized === 'auto'\) return resolveAutoScreenLayerRendererKind\(\)/);
   assert.match(source, /function resolveAutoScreenLayerRendererKind\(\): ScreenLayerRendererKind/);
-  assert.match(source, /if \('gpu' in navigator\) return 'webgpu'/);
-  assert.match(source, /canvas\.getContext\('webgl2'\) \|\| canvas\.getContext\('webgl'\)/);
+  assert.match(source, /return 'canvas2d';/);
+  assert.match(source, /Accelerated paths remain available through an explicit renderer override/);
   assert.match(source, /function isAcceleratedScreenLayerRenderer\(kind: ScreenLayerRendererKind\): boolean/);
   assert.match(source, /return kind === 'webgl' \|\| kind === 'webgpu'/);
   assert.match(source, /const screenLayerRendererRef = React\.useRef<ScreenLayerRenderer \| null>\(null\)/);

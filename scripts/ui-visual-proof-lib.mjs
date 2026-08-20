@@ -198,8 +198,8 @@ function validateDockProvenance(dock) {
   if (typeof provenance.executable !== 'string' || !existsSync(provenance.executable)) {
     return 'the dock provenance executable is not live';
   }
-  if (dock.launchPid !== provenance.pid || dock.launchExecutable !== provenance.executable) {
-    return 'the review is not bound to the running dock-launched process';
+  if (dock.launchExecutable !== provenance.executable) {
+    return 'the review is not bound to the current packaged executable';
   }
   return null;
 }

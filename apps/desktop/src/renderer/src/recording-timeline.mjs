@@ -48,9 +48,42 @@ export function splitRecordingAtFrame(document, { assetId, frame }) {
   const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
   const splitFrame = Math.round(Number(frame));
   if (!Number.isFinite(splitFrame)) return document;
-  const clip = model.screenClips.find((item) => splitFrame > item.timelineIn && splitFrame < item.timelineOut);
-  if (!clip) return document;
-  return splitClip(model.document, { clipId: clip.id, frame: splitFrame }).document;
+  const recordingSourceIds = new Set([
+    `source:${assetId}:screen`,
+    `source:${assetId}:camera`,
+    `source:${assetId}:system-audio`,
+    `source:${assetId}:mic-audio`,
+  ]);
+  const recordingClips = model.document.timeline.tracks
+    .flatMap((track) => track.clips)
+    .filter((clip) => recordingSourceIds.has(clip.mediaId) || clip.linkGroupId === model.linkedGroupId);
+  if (!recordingClips.some((clip) => splitFrame > clip.timelineIn && splitFrame < clip.timelineOut)) return document;
+
+  // A recording's channels are one edit unit even when an older project has
+  // drifted boundaries. Reconcile the union of existing boundaries first, then
+  // apply the requested cut through the same command layer on every channel.
+  const boundaries = new Set([splitFrame]);
+  for (const clip of recordingClips) {
+    boundaries.add(Math.round(clip.timelineIn));
+    boundaries.add(Math.round(clip.timelineOut));
+  }
+  let nextDocument = model.document;
+  for (const boundary of [...boundaries].sort((left, right) => left - right)) {
+    let candidate = nextDocument.timeline.tracks
+      .flatMap((track) => track.clips)
+      .find((clip) => (recordingSourceIds.has(clip.mediaId) || clip.linkGroupId === model.linkedGroupId)
+        && boundary > clip.timelineIn
+        && boundary < clip.timelineOut);
+    while (candidate) {
+      nextDocument = splitClip(nextDocument, { clipId: candidate.id, frame: boundary }).document;
+      candidate = nextDocument.timeline.tracks
+        .flatMap((track) => track.clips)
+        .find((clip) => (recordingSourceIds.has(clip.mediaId) || clip.linkGroupId === model.linkedGroupId)
+          && boundary > clip.timelineIn
+          && boundary < clip.timelineOut);
+    }
+  }
+  return nextDocument;
 }
 
 export function restoreRecordingSourceEdge(document, { assetId, edge }) {
@@ -320,11 +353,18 @@ function findNleClipByAssetId(tracks, assetId) {
 
 function clipsForMedia(tracks, mediaId) {
   if (!Array.isArray(tracks)) return [];
-  return tracks
+  const clips = tracks
     .flatMap((track) => (track?.clips ?? [])
       .filter((clip) => clip?.mediaId === mediaId)
       .map((clip) => ({ ...clip, trackId: clip.trackId ?? track.id })))
     .sort((left, right) => left.timelineIn - right.timelineIn || left.timelineOut - right.timelineOut || String(left.id).localeCompare(String(right.id)));
+  const seenRanges = new Set();
+  return clips.filter((clip) => {
+    const range = [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut].map((value) => Math.round(value ?? 0)).join(':');
+    if (seenRanges.has(range)) return false;
+    seenRanges.add(range);
+    return true;
+  });
 }
 
 function findScreenClipAt(clips, frame) {

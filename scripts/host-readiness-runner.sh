@@ -5,7 +5,7 @@ REPO="/media/endlessblink/data/my-projects/ai-development/content-creation/rough
 REQUEST_FILE="${ROUGH_CUT_HOST_READINESS_REQUEST_FILE:-/tmp/rough-cut-host-readiness-runner.request}"
 STATUS_FILE="${ROUGH_CUT_HOST_READINESS_STATUS_FILE:-/tmp/rough-cut-host-readiness-runner.status.json}"
 LOG_FILE="${ROUGH_CUT_HOST_READINESS_LOG_FILE:-/tmp/rough-cut-host-readiness-runner.log}"
-REAL_PROJECT_PATH="${ROUGH_CUT_REAL_PROJECT_PATH:-/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut}"
+REAL_PROJECT_PATH="${ROUGH_CUT_REAL_PROJECT_PATH:-/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-07-25T12-18-16-524Z.roughcut}"
 
 cd "$REPO"
 
@@ -50,7 +50,7 @@ run_gate() {
       pnpm smoke:styled-export
       ;;
     smoke-package)
-      pnpm smoke:package
+      ROUGH_CUT_DOCK_LAUNCH=1 pnpm smoke:package
       ;;
     regression-lab)
       pnpm test:regression-lab
@@ -68,7 +68,12 @@ run_gate() {
       node scripts/visual-restore-control-playwright.mjs "$REAL_PROJECT_PATH"
       ;;
     recording-editor-interactions)
-      node scripts/recording-editor-interactions-playwright.mjs "$REAL_PROJECT_PATH"
+      ROUGH_CUT_DOCK_LAUNCH=1 node scripts/recording-editor-interactions-playwright.mjs "$REAL_PROJECT_PATH"
+      local interaction_code=$?
+      if [[ "$interaction_code" -ne 0 ]]; then return "$interaction_code"; fi
+      local dock_profile="/tmp/rough-cut-directive-dock-user-$$-$(date +%s)"
+      local dock_log="/tmp/rough-cut-directive-dock-$$.log"
+      ROUGH_CUT_DOCK_LAUNCH=1 ROUGH_CUT_UI_SMOKE_PROJECT_PATH="$REAL_PROJECT_PATH" nohup "$REPO/dist/rough-cut-mvp-linux-x64/dock-launch.sh" --user-data-dir="$dock_profile" >"$dock_log" 2>&1 </dev/null &
       ;;
     export-entrypoints)
       pnpm visual:export-entrypoints "$REAL_PROJECT_PATH"
