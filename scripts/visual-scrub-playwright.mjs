@@ -47,13 +47,15 @@ const { _electron: electron } = loadPlaywright();
 const electronPath = join(process.cwd(), 'apps/desktop/node_modules/.bin/electron');
 const app = await electron.launch({
   executablePath: electronPath,
-  args: ['--no-sandbox', '--force-color-profile=srgb', '.'],
+  args: ['--no-sandbox', '--force-color-profile=srgb', '--force-device-scale-factor=1', '.'],
   cwd: join(process.cwd(), 'apps/desktop'),
   env: {
     ...process.env,
     ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: project.path,
+    ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH: '1280',
+    ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT: '720',
   },
 });
 const electronProcess = app.process();
@@ -78,7 +80,7 @@ try {
   });
   await page.waitForFunction(() => window.__roughCutScrubMonitor.inspect().stats.ok, null, { timeout: 10000 });
   await page.waitForTimeout(1000);
-  await page.screenshot({ path: beforePath, fullPage: true });
+  await page.screenshot({ path: beforePath });
 
   const scrubber = page.locator('input[aria-label="Scrub timeline"]');
   const box = await scrubber.boundingBox();
@@ -97,12 +99,12 @@ try {
   await page.mouse.down();
   for (const position of [0.16, 0.32, 0.48, 0.64, 0.8]) {
     await page.mouse.move(box.x + box.width * position, box.y + box.height / 2, { steps: 8 });
-    if (position === 0.48) await page.screenshot({ path: midPath, fullPage: true });
+    if (position === 0.48) await page.screenshot({ path: midPath });
   }
   await page.mouse.up();
   await page.waitForTimeout(1000);
   const scrubMonitor = await page.evaluate(() => window.__roughCutScrubMonitor.stop());
-  await page.screenshot({ path: afterPath, fullPage: true });
+  await page.screenshot({ path: afterPath });
 
   const clipBefore = await page.locator('[data-timeline-lane="screen"] .clipBar').boundingBox();
   const trimEnd = page.locator('button[aria-label="Trim end"]');
@@ -124,7 +126,7 @@ try {
   const trimMonitor = await page.evaluate(() => window.__roughCutScrubMonitor.stop());
   const activeToolAfterTrim = await page.evaluate(() => document.querySelector('.toolButton.active')?.getAttribute('aria-label'));
   const trimKeptActiveTool = activeToolBeforeTrim === activeToolAfterTrim;
-  await page.screenshot({ path: afterTrimPath, fullPage: true });
+  await page.screenshot({ path: afterTrimPath });
 
   report = {
     ok: wheelStable && trimKeptActiveTool && scrubMonitor.frameCount >= 60 && scrubMonitor.badFrames.length === 0 && trimMonitor.frameCount >= 30 && trimMonitor.badFrames.length === 0,

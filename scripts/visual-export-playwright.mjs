@@ -28,7 +28,7 @@ const { _electron: electron, chromium } = loadPlaywright();
 const electronPath = join(process.cwd(), 'apps/desktop/node_modules/.bin/electron');
 const app = await electron.launch({
   executablePath: electronPath,
-  args: ['--no-sandbox', '--force-color-profile=srgb', '.'],
+  args: ['--no-sandbox', '--force-color-profile=srgb', '--force-device-scale-factor=1', '.'],
   cwd: join(process.cwd(), 'apps/desktop'),
   env: {
     ...process.env,
@@ -36,6 +36,8 @@ const app = await electron.launch({
     ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: project.path,
     ROUGH_CUT_UI_SMOKE_EXPORT_PATH: exportPath,
+    ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH: '1280',
+    ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT: '720',
   },
 });
 const electronProcess = app.process();
@@ -67,9 +69,12 @@ run('ffmpeg', ['-y', '-ss', '0.5', '-i', exportPath, '-frames:v', '1', framePath
 
 const browser = await chromium.launch();
 try {
-  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 720 },
+    deviceScaleFactor: 1,
+  });
   await page.goto(`file://${framePath}`);
-  await page.screenshot({ path: browserFramePath, fullPage: true });
+  await page.screenshot({ path: browserFramePath });
 } finally {
   await browser.close();
 }
