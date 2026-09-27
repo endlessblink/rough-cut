@@ -1231,7 +1231,7 @@ test('canonical timeline export resolves moved clips, gaps, and cursor frames', 
   ]);
 });
 
-test('canonical timeline export preserves internal and trailing gaps', () => {
+test('canonical timeline export preserves internal gaps and ends at the last clip', () => {
   const project = createProjectForRecording({
     recording: {
       startedAt: '2026-04-28T12:00:00.000Z',
@@ -1257,8 +1257,30 @@ test('canonical timeline export preserves internal and trailing gaps', () => {
     { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
     { timelineIn: 60, timelineOut: 90, sourceIn: 120, sourceOut: 150 },
   ]);
-  assert.equal(recording.timelineDurationFrames, 150);
+  // composition.duration (150) is the stale import-time length; the editor ends
+  // the timeline at the last clip, so export must too — not pad with black.
+  assert.equal(recording.timelineDurationFrames, 90);
   assert.deepEqual(recording.cursorEvents.map((event) => event.frame), [20, 70]);
+});
+
+test('trimmed timeline export does not pad to the stale full recording length', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:01:44.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  const cut = withPrimaryTimelineClips(project, [
+    { id: 'screen-a', timelineIn: 0, timelineOut: 154, sourceIn: 409, sourceOut: 563 },
+    { id: 'screen-b', timelineIn: 154, timelineOut: 313, sourceIn: 2900, sourceOut: 3059 },
+  ], 3120);
+  const recording = resolveTimelineExportRecording(cut, getPrimaryRecording(cut));
+
+  assert.equal(recording.timelineDurationFrames, 313);
 });
 
 test('used-content export scope trims timeline gaps without changing source ranges', () => {

@@ -175,6 +175,30 @@ test('hold-phase crop window is centered on the focal point at full zoom', () =>
   assert.match(targetLine, /crop h 288/);
 });
 
+test('zoom stays inside a screen crop viewport, like the preview', () => {
+  // A 9:16 screen crop (608x1080 at x=656) with a centered 2.5x zoom. The zoom
+  // window must be the crop scaled down around its center — never a window in
+  // full-source space that a later fixed crop would reach outside of.
+  const result = buildZoomSendcmd({
+    markers: [marker({ startFrame: 0, endFrame: 60, focalPoint: { x: 0.5, y: 0.5 } })],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+    totalFrames: 60,
+    viewport: { x: 656, y: 0, w: 608, h: 1080 },
+  });
+  const windows = parseCropWindows(result.sendcmdContent);
+  assert.deepEqual(result.initialCrop, { x: 656, y: 0, w: 608, h: 1080 });
+  for (const window of windows) {
+    assert.ok(window.x >= 656 - 1e-6 && window.x + window.w <= 656 + 608 + 1e-6, `x out of crop: ${JSON.stringify(window)}`);
+    assert.ok(window.y >= -1e-6 && window.y + window.h <= 1080 + 1e-6, `y out of crop: ${JSON.stringify(window)}`);
+  }
+  const hold = windows[30];
+  assert.ok(Math.abs(hold.w - 608 / 2.5) < 0.01);
+  assert.ok(Math.abs(hold.h - 1080 / 2.5) < 0.01);
+  assert.ok(Math.abs(hold.x + hold.w / 2 - (656 + 304)) < 0.01);
+});
+
 test('cursor-following auto marker pans the crop window during the hold phase', () => {
   // Engine uses a "leashed" follow: focal only shifts when cursor strays
   // beyond ~0.128 normalized units (visibleWidth * (0.5 - followPadding))

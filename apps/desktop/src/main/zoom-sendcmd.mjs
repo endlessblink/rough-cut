@@ -43,10 +43,25 @@ function formatTimestamp(seconds) {
   return seconds.toFixed(6);
 }
 
-function buildCursorPositionLookup(cursorEvents, sourceWidth, sourceHeight) {
+// A screen crop is the viewport the zoom works inside (as in the preview), so
+// the zoom window and the cursor are both expressed relative to it.
+function normalizeViewport(viewport, sourceWidth, sourceHeight) {
+  if (!viewport) return { x: 0, y: 0, w: sourceWidth, h: sourceHeight };
+  const w = clamp(Number(viewport.w) || sourceWidth, 1, sourceWidth);
+  const h = clamp(Number(viewport.h) || sourceHeight, 1, sourceHeight);
+  return {
+    x: clamp(Number(viewport.x) || 0, 0, sourceWidth - w),
+    y: clamp(Number(viewport.y) || 0, 0, sourceHeight - h),
+    w,
+    h,
+  };
+}
+
+function buildCursorPositionLookup(cursorEvents, viewport) {
   if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) {
     return () => null;
   }
+  const point = (x, y) => ({ x: (x - viewport.x) / viewport.w, y: (y - viewport.y) / viewport.h });
   // Inline a binary-search lookup so we don't depend on the renderer's
   // styled-preview module from main-process code.
   const sorted = cursorEvents
@@ -64,11 +79,11 @@ function buildCursorPositionLookup(cursorEvents, sourceWidth, sourceHeight) {
   return (frame) => {
     if (!Number.isFinite(frame)) return null;
     if (frame <= sorted[0].frame) {
-      return { x: sorted[0].x / sourceWidth, y: sorted[0].y / sourceHeight };
+      return point(sorted[0].x, sorted[0].y);
     }
     const last = sorted[sorted.length - 1];
     if (frame >= last.frame) {
-      return { x: last.x / sourceWidth, y: last.y / sourceHeight };
+      return point(last.x, last.y);
     }
     let lo = 0;
     let hi = sorted.length - 1;
@@ -80,12 +95,9 @@ function buildCursorPositionLookup(cursorEvents, sourceWidth, sourceHeight) {
     const a = sorted[lo];
     const b = sorted[hi];
     const span = b.frame - a.frame;
-    if (span <= 0) return { x: a.x / sourceWidth, y: a.y / sourceHeight };
+    if (span <= 0) return point(a.x, a.y);
     const t = (frame - a.frame) / span;
-    return {
-      x: (a.x + (b.x - a.x) * t) / sourceWidth,
-      y: (a.y + (b.y - a.y) * t) / sourceHeight,
-    };
+    return point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
   };
 }
 
@@ -97,6 +109,7 @@ export function buildZoomSendcmd({
   fps,
   totalFrames,
   presentationOptions = {},
+  viewport = null,
 } = {}) {
   if (!Array.isArray(markers) || markers.length === 0) {
     return { filterFragment: null, sendcmdContent: '', present: false, initialCrop: null };
@@ -122,7 +135,8 @@ export function buildZoomSendcmd({
     ? presentationOptions.followPadding
     : 0.22;
 
-  const cursorLookup = buildCursorPositionLookup(cursorEvents, sourceWidth, sourceHeight);
+  const view = normalizeViewport(viewport, sourceWidth, sourceHeight);
+  const cursorLookup = buildCursorPositionLookup(cursorEvents, view);
   const transformOptions = followCursor
     ? { followCursor: true, followAnimation, followPadding, fps, getCursorPosition: cursorLookup }
     : undefined;
@@ -131,7 +145,8 @@ export function buildZoomSendcmd({
   let initialCrop = null;
   for (let frame = 0; frame < totalFrames; frame += 1) {
     const transform = getZoomTransformAtFrame(frame, markers, transformOptions);
-    const window = transformToCropWindow(transform, sourceWidth, sourceHeight);
+    const local = transformToCropWindow(transform, view.w, view.h);
+    const window = { ...local, x: local.x + view.x, y: local.y + view.y };
     if (frame === 0) initialCrop = window;
     const timestamp = formatTimestamp(frame / fps);
     lines.push(
@@ -139,7 +154,7 @@ export function buildZoomSendcmd({
     );
   }
 
-  const cropInit = initialCrop ?? { x: 0, y: 0, w: sourceWidth, h: sourceHeight };
+  const cropInit = initialCrop ?? view;
   const filterFragment = `crop=w=${formatNumber(cropInit.w)}:h=${formatNumber(cropInit.h)}:x=${formatNumber(cropInit.x)}:y=${formatNumber(cropInit.y)}`;
 
   return {
@@ -158,6 +173,7 @@ export async function createZoomSendcmdLayer({
   fps,
   totalFrames,
   presentationOptions = {},
+  viewport = null,
 } = {}) {
   const result = buildZoomSendcmd({
     markers,
@@ -167,6 +183,7 @@ export async function createZoomSendcmdLayer({
     fps,
     totalFrames,
     presentationOptions,
+    viewport,
   });
   if (!result.present) return null;
 

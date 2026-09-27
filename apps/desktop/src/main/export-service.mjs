@@ -17,11 +17,11 @@ import {
 import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
 import {
   canonicalizeProjectDocument,
-  computeTimelineDuration,
   createDefaultCameraPresentation,
   getRecordingBackgroundColors,
   getSourceStabilization,
   getStyledCanvasResolution,
+  resolveTimelineLengthFrames,
 } from '@rough-cut/project-model';
 import {
   getCameraLayoutRect,
@@ -513,6 +513,8 @@ export async function exportStyledProjectToMp4({
     sourceHeight: recording.height,
     fps: recording.fps,
     totalFrames: recording.timelineDurationFrames ?? recording.duration,
+    // Zoom works inside the screen crop, as in the preview.
+    viewport: resolveManualCropRect(recording.presentation?.screenCrop, recording.width, recording.height),
   });
   const includeTimelineAudio = Array.isArray(recording.timelineSegments)
     && recording.timelineSegments.length > 0
@@ -783,11 +785,11 @@ function selectPrimaryTimelineModel(project, assetId) {
   const screenClips = clipsForMedia(document.timeline.tracks, sourceId);
   const cameraClips = clipsForMedia(document.timeline.tracks, cameraSourceId);
   if (screenClips.length === 0) return null;
-  const compositionDuration = Number(document.composition?.duration);
+  // Same length the editor shows: end at the last content, never at the stale
+  // import-time composition.duration (that padded trimmed exports with black).
   const timelineDurationFrames = Math.max(
     1,
-    computeTimelineDuration(document.timeline),
-    Number.isFinite(compositionDuration) ? Math.round(compositionDuration) : 0,
+    resolveTimelineLengthFrames(document.timeline, document.composition?.duration),
   );
   return {
     document,
@@ -1422,7 +1424,9 @@ export function buildStyledExportArgs({
   const screenRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(screenFrame.w, screenFrame.h) / 2));
   const screenScaleStep = `scale=${screenRenderSize.w}:${screenRenderSize.h}:force_original_aspect_ratio=decrease,pad=${screenRenderSize.w}:${screenRenderSize.h}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba`;
   const screenStep = zoomActive
-    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},${screenManualCropStep ? `${screenManualCropStep},` : ''}${screenScaleStep}`
+    // The zoom window already lies inside the screen crop, so a second fixed
+    // crop here would reach outside the zoomed frame (ffmpeg crashed on that).
+    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},${screenScaleStep}`
     : `${screenManualCropStep ?? `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2`},${screenScaleStep}`;
   const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
@@ -2129,6 +2133,11 @@ function resolveCameraOverlayFrame(camera = null, canvasWidth, canvasHeight, nor
 }
 
 function buildCameraManualCropStep(crop = null, sourceWidth = null, sourceHeight = null) {
+  const rect = resolveManualCropRect(crop, sourceWidth, sourceHeight);
+  return rect ? `crop=${rect.w}:${rect.h}:${rect.x}:${rect.y}` : null;
+}
+
+function resolveManualCropRect(crop = null, sourceWidth = null, sourceHeight = null) {
   if (!crop?.enabled) return null;
   const sourceW = Number.isFinite(sourceWidth) && sourceWidth > 0 ? Math.round(sourceWidth) : null;
   const sourceH = Number.isFinite(sourceHeight) && sourceHeight > 0 ? Math.round(sourceHeight) : null;
@@ -2144,7 +2153,7 @@ function buildCameraManualCropStep(crop = null, sourceWidth = null, sourceHeight
     h = Math.max(1, Math.min(h, sourceH));
     y = Math.max(0, Math.min(y, sourceH - h));
   }
-  return `crop=${w}:${h}:${x}:${y}`;
+  return { x, y, w, h };
 }
 
 function constrainCameraShapeFrame(frame, camera = null, canvasWidth, canvasHeight) {
