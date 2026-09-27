@@ -657,3 +657,43 @@ test('lengthening a section from its end pushes the later sections along on ever
     assert.deepEqual(lane.map(([timelineIn, timelineOut]) => [timelineIn, timelineOut]), [[0, 100], [100, 180], [180, 280]]);
   }
 });
+
+// 2026-09-27: with an empty space after a section, dragging its end outward
+// pushed the next section (and its audio) along instead of filling the space.
+test('lengthening a section into empty space fills the space and leaves the next section where it is', () => {
+  const { document, assetId } = threeSectionProject();
+  const middleId = selectRecordingEditModel({ document, recordingAssetId: assetId }).screenClips[1].id;
+  // Leave a gap after the middle section (ripple off), then drag its end back out.
+  const gapped = {
+    ...document,
+    timeline: {
+      ...document.timeline,
+      tracks: document.timeline.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.map((clip) => (clip.timelineIn === 100 ? { ...clip, timelineOut: 150, sourceOut: clip.sourceIn + 50 } : clip)),
+      })),
+    },
+  };
+  const middle = selectRecordingEditModel({ document: gapped, recordingAssetId: assetId }).screenClips.find((clip) => clip.timelineIn === 100);
+  const filled = trimRecordingClipEdge(gapped, { assetId, clipId: middle?.id ?? middleId, edge: 'tail', frame: 190 });
+  for (const lane of laneRanges(filled)) {
+    assert.deepEqual(lane.map(([timelineIn, timelineOut]) => [timelineIn, timelineOut]), [[0, 100], [100, 190], [200, 300]]);
+  }
+});
+
+// 2026-09-27: a start edge could not be dragged left past the previous
+// section, so trimmed-away footage at a section's start could not come back.
+test('lengthening a section from its start reveals hidden footage and pushes later sections along', () => {
+  const { document, assetId } = threeSectionProject();
+  const last = selectRecordingEditModel({ document, recordingAssetId: assetId }).screenClips[2];
+  // Hide 30 frames at the start of the last section (ripple), then reveal 20 again.
+  const trimmed = trimRecordingClipEdge(document, { assetId, clipId: last.id, edge: 'head', frame: 230 });
+  const shortened = selectRecordingEditModel({ document: trimmed, recordingAssetId: assetId }).screenClips[2];
+  assert.deepEqual([shortened.timelineIn, shortened.timelineOut, shortened.sourceIn], [200, 270, 230]);
+  const revealed = trimRecordingClipEdge(trimmed, { assetId, clipId: shortened.id, edge: 'head', frame: 180 });
+  for (const lane of laneRanges(revealed)) {
+    assert.deepEqual(lane.map(([timelineIn, timelineOut]) => [timelineIn, timelineOut]), [[0, 100], [100, 200], [200, 290]]);
+  }
+  const screen = selectRecordingEditModel({ document: revealed, recordingAssetId: assetId }).screenClips;
+  assert.equal(screen[2].sourceIn, 210, 'the section starts 20 frames earlier in the recording');
+});

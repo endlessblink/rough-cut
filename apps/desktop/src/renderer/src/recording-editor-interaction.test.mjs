@@ -130,8 +130,11 @@ test('recording editor cancels clip moves without committing them', () => {
 });
 
 test('recording editor exposes trim handles only on the selected clip', () => {
-  assert.match(source, /selectedScreenClipId === region\.id \? <button type="button" role="slider" className="trimHandle trimHandleStart"/);
-  assert.match(source, /selectedScreenClipId === region\.id \? <button type="button" role="slider" className="trimHandle trimHandleEnd"/);
+  assert.match(source, /selectedScreenClipId === region\.id \? <button type="button" role="slider" className=\{`trimHandle trimHandleStart/);
+  assert.match(source, /selectedScreenClipId === region\.id \? <button type="button" role="slider" className=\{`trimHandle trimHandleEnd/);
+  // Edges with trimmed-away footage say so (2026-09-27).
+  assert.match(source, /hasHiddenFootage/);
+  assert.match(styles, /\.trimHandleStart\.hasHiddenFootage::after/);
   assert.match(styles, /\.clipBar:not\(\.selectedClip\) \.trimHandle\s*\{[\s\S]+pointer-events:\s*none/);
 });
 
@@ -239,4 +242,15 @@ test('Delete acts on the selection, empty space can be selected and closed, ripp
   assert.match(source, /aria-label="Close gaps when trimming" aria-pressed=\{rippleTrim\}/);
   assert.match(source, /onTrimClipEdge\(region\.id, edge, commitFrame, \{ ripple: rippleTrim \}\)/);
   assert.match(source, /if \(options\.ripple === false\) \{\n\s+await trimTimelineClipLeavingGap\(clipId, edge, frame\);/);
+});
+
+test('the recorder picks a screen from live previews in one row, and records the picked screen', () => {
+  // 2026-09-27: no picture of what would be recorded, and "Full display"
+  // always recorded one fixed screen on a two-monitor desk.
+  assert.match(source, /function ScreenPreviewCard\(/);
+  assert.match(source, /chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId/);
+  assert.match(source, /data-ui-region="capture-source-picker" data-capture-mode=\{captureMode\}/);
+  assert.match(source, /if \(displays\.length === 2\) return index === 0 \? 'Left screen' : 'Right screen';/);
+  assert.match(source, /: wholeDisplayCaptureRegion\(captureDisplays\.find\(\(display\) => display\.id === selectedCaptureDisplayId\)\);/);
+  assert.doesNotMatch(source, /data-source-option="window"/);
 });

@@ -103,7 +103,7 @@ import {
   updateCensorRegionRect,
 } from './censor-markers.mjs';
 import { resolveProjectOpenAppView, resolveRequestedAppView } from './boot-app-view.mjs';
-import { buildTimelineModel, frameRangeToPlacement } from './timeline-rail.mjs';
+import { buildTimelineModel, dragSourceRangeOnTimeline, frameRangeToPlacement, timelineFrameToSourceFrame } from './timeline-rail.mjs';
 import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
 import type { PreviewDragOrigin } from './styled-preview.mjs';
 import { aspectRatioDims, moveFrameToCameraPosition, resizeFrameToAspect, resizeFrameToCameraSize, shouldCropAspectResizeFrame } from './camera-frame.mjs';
@@ -333,7 +333,7 @@ type AudioPreviewLevel = { token: string; level: number; rmsDb: number | null; a
 type AudioPreviewState = { token: string | null; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null; level: number; rmsDb: number | null };
 type CameraSource = { id: string; name: string; label: string };
 type CaptureMode = 'display' | 'region';
-type CaptureDisplay = { id: string; label: string; primary: boolean; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number } };
+type CaptureDisplay = { id: string; label: string; primary: boolean; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number }; previewSourceId?: string | null };
 type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number; absoluteX?: number; absoluteY?: number; displayId?: string | null; displayLabel?: string | null };
 type RecordingPreflightOptions = { recordMic: boolean; recordSystemAudio: boolean; recordCamera: boolean; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureMode: CaptureMode; captureRegion?: CaptureRegion | null };
 type RecordingPreflightCheck = { id: string; label: string; severity: 'ok' | 'warn' | 'critical'; detail: string };
@@ -1030,7 +1030,7 @@ function App() {
   React.useEffect(() => {
     if (!preRecordSetupVisible || recording.state === 'recording') return;
     let cancelled = false;
-    const options = buildPreflightOptions({ recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion });
+    const options = buildPreflightOptions({ recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion: captureMode === 'region' ? captureRegion : wholeDisplayCaptureRegion(captureDisplays.find((display) => display.id === selectedCaptureDisplayId)) ?? captureRegion });
     window.roughCut.getRecordingPreflightStatus(options)
       .then((status) => {
         if (!cancelled) setPreflightStatus(status);
@@ -1041,7 +1041,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [preRecordSetupVisible, recording.state, recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion]);
+  }, [preRecordSetupVisible, recording.state, recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion, captureDisplays, selectedCaptureDisplayId]);
 
   const sharedTimelineFps = project?.recording?.fps && project.recording.fps > 0 ? project.recording.fps : 30;
   const sharedTimelineDurationSec = project
@@ -1188,7 +1188,9 @@ function App() {
     const micSource = recordMic ? selectedMicSource || null : null;
     const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
     const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
-    const region = captureMode === 'region' ? captureRegion : null;
+    const region = captureMode === 'region'
+      ? captureRegion
+      : wholeDisplayCaptureRegion(captureDisplays.find((display) => display.id === selectedCaptureDisplayId));
     return {
       micSource,
       micGainPercent: micSource ? micGainPercent : 100,
@@ -2006,18 +2008,100 @@ function buildPreflightOptions({ recordMic, recordSystemAudio, recordCamera, sel
     systemAudioSource: recordSystemAudio ? selectedSystemAudioSource || null : null,
     cameraDevicePath: recordCamera ? selectedCameraSource || null : null,
     captureMode,
-    captureRegion: captureMode === 'region' ? captureRegion : null,
+    captureRegion: captureRegion ?? null,
   };
 }
 
-function displayPositionLabel(bounds: CaptureDisplay['bounds']) {
-  if (bounds.x === 0 && bounds.y === 0) return 'Origin screen';
-  const horizontal = bounds.x < 0 ? 'left' : bounds.x > 0 ? 'right' : 'center';
-  const vertical = bounds.y < 0 ? 'above' : bounds.y > 0 ? 'below' : 'level';
-  if (horizontal === 'center') return vertical;
-  if (vertical === 'level') return horizontal;
-  return `${horizontal}, ${vertical}`;
+// Recording a whole screen reuses region capture with that screen's bounds, so
+// the screen the user picked is the one recorded on a multi-monitor desk.
+function wholeDisplayCaptureRegion(display: CaptureDisplay | undefined | null): CaptureRegion | null {
+  if (!display) return null;
+  const scale = Number.isFinite(display.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
+  return {
+    mode: 'region',
+    x: 0,
+    y: 0,
+    width: Math.round(display.bounds.width * scale),
+    height: Math.round(display.bounds.height * scale),
+    absoluteX: Math.round(display.bounds.x * scale),
+    absoluteY: Math.round(display.bounds.y * scale),
+    displayId: display.id,
+    displayLabel: display.label,
+  };
 }
+
+// "Left screen" / "Right screen" reads the desk, not the display driver.
+function screenSideLabel(display: CaptureDisplay, displays: readonly CaptureDisplay[]) {
+  if (displays.length < 2) return 'Screen';
+  const ordered = [...displays].sort((left, right) => left.bounds.x - right.bounds.x || left.bounds.y - right.bounds.y);
+  const index = ordered.findIndex((candidate) => candidate.id === display.id);
+  if (displays.length === 2) return index === 0 ? 'Left screen' : 'Right screen';
+  return `Screen ${index + 1}`;
+}
+
+// A small live picture of one screen, so the user can see which screen they
+// are about to record. Downscaled and throttled: it is a picker, not a monitor.
+function ScreenPreviewCard({ display, sideLabel, selected, region = null, disabled, onSelect }: { display: CaptureDisplay; sideLabel: string; selected: boolean; region?: CaptureRegion | null; disabled: boolean; onSelect: () => void }) {
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const [live, setLive] = React.useState(false);
+  React.useEffect(() => {
+    const sourceId = display.previewSourceId;
+    if (!sourceId || typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return undefined;
+    let stream: MediaStream | null = null;
+    let cancelled = false;
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId, maxWidth: 640, maxHeight: 360, maxFrameRate: 12 },
+      } as unknown as MediaTrackConstraints,
+    }).then((nextStream) => {
+      if (cancelled) {
+        nextStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      stream = nextStream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = nextStream;
+        void videoRef.current.play().catch(() => undefined);
+      }
+      setLive(true);
+    }).catch(() => setLive(false));
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+      setLive(false);
+    };
+  }, [display.previewSourceId]);
+  return (
+    <button
+      type="button"
+      className={`screenPickerCard${selected ? ' selected' : ''}`}
+      data-screen-option={display.id}
+      aria-pressed={selected}
+      aria-label={`Record ${sideLabel.toLowerCase()}, ${display.bounds.width} by ${display.bounds.height}`}
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      <span className="screenPickerPreview" aria-hidden="true">
+        <video ref={videoRef} muted playsInline className={live ? 'isLive' : ''} />
+        {!live ? <span className="screenPickerPreviewEmpty">No preview</span> : null}
+        {region ? (() => {
+          const scale = display.scaleFactor > 0 ? display.scaleFactor : 1;
+          const width = display.bounds.width * scale;
+          const height = display.bounds.height * scale;
+          const left = Number.isFinite(region.absoluteX) ? (region.absoluteX as number) - display.bounds.x * scale : region.x * scale;
+          const top = Number.isFinite(region.absoluteY) ? (region.absoluteY as number) - display.bounds.y * scale : region.y * scale;
+          return <span className="screenPickerRegion" style={{ left: `${(left / width) * 100}%`, top: `${(top / height) * 100}%`, width: `${(region.width / width) * 100}%`, height: `${(region.height / height) * 100}%` }} />;
+        })() : null}
+      </span>
+      <span className="screenPickerMeta">
+        <span>{sideLabel}{display.primary ? ' · Primary' : ''}</span>
+        <small>{display.bounds.width} x {display.bounds.height}</small>
+      </span>
+    </button>
+  );
+}
+
 
 function PreRecordPanel({
   variant = 'dialog',
@@ -2037,7 +2121,6 @@ function PreRecordPanel({
   captureRegion,
   captureDisplays,
   selectedCaptureDisplayId,
-  screenPickerOpen,
   preflightStatus,
   actionPending,
   onClose,
@@ -2051,7 +2134,6 @@ function PreRecordPanel({
   onSystemAudioGainPercentChange,
   onSelectedCameraSourceChange,
   onCaptureModeChange,
-  onScreenPickerOpenChange,
   onSelectedCaptureDisplayChange,
   onSelectCaptureRegion,
 }: {
@@ -2092,22 +2174,7 @@ function PreRecordPanel({
 }) {
   const isDialog = variant === 'dialog';
   const dialogRef = useDialogFocusTrap<HTMLDivElement>(isDialog, onClose);
-  const displayWidth = Math.max(2, Math.round(preflightStatus?.display?.width ?? (captureMode === 'region' ? Math.max(captureRegion.x + captureRegion.width, 1920) : preflightStatus?.capture.width ?? 1920)));
-  const displayHeight = Math.max(2, Math.round(preflightStatus?.display?.height ?? (captureMode === 'region' ? Math.max(captureRegion.y + captureRegion.height, 1080) : preflightStatus?.capture.height ?? 1080)));
 
-  function chooseDisplay() {
-    onCaptureModeChange('display');
-  }
-
-  function chooseRegion() {
-    onCaptureModeChange('region');
-    onScreenPickerOpenChange(true);
-  }
-
-  function chooseCaptureDisplay(displayId: string) {
-    onSelectedCaptureDisplayChange(displayId);
-    onSelectCaptureRegion(displayId);
-  }
 
   return (
     <div
@@ -2131,58 +2198,46 @@ function PreRecordPanel({
         <div className="preRecordBody">
           <div className="preRecordControls">
             <section className="preRecordSection">
-              <ControlRow icon="display" label="Capture">
-                <select value={captureMode} disabled={actionPending} onChange={(event) => {
-                  const nextMode = event.currentTarget.value as CaptureMode;
-                  if (nextMode === 'region') {
-                    chooseRegion();
-                    return;
-                  }
-                  onCaptureModeChange(nextMode);
-                }} aria-label="Capture target">
-                  <option value="display">Full display</option>
-                  <option value="region">Region</option>
-                </select>
-              </ControlRow>
-              <div className="sourcePickerGrid" data-ui-region="capture-source-picker" aria-label="Capture source picker">
-                <button type="button" className={`sourcePickerCard ${captureMode === 'display' ? 'selected' : ''}`} data-source-option="display" aria-pressed={captureMode === 'display'} disabled={actionPending} onClick={chooseDisplay}>
-                  <span>Full display</span>
-                  <small>{displayWidth} x {displayHeight}</small>
-                </button>
-                <button type="button" className={`sourcePickerCard ${captureMode === 'region' ? 'selected' : ''}`} data-source-option="region" aria-pressed={captureMode === 'region'} disabled={actionPending} onClick={chooseRegion}>
-                  <span>Region</span>
-                  <small>{captureRegion.width} x {captureRegion.height}</small>
-                </button>
-                <button type="button" className="sourcePickerCard disabled" data-source-option="window" disabled title="Window capture needs platform-specific support">
-                  <span>Window</span>
-                  <small>Unavailable on this build</small>
-                  <span className="sourcePickerCardBadge" aria-hidden="true">Coming with portal support</span>
+              {/* One row: a live card per screen (click = record that whole screen)
+                  and Region (draw an area on the picked screen). */}
+              <div className="screenPickerGrid" data-ui-region="capture-source-picker" data-capture-mode={captureMode} aria-label="Choose what to record">
+                {captureDisplays.length > 0 ? [...captureDisplays]
+                  .sort((left, right) => left.bounds.x - right.bounds.x || left.bounds.y - right.bounds.y)
+                  .map((display) => (
+                    <ScreenPreviewCard
+                      key={display.id}
+                      display={display}
+                      sideLabel={screenSideLabel(display, captureDisplays)}
+                      selected={captureMode === 'display' && display.id === selectedCaptureDisplayId}
+                      region={captureMode === 'region' && display.id === selectedCaptureDisplayId ? captureRegion : null}
+                      disabled={actionPending}
+                      onSelect={() => {
+                        onCaptureModeChange('display');
+                        onSelectedCaptureDisplayChange(display.id);
+                      }}
+                    />
+                  )) : <p className="recordingActiveHint">No screens were reported by Electron.</p>}
+                <button
+                  type="button"
+                  className={`screenPickerCard regionPickerCard${captureMode === 'region' ? ' selected' : ''}`}
+                  data-source-option="region"
+                  aria-pressed={captureMode === 'region'}
+                  aria-label="Record a region of the picked screen"
+                  disabled={actionPending || !selectedCaptureDisplayId}
+                  onClick={() => onSelectCaptureRegion(selectedCaptureDisplayId)}
+                >
+                  <span className="screenPickerPreview regionPickerPreview" aria-hidden="true"><span className="regionPickerFrame" /></span>
+                  <span className="screenPickerMeta">
+                    <span>Region</span>
+                    <small>{captureMode === 'region' ? `${captureRegion.width} x ${captureRegion.height}` : 'Part of a screen'}</small>
+                  </span>
                 </button>
               </div>
               {captureMode === 'region' ? (
                 <div className="preRecordRegionSummary" aria-label="Selected capture region">
-                  <span>{captureRegion.displayLabel ?? captureDisplays.find((display) => display.id === selectedCaptureDisplayId)?.label ?? 'Screen'} · {captureRegion.width} x {captureRegion.height}</span>
-                  <small>{screenPickerOpen ? 'Choose a screen, then mark the region.' : 'Region selected. You can reselect the screen or area.'}</small>
-                  <button type="button" className="secondary compact" disabled={actionPending} onClick={() => onScreenPickerOpenChange(true)}>Reselect screen</button>
-                  <button type="button" className="secondary compact" disabled={actionPending || !selectedCaptureDisplayId} onClick={() => onSelectCaptureRegion(selectedCaptureDisplayId)}>Reselect region</button>
-                </div>
-              ) : null}
-              {captureMode === 'region' && screenPickerOpen ? (
-                <div className="screenPickerGrid" data-ui-region="capture-screen-picker" aria-label="Choose screen for region capture">
-                  {captureDisplays.length > 0 ? captureDisplays.map((display) => (
-                    <button
-                      key={display.id}
-                      type="button"
-                      className={`screenPickerCard ${display.id === selectedCaptureDisplayId ? 'selected' : ''}`}
-                      data-screen-option={display.id}
-                      aria-pressed={display.id === selectedCaptureDisplayId}
-                      disabled={actionPending}
-                      onClick={() => chooseCaptureDisplay(display.id)}
-                    >
-                      <span>{display.label}{display.primary ? ' · Primary' : ''}</span>
-                      <small>{display.bounds.width} x {display.bounds.height} · {displayPositionLabel(display.bounds)}</small>
-                    </button>
-                  )) : <p className="recordingActiveHint">No screens were reported by Electron.</p>}
+                  <span>{(() => { const regionDisplay = captureDisplays.find((display) => display.id === (captureRegion.displayId ?? selectedCaptureDisplayId)); return regionDisplay ? screenSideLabel(regionDisplay, captureDisplays) : 'Screen'; })()} · {captureRegion.width} x {captureRegion.height}</span>
+                  <small>Click a screen card to record the whole screen instead.</small>
+                  <button type="button" className="secondary compact" disabled={actionPending || !selectedCaptureDisplayId} onClick={() => onSelectCaptureRegion(selectedCaptureDisplayId)}>Redraw region</button>
                 </div>
               ) : null}
             </section>
@@ -4451,6 +4506,17 @@ function ProjectPreview({
           };
           if (!applied.screenFrame) delete nextPresentation.screenFrame;
           if (!applied.cameraFrame) delete nextPresentation.cameraFrame;
+          // Full-bleed templates (Story · 9:16) crop the screen to their shape so
+          // it fills the frame; the slice stays adjustable with the crop pan
+          // sliders. Leaving such a template drops its crop so a wide layout
+          // does not keep showing a narrow sliver.
+          const templateCropAspect = 'screenCropAspect' in applied ? applied.screenCropAspect : undefined;
+          const currentCrop = presentation.screenCrop as RegionCrop | undefined;
+          if (templateCropAspect) {
+            nextPresentation.screenCrop = makeCameraCrop(screenSourceSize, { enabled: true, aspectRatio: templateCropAspect, zoom: 1 });
+          } else if (currentCrop?.enabled && currentCrop.aspectRatio === '9:16') {
+            nextPresentation.screenCrop = { ...currentCrop, enabled: false };
+          }
           // A template owns the composition geometry. Do not let an older
           // frame-specific camera layout override the new 16:9 screen/PiP
           // arrangement at a later playhead position.
@@ -5211,10 +5277,10 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const sourceFrameDuration = Math.max(1, Math.round((model.sourceDurationSec ?? model.durationSec) * fps));
   const hasHiddenStart = model.trimStartFrame > 0;
   const hasHiddenEnd = model.trimEndFrame < sourceFrameDuration;
-  const [zoomDragPreview, setZoomDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
+  const [zoomDragPreview, setZoomDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [zoomSelectionPreview, setZoomSelectionPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [selectedZoomMarkerIds, setSelectedZoomMarkerIds] = React.useState<string[]>([]);
-  const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
+  const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [cutDragPreview, setCutDragPreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [trimDragPreview, setTrimDragPreview] = React.useState<{ clipId: string; edge: 'head' | 'tail'; frame: number; deltaFrames: number } | null>(null);
@@ -5871,6 +5937,10 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     return Math.max(0, Math.min(((clientX - rect.left) / rect.width) * model.durationSec, model.durationSec));
   }
 
+  const laneClipsForMapping = model.lanes.screen
+    .filter((region) => Number.isFinite(region.timelineIn) && Number.isFinite(region.timelineOut) && Number.isFinite(region.sourceIn) && Number.isFinite(region.sourceOut))
+    .map((region) => ({ timelineIn: region.timelineIn as number, timelineOut: region.timelineOut as number, sourceIn: region.sourceIn as number, sourceOut: region.sourceOut as number }));
+
   function timelineFrameFromClient(handle: HTMLElement, clientX: number) {
     const track = handle.closest('.timelineLane')?.querySelector('.laneTrack');
     if (!(track instanceof HTMLElement)) return null;
@@ -5949,13 +6019,18 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     nudgeTimelinePlayhead(event.key === 'ArrowRight' ? 1 : -1, event.shiftKey);
   }
 
+  // The lanes are laid out in timeline frames; zoom and censor ranges are
+  // recording frames. Scaling the pointer by the recording's full length put a
+  // zoom somewhere other than the click once anything was trimmed, and clicks
+  // near the start landed in trimmed-away footage where no zoom shows
+  // (2026-09-27).
   function sourceTimeFromClient(handle: HTMLElement, clientX: number) {
     const track = handle.closest('.timelineLane')?.querySelector('.laneTrack');
     if (!(track instanceof HTMLElement)) return null;
-    const rect = track.getBoundingClientRect();
-    if (rect.width <= 0) return null;
-    const sourceDurationSec = model.sourceDurationSec ?? model.durationSec;
-    return Math.max(0, Math.min(((clientX - rect.left) / rect.width) * sourceDurationSec, sourceDurationSec));
+    const timelineSec = timelineTimeFromClient(track, clientX);
+    if (timelineSec === null) return null;
+    const sourceFrame = timelineFrameToSourceFrame(laneClipsForMapping, Math.round(timelineSec * fps), { clamp: true });
+    return sourceFrame === null ? null : sourceFrame / fps;
   }
 
   function sourceFrameFromClient(handle: HTMLElement, clientX: number) {
@@ -5973,15 +6048,20 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const timelineOut = Math.round(region.timelineOut ?? timelineIn + 1);
     const sourceIn = Math.round(region.sourceIn ?? 0);
     const sourceOut = Math.round(region.sourceOut ?? sourceIn + 1);
+    // With ripple on, an edge can reveal all of its hidden footage: empty space
+    // is filled first and the later sections slide along for the rest. With
+    // ripple off it stops at the neighbouring section.
     if (edge === 'head') {
       return {
-        minFrame: Math.max(Math.round(previous?.timelineOut ?? 0), timelineIn - sourceIn),
+        minFrame: rippleTrim ? timelineIn - sourceIn : Math.max(Math.round(previous?.timelineOut ?? 0), timelineIn - sourceIn),
         maxFrame: timelineOut - 1,
       };
     }
     return {
       minFrame: timelineIn + 1,
-      maxFrame: Math.min(Math.round(next?.timelineIn ?? sourceFrameDuration), timelineOut + (sourceFrameDuration - sourceOut)),
+      maxFrame: rippleTrim
+        ? timelineOut + (sourceFrameDuration - sourceOut)
+        : Math.min(Math.round(next?.timelineIn ?? sourceFrameDuration), timelineOut + (sourceFrameDuration - sourceOut)),
     };
   }
 
@@ -6121,7 +6201,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const stepFrames = largeStep ? Math.max(1, Math.round(fps)) : 1;
     const initialFrame = Math.round(edge === 'head' ? current.timelineIn ?? 0 : current.timelineOut ?? 0);
     const nextFrame = Math.max(bounds.minFrame, Math.min(bounds.maxFrame, initialFrame + direction * stepFrames));
-    onTrimClipEdge(region.id, edge, nextFrame);
+    onTrimClipEdge(region.id, edge, nextFrame, { ripple: rippleTrim });
     onScrubEnd(Math.max(0, Math.min(model.durationSec, nextFrame / fps)));
   }
 
@@ -6140,36 +6220,25 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
     const startClientX = event.clientX;
-    const initialFrame = sourceFrameFromClient(handle, event.clientX) ?? 0;
+    const initialTimelineFrame = timelineFrameFromClient(handle, event.clientX) ?? 0;
     const initialStart = Math.round(region.startFrame ?? 0);
     const initialEnd = Math.round(region.endFrame ?? initialStart + 15);
-    const duration = Math.max(15, initialEnd - initialStart);
-    // Clamp drag to the VISIBLE trim window, not the raw recording duration.
-    // Dragging a marker past the trim boundary would silently remove it from
-    // the rail (the rail filters markers to those overlapping [trimStart, trimEnd]).
-    const minFrame = Math.max(0, model.trimStartFrame);
-    const maxFrame = Math.max(minFrame + 1, Math.min(sourceFrameDuration, model.trimEndFrame));
-    let latest = { id: region.id, startFrame: initialStart, endFrame: initialEnd };
+    const initialRange = { startFrame: initialStart, endFrame: Math.max(initialStart + 15, initialEnd) };
+    let latest = { id: region.id, ...initialRange, timelineStart: 0, timelineEnd: 0 };
     let dragged = false;
 
+    // Drag in timeline frames and map back to recording frames once (see
+    // dragSourceRangeOnTimeline) so the range tracks the pointer across cuts.
     const update = (clientX: number) => {
       if (!dragged) {
         if (Math.abs(clientX - startClientX) < 4) return;
         dragged = true;
       }
-      const frame = sourceFrameFromClient(handle, clientX);
+      const frame = timelineFrameFromClient(handle, clientX);
       if (frame === null) return;
-      if (mode === 'move') {
-        const delta = frame - initialFrame;
-        const startFrame = Math.max(minFrame, Math.min(maxFrame - duration, initialStart + delta));
-        latest = { id: region.id, startFrame, endFrame: startFrame + duration };
-      } else if (mode === 'start') {
-        const startFrame = Math.max(minFrame, Math.min(initialEnd - 15, frame));
-        latest = { id: region.id, startFrame, endFrame: initialEnd };
-      } else {
-        const endFrame = Math.max(initialStart + 15, Math.min(maxFrame, frame));
-        latest = { id: region.id, startFrame: initialStart, endFrame };
-      }
+      const next = dragSourceRangeOnTimeline(laneClipsForMapping, initialRange, { mode, deltaFrames: frame - initialTimelineFrame, pointerFrame: frame, minSpan: 15 });
+      if (!next) return;
+      latest = { id: region.id, ...next };
       setZoomDragPreview(latest);
     };
 
@@ -6229,13 +6298,13 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
 
   function zoomRegionStyle(region: { id: string; left: number; width: number; startFrame?: number; endFrame?: number }) {
     if (zoomDragPreview?.id !== region.id) return { left: `${region.left}%`, width: `${region.width}%` };
-    const placement = frameRangeToPlacement(zoomDragPreview.startFrame - model.trimStartFrame, zoomDragPreview.endFrame - model.trimStartFrame, fps, model.durationSec);
+    const placement = frameRangeToPlacement(zoomDragPreview.timelineStart, zoomDragPreview.timelineEnd, fps, model.durationSec);
     return { left: `${placement.left}%`, width: `${placement.width}%` };
   }
 
   function censorRegionStyle(region: { id: string; left: number; width: number }) {
     if (censorDragPreview?.id !== region.id) return { left: `${region.left}%`, width: `${region.width}%` };
-    const placement = frameRangeToPlacement(censorDragPreview.startFrame - model.trimStartFrame, censorDragPreview.endFrame - model.trimStartFrame, fps, model.durationSec);
+    const placement = frameRangeToPlacement(censorDragPreview.timelineStart, censorDragPreview.timelineEnd, fps, model.durationSec);
     return { left: `${placement.left}%`, width: `${placement.width}%` };
   }
 
@@ -6254,33 +6323,25 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
     const startClientX = event.clientX;
-    const initialFrame = sourceFrameFromClient(handle, event.clientX) ?? 0;
+    const initialTimelineFrame = timelineFrameFromClient(handle, event.clientX) ?? 0;
     const initialStart = Math.round(region.startFrame ?? 0);
     const initialEnd = Math.round(region.endFrame ?? initialStart + MIN_CENSOR_SPAN_FRAMES);
-    const span = Math.max(MIN_CENSOR_SPAN_FRAMES, initialEnd - initialStart);
-    const minFrame = Math.max(0, model.trimStartFrame);
-    const maxFrame = Math.max(minFrame + 1, Math.min(sourceFrameDuration, model.trimEndFrame));
-    let latest = { id: region.id, startFrame: initialStart, endFrame: initialEnd };
+    const initialRange = { startFrame: initialStart, endFrame: Math.max(initialStart + MIN_CENSOR_SPAN_FRAMES, initialEnd) };
+    let latest = { id: region.id, ...initialRange, timelineStart: 0, timelineEnd: 0 };
     let dragged = false;
 
+    // Drag in timeline frames and map back to recording frames once (see
+    // dragSourceRangeOnTimeline) so the range tracks the pointer across cuts.
     const update = (clientX: number) => {
       if (!dragged) {
         if (Math.abs(clientX - startClientX) < 4) return;
         dragged = true;
       }
-      const frame = sourceFrameFromClient(handle, clientX);
+      const frame = timelineFrameFromClient(handle, clientX);
       if (frame === null) return;
-      if (mode === 'move') {
-        const delta = frame - initialFrame;
-        const startFrame = Math.max(minFrame, Math.min(maxFrame - span, initialStart + delta));
-        latest = { id: region.id, startFrame, endFrame: startFrame + span };
-      } else if (mode === 'start') {
-        const startFrame = Math.max(minFrame, Math.min(initialEnd - MIN_CENSOR_SPAN_FRAMES, frame));
-        latest = { id: region.id, startFrame, endFrame: initialEnd };
-      } else {
-        const endFrame = Math.max(initialStart + MIN_CENSOR_SPAN_FRAMES, Math.min(maxFrame, frame));
-        latest = { id: region.id, startFrame: initialStart, endFrame };
-      }
+      const next = dragSourceRangeOnTimeline(laneClipsForMapping, initialRange, { mode, deltaFrames: frame - initialTimelineFrame, pointerFrame: frame, minSpan: MIN_CENSOR_SPAN_FRAMES });
+      if (!next) return;
+      latest = { id: region.id, ...next };
       setCensorDragPreview(latest);
     };
 
@@ -6463,9 +6524,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               <div key={region.id} className={`clipBar ${selectedScreenClipIds.includes(region.id) ? 'selectedClip' : ''} ${clipDragPreview?.clipId === region.id || trimDragPreview?.clipId === region.id ? 'dragging' : ''}`} style={screenRegionStyle(region)} data-recording-clip-id={region.id} data-recording-timeline-in={Math.round(region.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? 0)} aria-label={`${selectedScreenClipIds.includes(region.id) ? 'Selected ' : ''}Screen section ${index + 1}`}>
                 {index > 0 ? <span className="clipCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? 0)} aria-hidden="true" /> : null}
               {selectedScreenClipId === region.id && trimDragPreview?.clipId === region.id ? <span className="trimAvailabilityGuide" aria-hidden="true" /> : null}
-              {selectedScreenClipId === region.id ? <button type="button" role="slider" className="trimHandle trimHandleStart" data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} /> : null}
+              {selectedScreenClipId === region.id ? <button type="button" role="slider" className={`trimHandle trimHandleStart${(region.sourceIn ?? 0) > 0 ? ' hasHiddenFootage' : ''}`} title={(region.sourceIn ?? 0) > 0 ? `${formatClock((region.sourceIn ?? 0) / fps)} of earlier footage is hidden. Drag left to bring it back.` : 'Drag right to trim the start'} data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} /> : null}
               <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}><Icon name="frame" /> Clip</button>
-              {selectedScreenClipId === region.id ? <button type="button" role="slider" className="trimHandle trimHandleEnd" data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} /> : null}
+              {selectedScreenClipId === region.id ? <button type="button" role="slider" className={`trimHandle trimHandleEnd${(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? ' hasHiddenFootage' : ''}`} title={(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? `${formatClock((sourceFrameDuration - (region.sourceOut ?? sourceFrameDuration)) / fps)} of later footage is hidden. Drag right to bring it back.` : 'Drag left to trim the end'} data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} /> : null}
               </div>
           ))}
           {cutDragPreview ? (() => {
@@ -6655,7 +6716,11 @@ function AutoZoomGenerationPanel({
   onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
 }) {
   const document = project.document as unknown as ProjectDocument;
-  const markerCount = listMarkers(document).filter((marker) => marker.kind === 'auto').length;
+  // Count only zooms inside footage that is still on the timeline; zooms in
+  // trimmed-away footage never show, and counting them read as zooms missing.
+  const visibleSections = selectRecordingEditModel({ document: document as never }).screenClips;
+  const markerCount = listMarkers(document).filter((marker) => marker.kind === 'auto'
+    && visibleSections.some((section) => marker.endFrame > section.sourceIn && marker.startFrame < section.sourceOut)).length;
   const [isSaving, setIsSaving] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
 

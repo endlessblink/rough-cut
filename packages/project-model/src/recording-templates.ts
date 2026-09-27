@@ -4,6 +4,7 @@ import type {
   CameraPosition,
   CameraPresentation,
   CameraShape,
+  CropAspectRatio,
   NormalizedRect,
   ProjectAspectRatio,
   RecordingBackgroundStyle,
@@ -28,6 +29,10 @@ export interface RecordingTemplatePreset {
   readonly camera: RecordingTemplateCameraPatch;
   readonly screenFrame: NormalizedRect;
   readonly cameraFrame: NormalizedRect;
+  /** Crop the screen recording to this shape so it fills a full-bleed frame. */
+  readonly screenCropAspect?: CropAspectRatio;
+  /** Background fields the layout depends on (e.g. no padding for full-bleed). */
+  readonly backgroundOverrides?: Partial<RecordingBackgroundStyle>;
 }
 
 export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
@@ -63,6 +68,20 @@ export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
     camera: { position: 'center', shape: 'rounded', aspectRatio: '16:9', size: 96, roundness: 42, visible: true },
     screenFrame: { x: 0.08, y: 0.075, w: 0.84, h: 0.53 },
     cameraFrame: { x: 0.08, y: 0.68, w: 0.84, h: 0.266 },
+  },
+  {
+    id: 'story-9-16',
+    label: 'Story · 9:16',
+    description: 'Full-screen vertical story: a 9:16 slice of the screen fills the whole frame, with a camera bubble in the lower third.',
+    layoutLabel: 'Full-screen story',
+    aspectRatio: '9:16',
+    backgroundPresetId: 'black-sand',
+    backgroundOverrides: { bgPadding: 0, bgCornerRadius: 0, bgShadowEnabled: false },
+    camera: { position: 'center', shape: 'circle', aspectRatio: '1:1', size: 100, roundness: 100, visible: true },
+    screenFrame: { x: 0, y: 0, w: 1, h: 1 },
+    // Circle on a 9:16 canvas: height = width * 9/16.
+    cameraFrame: { x: 0.32, y: 0.74, w: 0.36, h: 0.2025 },
+    screenCropAspect: '9:16',
   },
   {
     id: 'square-1-1',
@@ -131,6 +150,7 @@ export interface AppliedRecordingTemplate {
   readonly camera: Partial<CameraPresentation>;
   readonly screenFrame: NormalizedRect;
   readonly cameraFrame: NormalizedRect;
+  readonly screenCropAspect?: CropAspectRatio;
 }
 
 export function applyRecordingTemplatePreset(
@@ -143,10 +163,11 @@ export function applyRecordingTemplatePreset(
   if (!backgroundPreset) return undefined;
   return {
     aspectRatio: template.aspectRatio,
-    background: { ...backgroundPreset.style },
+    background: { ...backgroundPreset.style, ...(template.backgroundOverrides ?? {}) },
     camera: { ...template.camera },
     screenFrame: { ...template.screenFrame },
     cameraFrame: { ...template.cameraFrame },
+    ...(template.screenCropAspect ? { screenCropAspect: template.screenCropAspect } : {}),
   };
 }
 

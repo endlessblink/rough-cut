@@ -33,18 +33,19 @@ try {
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('[data-ui-region="pre-record-panel"]', { timeout: 10000 });
 
-  await page.locator('[data-source-option="region"]').click();
-  await page.locator('[data-ui-region="capture-screen-picker"]').waitFor({ timeout: 10000 });
+  // The Region card sits in the same row as the live screen cards and draws on
+  // the picked screen.
+  await page.locator('[data-ui-region="capture-source-picker"]').waitFor({ timeout: 10000 });
   const initialPanelBounds = await assertPreRecordFooterVisible(page);
-  const firstScreen = page.locator('[data-screen-option]').first();
-  await firstScreen.scrollIntoViewIfNeeded();
+  const firstScreen = page.locator('[data-source-option="region"]');
+  await page.locator('[data-screen-option]').first().click();
 
   const cancelOverlayPromise = app.waitForEvent('window', { timeout: 10000 });
   await firstScreen.click();
   const cancelOverlay = await cancelOverlayPromise;
   await cancelOverlay.waitForLoadState('domcontentloaded');
   await cancelOverlay.locator('#cancel').click();
-  await page.locator('[data-ui-region="capture-screen-picker"]').waitFor({ timeout: 10000 });
+  await page.locator('[data-ui-region="capture-source-picker"]').waitFor({ timeout: 10000 });
 
   const overlayPromise = app.waitForEvent('window', { timeout: 10000 });
   await firstScreen.click();
@@ -61,17 +62,16 @@ try {
 
   await page.locator('[aria-label="Selected capture region"]').waitFor({ timeout: 10000 });
   await page.waitForFunction(() => {
-    const select = document.querySelector('select[aria-label="Capture target"]');
+    const picker = document.querySelector('[data-ui-region="capture-source-picker"]');
     const summary = document.querySelector('[aria-label="Selected capture region"]');
-    const picker = document.querySelector('[data-ui-region="capture-screen-picker"]');
-    return select?.value === 'region' && !picker && /400\s*x\s*250/.test(summary?.textContent ?? '');
+    return picker?.getAttribute('data-capture-mode') === 'region' && /400\s*x\s*250/.test(summary?.textContent ?? '');
   }, null, { timeout: 10000 });
 
   report = {
     ok: true,
-    captureTarget: await page.locator('select[aria-label="Capture target"]').inputValue(),
+    captureTarget: await page.locator('[data-ui-region="capture-source-picker"]').getAttribute('data-capture-mode'),
     regionSummary: await page.locator('[aria-label="Selected capture region"]').innerText(),
-    hasScreenPickerAfterApply: await page.locator('[data-ui-region="capture-screen-picker"]').count() > 0,
+    hasScreenPickerAfterApply: await page.locator('[data-screen-option]').count() > 0,
     preRecordPanelBounds: initialPanelBounds,
     screenshotPath,
     reportPath,

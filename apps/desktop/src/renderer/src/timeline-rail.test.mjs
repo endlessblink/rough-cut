@@ -394,3 +394,37 @@ test('censor lane is empty when the recording has no censors', () => {
   });
   assert.deepEqual(model.lanes.censor, []);
 });
+
+// 2026-09-27: lane clicks were scaled by the recording's full length, so on a
+// trimmed recording a zoom landed away from the click, or in trimmed-away
+// footage where it never showed.
+test('a lane position maps back to the recording frame shown there', async () => {
+  const { timelineFrameToSourceFrame, sourceRangeToTimelinePlacement } = await import('./timeline-rail.mjs');
+  const headTrimmed = [{ timelineIn: 0, timelineOut: 2715, sourceIn: 409, sourceOut: 3124 }];
+  assert.equal(timelineFrameToSourceFrame(headTrimmed, 0), 409);
+  assert.equal(timelineFrameToSourceFrame(headTrimmed, 1357), 1766);
+  const cut = [{ timelineIn: 0, timelineOut: 100, sourceIn: 0, sourceOut: 100 }, { timelineIn: 100, timelineOut: 200, sourceIn: 300, sourceOut: 400 }];
+  assert.equal(timelineFrameToSourceFrame(cut, 150), 350);
+  assert.equal(timelineFrameToSourceFrame(cut, 250), null);
+  assert.equal(timelineFrameToSourceFrame(cut, 250, { clamp: true }), 399);
+  const placement = sourceRangeToTimelinePlacement(headTrimmed, 1766, 1826, 30, 2715 / 30);
+  assert.ok(Math.abs(placement.left - 50) < 0.1, `zoom drawn where it was added, got ${placement.left}%`);
+});
+
+// 2026-09-27: zoom drags were done in recording frames, so a zoom leapt by the
+// length of any cut it crossed, shrank as it slid under a cut, and ran
+// backwards once sections were reordered.
+test('dragging a zoom follows the pointer across cuts and reordered sections', async () => {
+  const { dragSourceRangeOnTimeline } = await import('./timeline-rail.mjs');
+  const cut = [{ timelineIn: 0, timelineOut: 100, sourceIn: 0, sourceOut: 100 }, { timelineIn: 100, timelineOut: 200, sourceIn: 200, sourceOut: 300 }];
+  const moved = dragSourceRangeOnTimeline(cut, { startFrame: 50, endFrame: 80 }, { mode: 'move', deltaFrames: 40, minSpan: 15 });
+  assert.deepEqual(moved, { startFrame: 90, endFrame: 220, timelineStart: 90, timelineEnd: 120 });
+  const pastCut = dragSourceRangeOnTimeline(cut, { startFrame: 50, endFrame: 80 }, { mode: 'move', deltaFrames: 100, minSpan: 15 });
+  assert.deepEqual(pastCut, { startFrame: 250, endFrame: 280, timelineStart: 150, timelineEnd: 180 });
+  const clampedAtEnd = dragSourceRangeOnTimeline(cut, { startFrame: 50, endFrame: 80 }, { mode: 'move', deltaFrames: 999, minSpan: 15 });
+  assert.equal(clampedAtEnd.timelineEnd, 200);
+  const endEdge = dragSourceRangeOnTimeline(cut, { startFrame: 50, endFrame: 80 }, { mode: 'end', pointerFrame: 130, minSpan: 15 });
+  assert.deepEqual(endEdge, { startFrame: 50, endFrame: 230, timelineStart: 50, timelineEnd: 130 });
+  const reordered = [{ timelineIn: 0, timelineOut: 100, sourceIn: 200, sourceOut: 300 }, { timelineIn: 100, timelineOut: 200, sourceIn: 0, sourceOut: 100 }];
+  assert.equal(dragSourceRangeOnTimeline(reordered, { startFrame: 50, endFrame: 80 }, { mode: 'move', deltaFrames: -60, minSpan: 15 }), null, 'a drag that would straddle out-of-order sections is refused, not flipped');
+});

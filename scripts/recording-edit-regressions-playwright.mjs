@@ -265,6 +265,109 @@ try {
   }
   await rippleButton.click();
 
+  // One-frame keyboard nudges are exact where pixel drags are not.
+  const nudgeHandle = async (clipIndex, selector, key, times) => {
+    for (let step = 0; step < times; step += 1) {
+      await page.locator('.clipBar .clipBody').nth(clipIndex).click();
+      await page.waitForTimeout(150);
+      await page.locator(selector).first().focus();
+      await page.keyboard.press(key);
+      await page.waitForTimeout(500);
+    }
+  };
+  const dragHandle = async (selector, dx) => {
+    const box = await page.locator(selector).first().boundingBox();
+    if (!box) return false;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    for (let step = 5; step <= Math.abs(dx); step += 5) {
+      await page.mouse.move(box.x + box.width / 2 + Math.sign(dx) * step, box.y + box.height / 2);
+      await page.waitForTimeout(20);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+    return true;
+  };
+
+  // 2026-09-27: dragging an end outward into empty space pushed the next
+  // section along instead of filling the space.
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(900);
+  const withSpace = await ranges();
+  if (contiguous(withSpace)) {
+    check('lengthening-into-empty-space-leaves-next-section', false, { reason: 'fixture has no empty space to fill', withSpace });
+  } else {
+    await nudgeHandle(1, '.trimHandleEnd', 'ArrowRight', 5);
+    const filled = await ranges();
+    check('lengthening-into-empty-space-leaves-next-section', filled[1][1] > withSpace[1][1] && filled[2][0] === withSpace[2][0] && filled[2][1] === withSpace[2][1], { withSpace, filled });
+  }
+
+  // 2026-09-27: a start edge could not be dragged left past the previous
+  // section, so hidden footage at a section's start could not come back, and
+  // nothing showed that footage was hidden there.
+  await page.locator('.clipBar .clipBody').nth(2).click();
+  await page.waitForTimeout(300);
+  const hiddenHint = await page.locator('.trimHandleStart.hasHiddenFootage').count();
+  const beforeReveal = await ranges();
+  // Room before the section is filled first; past that the section keeps its
+  // start and grows, pushing nothing into the previous section.
+  const room = beforeReveal[2][0] - beforeReveal[1][1];
+  await nudgeHandle(2, '.trimHandleStart', 'ArrowLeft', room + 3);
+  const revealed = await ranges();
+  const grewBy = (revealed[2][1] - revealed[2][0]) - (beforeReveal[2][1] - beforeReveal[2][0]);
+  check('start-edge-shows-and-reveals-hidden-footage', hiddenHint === 1 && grewBy === room + 3 && revealed[2][0] === beforeReveal[1][1] && JSON.stringify(revealed[1]) === JSON.stringify(beforeReveal[1]), { hiddenHint, room, beforeReveal, revealed });
+
+  // 2026-09-27: zoom lane clicks were scaled by the recording's full length,
+  // so zooms landed away from the click (or in trimmed-away footage), and a
+  // zoom near the end stretched the timeline and squeezed everything left.
+  const zoomRegions = () => page.evaluate(() => [...document.querySelectorAll('[data-timeline-lane="zoom"] .timelineRegion')]
+    .map((element) => Number((element.getAttribute('style') ?? '').match(/left:\s*(?:calc\()?([\d.]+)%/)?.[1])));
+  const zoomLane = await page.locator('[data-timeline-lane="zoom"] .laneTrack').boundingBox();
+  const clipsBeforeZoom = await ranges();
+  const zoomLandings = [];
+  for (const fraction of [0.3, 0.92]) {
+    const before = await zoomRegions();
+    await page.keyboard.press('Escape');
+    await page.mouse.click(zoomLane.x + zoomLane.width * fraction, zoomLane.y + zoomLane.height / 2);
+    await page.waitForTimeout(1200);
+    const after = await zoomRegions();
+    const added = after.filter((left) => !before.some((existing) => Math.abs(existing - left) < 0.05));
+    zoomLandings.push({ clickedAt: fraction * 100, landedAt: added[0] ?? null, existingMoved: before.some((left) => !after.some((next) => Math.abs(next - left) < 0.05)) });
+  }
+  const clipsAfterZoom = await ranges();
+  check('zoom-lands-where-clicked-and-moves-nothing', zoomLandings.every((landing) => landing.landedAt !== null && Math.abs(landing.landedAt - landing.clickedAt) < 1 && !landing.existingMoved)
+    && JSON.stringify(clipsAfterZoom) === JSON.stringify(clipsBeforeZoom), { zoomLandings, clipsBeforeZoom, clipsAfterZoom });
+
+  // 2026-09-27: zoom drags ran in recording frames, so a zoom dragged across a
+  // cut leapt by the cut's length, shrank under it, and landed off the pointer.
+  const zoomBoxes = () => page.evaluate(() => [...document.querySelectorAll('[data-timeline-lane="zoom"] .timelineRegion')].map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, width: rect.width };
+  }));
+  const zoomBefore = (await zoomBoxes()).sort((a, b) => a.left - b.left)[0];
+  const zoomDragPx = zoomLane.width * 0.2;
+  const zoomTrail = [];
+  if (zoomBefore) {
+    const grabX = zoomBefore.left + zoomBefore.width / 2;
+    const grabY = (await page.locator('[data-timeline-lane="zoom"] .timelineRegion').first().boundingBox()).y + 6;
+    await page.mouse.move(grabX, grabY);
+    await page.mouse.down();
+    for (let step = 8; step <= zoomDragPx; step += 8) {
+      await page.mouse.move(grabX + step, grabY);
+      await page.waitForTimeout(20);
+      const now = (await zoomBoxes()).sort((a, b) => Math.abs(a.left - zoomBefore.left - step) - Math.abs(b.left - zoomBefore.left - step))[0];
+      zoomTrail.push({ pointer: step, moved: Math.round(now.left - zoomBefore.left), width: Math.round(now.width) });
+    }
+    await page.mouse.move(grabX + zoomDragPx, grabY);
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+  }
+  const zoomAfter = (await zoomBoxes()).sort((a, b) => Math.abs(a.left - zoomBefore.left - zoomDragPx) - Math.abs(b.left - zoomBefore.left - zoomDragPx))[0];
+  const followsPointer = zoomTrail.every((sample) => Math.abs(sample.moved - sample.pointer) <= 3 && Math.abs(sample.width - zoomBefore.width) <= 3);
+  check('zoom-drag-follows-pointer-across-cuts', Boolean(zoomBefore) && zoomTrail.length > 0 && followsPointer
+    && Math.abs(zoomAfter.left - zoomBefore.left - zoomDragPx) <= 3 && Math.abs(zoomAfter.width - zoomBefore.width) <= 3,
+  { zoomBefore, zoomAfter, zoomDragPx, zoomTrail: zoomTrail.filter((sample) => Math.abs(sample.moved - sample.pointer) > 3 || Math.abs(sample.width - zoomBefore.width) > 3).slice(0, 8) });
+
   await page.screenshot({ path: join(outputRoot, 'recording-edit-regressions.png') });
 } finally {
   await app.close().catch(() => {});

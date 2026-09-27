@@ -54,6 +54,14 @@ export function timeToPercent(timeSec: number, durationSec: number): number;
 export function percentToTime(percent: number, durationSec: number): number;
 export function frameToPercent(frame: number, fps: number, durationSec: number): number;
 export function frameRangeToPlacement(startFrame: number, endFrame: number, fps: number, durationSec: number): { left: number; width: number };
+type RecordingLaneClip = { timelineIn: number; timelineOut: number; sourceIn: number; sourceOut: number };
+export function timelineFrameToSourceFrame(clips: readonly RecordingLaneClip[], timelineFrame: number, options?: { clamp?: boolean }): number | null;
+export function sourceRangeToTimelinePlacement(clips: readonly RecordingLaneClip[], startFrame: number, endFrame: number, fps: number, durationSec: number): { left: number; width: number } | null;
+export function dragSourceRangeOnTimeline(
+  clips: readonly RecordingLaneClip[],
+  range: { startFrame: number; endFrame: number },
+  options: { mode: 'move' | 'start' | 'end'; deltaFrames?: number; pointerFrame?: number; minSpan?: number },
+): { startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null;
 export function linkedRecordingLaneBoundaryMismatches(lanes: TimelineModel['lanes']): readonly Record<string, unknown>[];
 export function buildTimelineModel(options: {
   document: ProjectDocument;

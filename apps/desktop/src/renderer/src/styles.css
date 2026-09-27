@@ -7465,3 +7465,103 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   outline: 2px solid #8fc2ff;
   outline-offset: -2px;
 }
+
+/* A trimmed edge with footage hidden behind it shows a small outward chevron,
+   so the selected section says it can be lengthened. */
+.trimHandle.hasHiddenFootage::after {
+  border-bottom: 5px solid transparent;
+  border-top: 5px solid transparent;
+  content: '';
+  height: 0;
+  opacity: 0.9;
+  pointer-events: none;
+  position: absolute;
+  top: calc(50% - 5px);
+  width: 0;
+}
+.trimHandleStart.hasHiddenFootage::after {
+  border-right: 5px solid #fbbf24;
+  left: -1px;
+}
+.trimHandleEnd.hasHiddenFootage::after {
+  border-left: 5px solid #fbbf24;
+  right: -1px;
+}
+
+/* Screen cards carry a live picture of each monitor, laid out in desk order,
+   so choosing left or right screen is choosing what you can see. */
+.screenPickerCard {
+  gap: 0.4rem;
+  justify-items: stretch;
+}
+.screenPickerPreview {
+  aspect-ratio: 16 / 9;
+  background: #050508;
+  border: 1px solid #1c1c24;
+  border-radius: 8px;
+  display: block;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+.screenPickerPreview video {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+  width: 100%;
+}
+.screenPickerPreview video.isLive { opacity: 1; }
+.screenPickerCard .screenPickerPreviewEmpty {
+  color: var(--subtle);
+  display: grid;
+  font-size: 0.68rem;
+  font-weight: 600;
+  inset: 0;
+  place-items: center;
+  position: absolute;
+}
+.screenPickerMeta {
+  align-items: baseline;
+  display: flex;
+  gap: 0.4rem;
+  justify-content: space-between;
+  width: 100%;
+}
+.screenPickerCard.selected .screenPickerPreview {
+  border-color: rgb(122 167 255 / 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .screenPickerPreview video { transition: none; }
+}
+
+/* Region sits in the same row as the screens: a dashed frame instead of a
+   live picture. The chosen area is outlined on its screen's picture, with
+   everything outside it dimmed. */
+.regionPickerPreview {
+  display: grid;
+  place-items: center;
+}
+.regionPickerFrame {
+  border: 1.5px dashed rgb(122 167 255 / 0.55);
+  border-radius: 4px;
+  display: block;
+  height: 46%;
+  width: 52%;
+}
+.regionPickerCard.selected .regionPickerFrame {
+  border-color: rgb(122 167 255 / 0.9);
+}
+.screenPickerCard .screenPickerRegion {
+  border: 1.5px solid #7aa7ff;
+  border-radius: 2px;
+  box-shadow: 0 0 0 999px rgb(5 5 8 / 0.55);
+  display: block;
+  pointer-events: none;
+  position: absolute;
+}
+.screenPickerCard {
+  align-content: start;
+  grid-template-columns: minmax(0, 1fr);
+}

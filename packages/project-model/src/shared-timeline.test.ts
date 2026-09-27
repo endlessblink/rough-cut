@@ -293,3 +293,19 @@ describe('resolveTimelineLengthFrames', () => {
     expect(resolveTimelineLengthFrames(emptyTimeline, 0)).toBe(0);
   });
 });
+
+describe('recording-linked markers and timeline length', () => {
+  it('a zoom placed in recording frames never makes a trimmed timeline longer', () => {
+    // 2026-09-27: a zoom near the end of a head-trimmed recording stretched the
+    // timeline past its real end and squeezed every other zoom left.
+    const timeline = {
+      tracks: [{ id: 'video-1', kind: 'video', index: 0, label: 'Video', enabled: true, locked: false, muted: false, clips: [{ id: 'c1', mediaId: 'm', trackId: 'video-1', timelineIn: 0, timelineOut: 2715, sourceIn: 409, sourceOut: 3124 } as unknown as TimelineClip] } as unknown as TimelineTrack],
+      markers: [
+        { id: 'zoom-1', kind: 'zoom', startFrame: 2852, endFrame: 2912, linkedGroupId: 'linked:rec' },
+        { id: 'note-1', kind: 'note', startFrame: 100, endFrame: 200 },
+      ],
+      effects: [],
+    } as unknown as SharedTimeline;
+    expect(computeTimelineDuration(timeline)).toBe(2715);
+  });
+});

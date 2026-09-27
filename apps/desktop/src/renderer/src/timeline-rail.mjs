@@ -221,6 +221,90 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
   };
 }
 
+/**
+ * Map a timeline frame (what the lanes are laid out in) back to the recording
+ * frame shown there. Zoom and censor ranges live in recording frames so they
+ * follow the footage through trims and cuts. With `clamp`, a frame in empty
+ * space snaps to the nearest section edge (for drags); without it, null.
+ */
+export function timelineFrameToSourceFrame(clips, timelineFrame, { clamp = false } = {}) {
+  if (!Array.isArray(clips) || clips.length === 0) return timelineFrame;
+  const frame = Math.round(timelineFrame);
+  const clip = clips.find((item) => frame >= item.timelineIn && frame < item.timelineOut);
+  if (clip) return clip.sourceIn + (frame - clip.timelineIn);
+  if (!clamp) return null;
+  let best = null;
+  for (const item of clips) {
+    const candidates = [[item.timelineIn, item.sourceIn], [item.timelineOut - 1, item.sourceOut - 1]];
+    for (const [at, source] of candidates) {
+      const distance = Math.abs(at - frame);
+      if (!best || distance < best.distance) best = { distance, source };
+    }
+  }
+  return best ? best.source : null;
+}
+
+/** One lane placement for a recording-frame range, merged across cuts. */
+export function sourceRangeToTimelinePlacement(clips, startFrame, endFrame, fps, durationSec) {
+  const pieces = sourceRangeToTimelinePlacements(clips, startFrame, endFrame, fps, durationSec);
+  if (pieces.length === 0) return null;
+  const left = Math.min(...pieces.map((piece) => piece.left));
+  const right = Math.max(...pieces.map((piece) => piece.left + piece.width));
+  return { left, width: Math.max(0, right - left) };
+}
+
+/**
+ * Drag a recording-frame range (zoom, censor) along the timeline.
+ *
+ * The pointer moves in timeline frames, so the drag is done there and only the
+ * result is mapped back to recording frames. Working in recording frames
+ * instead makes the range leap by the length of any cut it crosses, shrink as
+ * it slides under a cut, and run backwards when sections are reordered.
+ *
+ * `mode` is 'move' (shift by `deltaFrames`), 'start' or 'end' (set that edge to
+ * `pointerFrame`). Returns the new recording range plus the timeline span to
+ * draw while dragging, or null when the range would not map to one forward
+ * recording range (the caller keeps the last good one).
+ */
+export function dragSourceRangeOnTimeline(clips, range, { mode, deltaFrames = 0, pointerFrame = 0, minSpan = 1 }) {
+  const span = sourceRangeToTimelineFrames(clips, range.startFrame, range.endFrame);
+  if (!span) return null;
+  const hasClips = Array.isArray(clips) && clips.length > 0;
+  const lower = hasClips ? Math.min(...clips.map((clip) => clip.timelineIn)) : 0;
+  const upper = hasClips ? Math.max(...clips.map((clip) => clip.timelineOut)) : Number.POSITIVE_INFINITY;
+  let { start, end } = span;
+  if (mode === 'move') {
+    const length = end - start;
+    start = Math.max(lower, Math.min(upper - length, start + Math.round(deltaFrames)));
+    end = start + length;
+  } else if (mode === 'start') {
+    start = Math.max(lower, Math.min(end - minSpan, Math.round(pointerFrame)));
+  } else {
+    end = Math.max(start + minSpan, Math.min(upper, Math.round(pointerFrame)));
+  }
+  const startFrame = timelineFrameToSourceFrame(clips, start, { clamp: true });
+  const lastFrame = timelineFrameToSourceFrame(clips, end - 1, { clamp: true });
+  if (startFrame === null || lastFrame === null || lastFrame + 1 - startFrame < minSpan) return null;
+  return { startFrame, endFrame: lastFrame + 1, timelineStart: start, timelineEnd: end };
+}
+
+/** Timeline frame span covered by a recording-frame range, merged across cuts. */
+function sourceRangeToTimelineFrames(clips, startFrame, endFrame) {
+  if (!Array.isArray(clips) || clips.length === 0) return { start: startFrame, end: endFrame };
+  let start = null;
+  let end = null;
+  for (const clip of clips) {
+    const from = Math.max(startFrame, clip.sourceIn);
+    const to = Math.min(endFrame, clip.sourceOut);
+    if (to <= from) continue;
+    const pieceStart = clip.timelineIn + (from - clip.sourceIn);
+    const pieceEnd = clip.timelineIn + (to - clip.sourceIn);
+    start = start === null ? pieceStart : Math.min(start, pieceStart);
+    end = end === null ? pieceEnd : Math.max(end, pieceEnd);
+  }
+  return start === null ? null : { start, end };
+}
+
 function sourceFrameToTimelineFrame(clips, sourceFrame) {
   if (!Array.isArray(clips) || clips.length === 0) return sourceFrame;
   const clip = clips.find((item) => sourceFrame >= item.sourceIn && sourceFrame < item.sourceOut);

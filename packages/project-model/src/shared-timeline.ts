@@ -167,6 +167,10 @@ export function computeTimelineDuration(timeline: Pick<Timeline, 'tracks' | 'mar
     }
   }
   for (const marker of timeline.markers) {
+    // Markers linked to a recording (zooms) are placed in recording frames so
+    // they follow the footage; they never make the timeline longer. Counting
+    // them stretched a trimmed timeline past its real end (2026-09-27).
+    if (marker.linkedGroupId) continue;
     duration = Math.max(duration, marker.endFrame);
   }
   for (const effect of timeline.effects) {

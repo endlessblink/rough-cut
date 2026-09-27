@@ -13,6 +13,7 @@ describe('recording template presets', () => {
       'tutorial-16-9',
       'youtube-16-9',
       'mobile-9-16',
+      'story-9-16',
       'square-1-1',
       'reel-4-5',
       'portrait-3-4',
@@ -119,5 +120,17 @@ describe('recording template presets', () => {
 
   it('returns undefined when aspect ratio is missing', () => {
     expect(findRecordingTemplatePresetId(undefined, undefined)).toBeUndefined();
+  });
+});
+
+describe('Story · 9:16 template', () => {
+  it('fills the vertical frame edge to edge with a 9:16 screen slice', () => {
+    const applied = applyRecordingTemplatePreset(undefined, 'story-9-16');
+    expect(applied?.aspectRatio).toBe('9:16');
+    expect(applied?.screenFrame).toEqual({ x: 0, y: 0, w: 1, h: 1 });
+    expect(applied?.screenCropAspect).toBe('9:16');
+    expect(applied?.background).toMatchObject({ bgPadding: 0, bgCornerRadius: 0, bgShadowEnabled: false });
+    // A round camera bubble on a 9:16 canvas: height is width * 9/16.
+    expect(applied?.cameraFrame.h).toBeCloseTo((applied?.cameraFrame.w ?? 0) * (9 / 16), 5);
   });
 });

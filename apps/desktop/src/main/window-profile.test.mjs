@@ -69,3 +69,20 @@ test('studio window profile restores normal editor bounds', async () => {
     'studio maximization must be reasserted after the native surface is visible',
   );
 });
+
+test('the editor window fills its display even when the window manager ignores maximize', async () => {
+  const source = await readFile(new URL('./index.mjs', import.meta.url), 'utf8');
+  // 2026-09-27: after the recorder, the editor stayed 760x620 and half below
+  // the screen, so opening the editor looked like it did nothing.
+  assert.match(source, /if \(window\.isDestroyed\(\) \|\| window\.isMaximized\(\) \|\| window\.isFullScreen\(\)\) return;\n\s+window\.setBounds\(screen\.getDisplayMatching\(window\.getBounds\(\)\)\.workArea\);/);
+  assert.match(source, /senderWindow\.center\(\);\n\s+keepWindowOnScreen\(senderWindow\);/);
+});
+
+test('the recording setup window stays above other windows; the editor does not', async () => {
+  const source = await readMainSource();
+  // 2026-09-27: dragged onto a monitor with a full-screen app, the recorder
+  // window slid behind it.
+  assert.match(source, /function loadRenderer\(window, \{ mode = 'editor', projectPath = null \} = \{\}\) \{\n\s+setRecorderStacking\(window, mode === 'recorder'\);/);
+  assert.match(source, /setRecorderStacking\(senderWindow, profile === 'recording'\);/);
+  assert.match(source, /window\.setAlwaysOnTop\(Boolean\(recorder\), recorder \? 'floating' : 'normal'\);/);
+});

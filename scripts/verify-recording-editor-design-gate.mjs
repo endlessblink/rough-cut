@@ -16,7 +16,7 @@ for (const rule of ['Run `$sure`', 'visible gap', 'linked audio', 'complete focu
 }
 for (const contract of [
   ['timeline is seekable', 'className="visualTimeline"'],
-  ['selected clip has explicit trim handles', 'className="trimHandle trimHandleStart"'],
+  ['selected clip has explicit trim handles', 'className={`trimHandle trimHandleStart'],
   ['audio is linked to screen clip identity', 'data-recording-audio-clip-id={region.id}'],
   ['non-selected trim handles are inert', '.clipBar:not(.selectedClip) .trimHandle'],
   ['selected clip has a visible focus treatment', '.clipBar.selectedClip'],

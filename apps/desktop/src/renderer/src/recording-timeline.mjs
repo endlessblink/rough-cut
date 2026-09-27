@@ -5,7 +5,6 @@ import {
   restoreFullSource,
   restoreSourceEdge,
   rippleDeleteRange,
-  rippleTrimClipEdge,
   splitClip,
   trimClipEdge,
 } from '@rough-cut/project-model';
@@ -264,12 +263,53 @@ export function trimRecordingClipEdge(document, { assetId, clipId, edge, frame }
   if (!Number.isFinite(target)) return document;
   if (edge === 'head') {
     if (target > clip.timelineIn) return rippleDeleteRecordingRange(model.document, { assetId, startFrame: clip.timelineIn, endFrame: target });
-    if (target < clip.timelineIn) return trimClipEdge(model.document, { clipId, edge: 'head', frame: target }).document;
+    if (target < clip.timelineIn) return extendRecordingSection(model, clip, 'head', clip.timelineIn - target);
     return document;
   }
   if (target < clip.timelineOut) return rippleDeleteRecordingRange(model.document, { assetId, startFrame: target, endFrame: clip.timelineOut });
-  if (target > clip.timelineOut) return rippleTrimClipEdge(model.document, { clipId, edge: 'tail', frame: target }).document;
+  if (target > clip.timelineOut) return extendRecordingSection(model, clip, 'tail', target - clip.timelineOut);
   return document;
+}
+
+/**
+ * Reveal trimmed-away footage at one edge of a section. Empty space next to
+ * that edge is filled first; only what does not fit pushes the later sections
+ * along (2026-09-27: lengthening into a gap pushed the next section instead of
+ * filling the gap, and a start edge could not grow past the previous section).
+ */
+function extendRecordingSection(model, clip, edge, requestedFrames) {
+  const timeline = model.document.timeline;
+  const inSection = (candidate) => candidate.linkGroupId === clip.linkGroupId
+    && candidate.timelineIn === clip.timelineIn
+    && candidate.timelineOut === clip.timelineOut;
+  const sectionClips = timeline.tracks.flatMap((track) => track.clips).filter(inSection);
+  const neighbours = model.screenClips
+    .filter((candidate) => !(candidate.timelineIn === clip.timelineIn && candidate.timelineOut === clip.timelineOut))
+    .sort((left, right) => left.timelineIn - right.timelineIn);
+  let frames = Math.max(0, Math.round(requestedFrames));
+  if (edge === 'head') frames = Math.min(frames, ...sectionClips.map((candidate) => candidate.sourceIn));
+  if (frames <= 0) return model.document;
+
+  const previousOut = Math.max(0, ...neighbours.filter((candidate) => candidate.timelineOut <= clip.timelineIn).map((candidate) => candidate.timelineOut));
+  const nextIn = Math.min(Infinity, ...neighbours.filter((candidate) => candidate.timelineIn >= clip.timelineOut).map((candidate) => candidate.timelineIn));
+  const room = edge === 'head' ? clip.timelineIn - previousOut : nextIn - clip.timelineOut;
+  const push = Math.max(0, frames - room);
+
+  const tracks = timeline.tracks.map((track) => ({
+    ...track,
+    clips: track.clips.map((candidate) => {
+      if (inSection(candidate)) {
+        return edge === 'head'
+          ? { ...candidate, timelineIn: candidate.timelineIn - (frames - push), timelineOut: candidate.timelineOut + push, sourceIn: candidate.sourceIn - frames }
+          : { ...candidate, timelineOut: candidate.timelineOut + frames, sourceOut: candidate.sourceOut + frames };
+      }
+      if (push > 0 && candidate.linkGroupId === clip.linkGroupId && candidate.timelineIn >= clip.timelineOut) {
+        return { ...candidate, timelineIn: candidate.timelineIn + push, timelineOut: candidate.timelineOut + push };
+      }
+      return candidate;
+    }),
+  }));
+  return { ...model.document, timeline: { ...timeline, tracks } };
 }
 
 export function selectRecordingEditModel(input) {

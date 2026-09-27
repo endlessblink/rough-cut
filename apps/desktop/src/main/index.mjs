@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
+import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect } from './region-selector.mjs';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -454,6 +455,29 @@ function maximizeStudioWindow(window) {
   window.setMaximizable(true);
   window.setMinimumSize(860, 560);
   window.maximize();
+  // X11 window managers can ignore a maximize sent right after a fixed-size
+  // (recorder) window becomes resizable. The editor then stayed recorder-sized
+  // and was placed half below the screen, so it looked like it never opened
+  // (2026-09-27). Fall back to filling the display the window is on.
+  setTimeout(() => {
+    if (window.isDestroyed() || window.isMaximized() || window.isFullScreen()) return;
+    window.setBounds(screen.getDisplayMatching(window.getBounds()).workArea);
+    window.maximize();
+  }, 300);
+}
+
+// Keep a fixed-size window fully inside the visible area of its display.
+function keepWindowOnScreen(window) {
+  if (!window || window.isDestroyed()) return;
+  const bounds = window.getBounds();
+  const { workArea } = screen.getDisplayMatching(bounds);
+  const width = Math.min(bounds.width, workArea.width);
+  const height = Math.min(bounds.height, workArea.height);
+  const x = Math.min(Math.max(bounds.x, workArea.x), workArea.x + workArea.width - width);
+  const y = Math.min(Math.max(bounds.y, workArea.y), workArea.y + workArea.height - height);
+  if (x !== bounds.x || y !== bounds.y || width !== bounds.width || height !== bounds.height) {
+    window.setBounds({ x, y, width, height });
+  }
 }
 
 function listCaptureDisplays() {
@@ -592,7 +616,16 @@ function rendererSearch({ mode = 'editor', projectPath = null } = {}) {
   return value ? `?${value}` : undefined;
 }
 
+// The recording setup window stays above other windows, including a
+// full-screen app on another monitor, which KWin otherwise keeps on top of it
+// when the window is dragged there (2026-09-27). The editor stacks normally.
+function setRecorderStacking(window, recorder) {
+  if (!window || window.isDestroyed()) return;
+  window.setAlwaysOnTop(Boolean(recorder), recorder ? 'floating' : 'normal');
+}
+
 function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
+  setRecorderStacking(window, mode === 'recorder');
   const search = rendererSearch({ mode, projectPath });
   const shouldLoadBuiltRenderer = process.env.ROUGH_CUT_LOAD_BUILT_RENDERER === '1' || process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH;
   const initialView = rendererInitialView({ mode, projectPath });
@@ -736,6 +769,7 @@ ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') 
   if (senderWindow.isDestroyed()) return { ok: false, reason: 'destroyed-window' };
   if (senderWindow.isFullScreen()) return { ok: false, reason: 'fullscreen' };
 
+  setRecorderStacking(senderWindow, profile === 'recording');
   if (profile === 'recording') {
     if (!studioWindowBoundsById.has(senderWindow.id)) {
       studioWindowBoundsById.set(senderWindow.id, senderWindow.getBounds());
@@ -746,6 +780,8 @@ ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') 
     senderWindow.setMinimumSize(720, 560);
     senderWindow.setSize(760, 620);
     senderWindow.center();
+    keepWindowOnScreen(senderWindow);
+    setTimeout(() => keepWindowOnScreen(senderWindow), 300);
     return { ok: true, profile, bounds: senderWindow.getBounds() };
   }
 
@@ -823,7 +859,69 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_STOP, async (_event, token =
   await stopActiveAudioPreview(token);
   return { stopped: true };
 });
-ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAYS, () => listCaptureDisplays());
+// Draw a capture region on one screen. The renderer has called this since the
+// region picker landed (2026-05-09), but the handler was never registered, so
+// choosing Region always failed (found 2026-09-27).
+ipcMain.handle(IPC_CHANNELS.RECORDING_SELECT_CAPTURE_REGION, async (event, options = {}) => {
+  const displays = screen.getAllDisplays();
+  const display = displays.find((candidate) => String(candidate.id) === String(options?.displayId ?? '')) ?? screen.getPrimaryDisplay();
+  const scale = display.scaleFactor > 0 ? display.scaleFactor : 1;
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: Math.round(display.bounds.width * scale), height: Math.round(display.bounds.height * scale) },
+  }).catch(() => []);
+  const snapshot = sources.find((source) => String(source.display_id) === String(display.id))?.thumbnail;
+  const initial = options?.initialRegion;
+  const initialRect = initial && String(initial.displayId ?? '') === String(display.id) && Number.isFinite(initial.x) && Number.isFinite(initial.y)
+    ? { x: initial.x / scale, y: initial.y / scale, width: initial.width / scale, height: initial.height / scale }
+    : null;
+  const parent = BrowserWindow.fromWebContents(event.sender);
+  const overlay = new BrowserWindow({
+    ...display.bounds,
+    frame: false,
+    resizable: false,
+    movable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    fullscreenable: false,
+    backgroundColor: '#050508',
+    title: 'Select region',
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  overlay.setAlwaysOnTop(true, 'screen-saver');
+  const html = buildRegionSelectorHtml({ snapshotDataUrl: snapshot && !snapshot.isEmpty() ? snapshot.toDataURL() : '', initialRect });
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      if (!overlay.isDestroyed()) overlay.destroy();
+      if (parent && !parent.isDestroyed()) parent.focus();
+      resolve(result);
+    };
+    overlay.webContents.on('page-title-updated', (_titleEvent, title) => {
+      const result = parseRegionSelectorTitle(title);
+      if (!result) return;
+      settle(result.cancelled ? null : regionFromOverlayRect(result.rect, display));
+    });
+    overlay.on('closed', () => settle(null));
+    void overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
+      overlay.setBounds(display.bounds);
+      overlay.show();
+      overlay.focus();
+    });
+  });
+});
+
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAYS, async () => {
+  // Each screen carries the desktop-capture source id the recorder uses for its
+  // live preview card, so the user sees exactly which screen will be recorded.
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => []);
+  return listCaptureDisplays().map((display) => ({
+    ...display,
+    previewSourceId: sources.find((source) => String(source.display_id) === display.id)?.id ?? null,
+  }));
+});
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, options = {}) => {
   const [micSources, systemAudioSources, cameraSources] = await Promise.all([
     listMicSources().catch(() => []),
@@ -2597,24 +2695,24 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   await waitFor(() => document.querySelector('[data-open-editor="pre-record"]'), 'pre-record open editor button');
   const preflightPanel = await waitFor(() => document.querySelector('[data-ui-region="recording-preflight-status"]'), 'preflight status panel');
   const hasPreflightWarningsCopy = document.body.textContent?.includes('screen-only recording') ?? false;
-  const captureTargetSelect = await waitFor(
-    () => document.querySelector('[data-ui-region="pre-record-panel"] select[aria-label="Capture target"]'),
-    'capture target select',
-  );
+  // One row: a live card per screen plus Region. The region overlay itself is
+  // exercised by scripts/visual-region-selector-playwright.mjs.
   const sourcePicker = await waitFor(() => document.querySelector('[data-ui-region="capture-source-picker"]'), 'capture source picker');
-  const regionSourceCard = await waitFor(() => document.querySelector('[data-source-option="region"]'), 'region source card');
-  const windowSourceCard = await waitFor(() => document.querySelector('[data-source-option="window"]'), 'window source card');
+  const captureTargetSelect = { get value() { return sourcePicker.getAttribute('data-capture-mode'); } };
+  await waitFor(() => document.querySelector('[data-source-option="region"]'), 'region source card');
+  const screenCards = await waitFor(() => {
+    const cards = document.querySelectorAll('[data-screen-option]');
+    return cards.length > 0 ? cards : null;
+  }, 'screen cards');
+  // A previous run may have left Region picked; clicking a screen card must
+  // always switch back to recording that whole screen.
+  const lastScreenCard = screenCards[screenCards.length - 1];
+  lastScreenCard.click();
   await waitFor(() => captureTargetSelect.value === 'display', 'display target selected');
-  regionSourceCard.click();
-  await waitFor(() => captureTargetSelect.value === 'region', 'region target selected');
-  await waitFor(() => document.querySelector('[aria-label="Selected capture region"]'), 'selected region summary');
-  await waitFor(() => document.querySelector('[data-ui-region="capture-screen-picker"]'), 'region screen picker');
+  await waitFor(() => lastScreenCard.getAttribute('aria-pressed') === 'true', 'screen card selected');
   const hasNoRegionNumberInputs = !document.querySelector('.numberField, .regionControls input[type="number"]');
-  captureTargetSelect.value = 'display';
-  captureTargetSelect.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => captureTargetSelect.value === 'display', 'display target reselected');
   const hasCaptureSourcePicker = Boolean(sourcePicker);
-  const hasDisabledWindowSource = Boolean(windowSourceCard?.disabled);
+  const hasDisabledWindowSource = !document.querySelector('[data-source-option="window"]');
   if (options.audioGainOnly) {
     await waitFor(() => {
       const mic = document.querySelector('select[aria-label="Mic source"]');
