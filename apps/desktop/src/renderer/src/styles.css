@@ -3008,7 +3008,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0;
   pointer-events: auto;
   position: absolute;
-  right: 0.25rem;
+  /* Sits just inside the end grab zone so the × never covers the edge. */
+  right: calc(var(--zoom-edge-hit) + 0.05rem);
   top: 50%;
   transform: translateY(-50%);
   transition: color 120ms ease, opacity 120ms ease;
@@ -3019,18 +3020,42 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .timelineRegion:focus-within .zoomRegionDelete,
 .timelineRegion.selectedRegion .zoomRegionDelete { opacity: 1; }
 .zoomRegionDelete:hover { color: #ef4444; }
-.timelineRegion[data-narrow="true"] .zoomRegionDelete { display: none; }
+/* On a short pill the × would land mid-pill, where people grab to move it.
+ * Delete stays available from the zoom's chip and the Delete key. */
+.zoomLane .timelineRegion { container-type: inline-size; }
+@container (max-width: 72px) {
+  .zoomRegionDelete { display: none; }
+}
 
+/* Edge grab zones: wide enough to catch without hunting, with a thin bar that
+ * lights up on hover so the user sees the edge is caught before pressing. */
+.timelineRegion { --zoom-edge-hit: 0.6rem; }
 .zoomResizeHandle {
   bottom: 0;
   cursor: ew-resize;
   position: absolute;
   top: 0;
-  width: 0.42rem;
-  z-index: 2;
+  width: var(--zoom-edge-hit);
+  z-index: 4;
+}
+.zoomResizeHandle::after {
+  background: rgb(6 19 38 / 0.55);
+  border-radius: 1px;
+  bottom: 22%;
+  content: '';
+  opacity: 0;
+  position: absolute;
+  top: 22%;
+  transition: opacity 120ms ease;
+  width: 2px;
 }
 .zoomResizeStart { left: 0; }
+.zoomResizeStart::after { left: 0.18rem; }
 .zoomResizeEnd { right: 0; }
+.zoomResizeEnd::after { right: 0.18rem; }
+@media (hover: hover) and (pointer: fine) {
+  .zoomResizeHandle:hover::after { opacity: 1; }
+}
 
 .timelineRegion:hover,
 .timelineRegion:focus-within { z-index: 15; }

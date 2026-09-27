@@ -368,6 +368,44 @@ try {
     && Math.abs(zoomAfter.left - zoomBefore.left - zoomDragPx) <= 3 && Math.abs(zoomAfter.width - zoomBefore.width) <= 3,
   { zoomBefore, zoomAfter, zoomDragPx, zoomTrail: zoomTrail.filter((sample) => Math.abs(sample.moved - sample.pointer) > 3 || Math.abs(sample.width - zoomBefore.width) > 3).slice(0, 8) });
 
+  // 2026-09-27: the × sat over most of a zoom's end grab zone, so the right
+  // edge was hard to catch. Stretch a zoom by its right edge with a real drag,
+  // then the ~9px inside the border on both ends must be the edge, with the × still shown.
+  const widest = () => page.evaluate(() => {
+    // The leftmost zoom: it has room to grow before the end of the timeline.
+    const region = [...document.querySelectorAll('[data-timeline-lane="zoom"] .timelineRegion')].sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0];
+    if (!region) return null;
+    const rect = region.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
+  });
+  const toStretch = await widest();
+  if (toStretch) {
+    await page.mouse.move(toStretch.right - 3, toStretch.y);
+    await page.mouse.down();
+    for (let step = 10; step <= 150; step += 10) await page.mouse.move(toStretch.right - 3 + step, toStretch.y);
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+  }
+  const stretched = await widest();
+  const edgeHits = await page.evaluate((box) => {
+    if (!box) return null;
+    const hit = (x) => document.elementFromPoint(x, box.y)?.className ?? null;
+    const region = document.elementFromPoint((box.left + box.right) / 2, box.y)?.closest('.timelineRegion');
+    const deleteButton = region?.querySelector('.zoomRegionDelete');
+    return {
+      end: [2, 5, 8].map((inset) => hit(box.right - inset)),
+      start: [2, 5, 8].map((inset) => hit(box.left + inset)),
+      deleteShown: Boolean(deleteButton && getComputedStyle(deleteButton).display !== 'none'),
+    };
+  }, stretched);
+  check('zoom-edges-are-catchable-beside-the-delete-button', Boolean(toStretch && stretched && edgeHits)
+    && stretched.right - toStretch.right > 140
+    && edgeHits.deleteShown
+    && [...edgeHits.end, ...edgeHits.start].every((name) => String(name).includes('zoomResizeHandle')), { toStretch, stretched, edgeHits });
+  const endHandle = await page.locator('[data-timeline-lane="zoom"] .zoomResizeEnd').last().boundingBox();
+  if (endHandle) await page.mouse.move(endHandle.x + endHandle.width / 2, endHandle.y + endHandle.height / 2);
+  await page.waitForTimeout(300);
+
   await page.screenshot({ path: join(outputRoot, 'recording-edit-regressions.png') });
 } finally {
   await app.close().catch(() => {});
