@@ -9,6 +9,7 @@ import {
   selectRecordingEditModel,
   splitRecordingAtFrame,
   syncRecordingTimelinePresentation,
+  trimRecordingClipEdge,
   updateRecordingTimelineTrim,
 } from './recording-timeline.mjs';
 
@@ -579,4 +580,80 @@ test('splitting again after a restart never reuses an existing clip id', () => {
   const next = splitRecordingAtFrame(document, { assetId, frame: 250 });
   const ids = next.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.id));
   assert.equal(new Set(ids).size, ids.length);
+});
+
+// 2026-09-27: trimming a section's end left an empty stretch before the next
+// section; the playhead landed in it and the preview went black.
+function threeSectionProject() {
+  const project = projectWithRecordingAndCamera();
+  const assetId = project.assets[0].id;
+  let document = splitRecordingAtFrame(project, { assetId, frame: 100 });
+  document = splitRecordingAtFrame(document, { assetId, frame: 200 });
+  return { assetId, document };
+}
+
+function laneRanges(document) {
+  return document.timeline.tracks
+    .filter((track) => track.clips.length > 0)
+    .map((track) => track.clips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn]));
+}
+
+test('shortening a middle section from its end closes the gap on every lane', () => {
+  const { document, assetId } = threeSectionProject();
+  const middle = selectRecordingEditModel({ document, recordingAssetId: assetId }).screenClips[1];
+  const trimmed = trimRecordingClipEdge(document, { assetId, clipId: middle.id, edge: 'tail', frame: 160 });
+  for (const lane of laneRanges(trimmed)) {
+    assert.deepEqual(lane.map(([timelineIn, timelineOut]) => [timelineIn, timelineOut]), [[0, 100], [100, 160], [160, 260]]);
+  }
+  const screen = selectRecordingEditModel({ document: trimmed, recordingAssetId: assetId }).screenClips;
+  assert.equal(screen[2].sourceIn, 200, 'the next section still starts on its own first frame');
+});
+
+test('shortening a middle section from its start closes the gap and keeps its position', () => {
+  const { document, assetId } = threeSectionProject();
+  const middle = selectRecordingEditModel({ document, recordingAssetId: assetId }).screenClips[1];
+  const trimmed = trimRecordingClipEdge(document, { assetId, clipId: middle.id, edge: 'head', frame: 130 });
+  const screen = selectRecordingEditModel({ document: trimmed, recordingAssetId: assetId }).screenClips;
+  assert.deepEqual(screen.map((clip) => [clip.timelineIn, clip.timelineOut]), [[0, 100], [100, 170], [170, 270]]);
+  assert.equal(screen[1].sourceIn, 130, 'the section now begins 30 frames later in the recording');
+});
+
+test('only the trimmed section changes; earlier sections keep their frames', () => {
+  const { document, assetId } = threeSectionProject();
+  const [first, , last] = selectRecordingEditModel({ document, recordingAssetId: assetId }).screenClips;
+  const trimmed = trimRecordingClipEdge(document, { assetId, clipId: last.id, edge: 'tail', frame: 280 });
+  const screen = selectRecordingEditModel({ document: trimmed, recordingAssetId: assetId }).screenClips;
+  assert.deepEqual([screen[0].timelineIn, screen[0].timelineOut, screen[0].sourceIn], [first.timelineIn, first.timelineOut, first.sourceIn]);
+  assert.equal(screen[2].timelineOut, 280);
+});
+
+test('deleting an empty space closes it on every lane', () => {
+  const { document, assetId } = threeSectionProject();
+  // Leave a gap: drop the middle section without rippling.
+  const gapped = {
+    ...document,
+    timeline: {
+      ...document.timeline,
+      tracks: document.timeline.tracks.map((track) => ({ ...track, clips: track.clips.filter((clip) => clip.timelineIn !== 100) })),
+    },
+  };
+  const closed = rippleDeleteRecordingRange(gapped, { assetId, startFrame: 100, endFrame: 200 });
+  for (const lane of laneRanges(closed)) {
+    assert.deepEqual(lane.map(([timelineIn, timelineOut, sourceIn]) => [timelineIn, timelineOut, sourceIn]).map(([a, b]) => [a, b]), [[0, 100], [100, 200]]);
+  }
+});
+
+test('lengthening a section from its end pushes the later sections along on every lane', () => {
+  const { document, assetId } = threeSectionProject();
+  const shortened = trimRecordingClipEdge(document, {
+    assetId,
+    clipId: selectRecordingEditModel({ document, recordingAssetId: assetId }).screenClips[1].id,
+    edge: 'tail',
+    frame: 160,
+  });
+  const middle = selectRecordingEditModel({ document: shortened, recordingAssetId: assetId }).screenClips[1];
+  const restored = trimRecordingClipEdge(shortened, { assetId, clipId: middle.id, edge: 'tail', frame: 180 });
+  for (const lane of laneRanges(restored)) {
+    assert.deepEqual(lane.map(([timelineIn, timelineOut]) => [timelineIn, timelineOut]), [[0, 100], [100, 180], [180, 280]]);
+  }
 });

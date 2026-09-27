@@ -186,7 +186,8 @@ test('recording editor makes clip selection and ripple deletion unmistakable', (
   assert.match(source, /const separated = \(placement: \{ left: number; width: number \}\)/);
   assert.match(source, /width: `max\(0px, calc\(\$\{placement\.width\}% - 2px\)\)`/);
   assert.doesNotMatch(source, /clipDeleteButton|Delete screen clip/);
-  assert.match(source, /function deleteScreenClip\(clipId: string\)[\s\S]+onAddCutBetween\(sourceIn, sourceOut\)/);
+  // Delete removes the section where it sits on the timeline (source frames drift after earlier cuts).
+  assert.match(source, /function deleteScreenClip\(clipId: string\)[\s\S]+onAddCutBetween\(timelineIn, timelineOut\)/);
   assert.match(source, /event\.key === 'Delete' \|\| event\.key === 'Backspace'[\s\S]+deleteScreenClip\(selectedScreenClipId\)/);
   assert.match(source, /className="clipBody"[\s\S]+onKeyDown=\{\(event\) => \{ if \(\(event\.key === 'Delete' \|\| event\.key === 'Backspace'\)/);
   assert.match(styles, /\.clipBar\.selectedClip\s*\{[\s\S]+box-shadow:/);
@@ -227,4 +228,15 @@ test('selecting on the timeline never reopens side panels the user hid', () => {
   assert.match(source, /if \(options\?\.revealPanel !== false\) setSetupBoardOpen\(true\);/);
   // Re-clicking the view tab you are already on keeps your panel layout.
   assert.match(source, /if \(nextView === 'editor' && activeAppView !== 'editor'\) \{\n\s+setSetupBoardOpen\(true\);/);
+});
+
+test('Delete acts on the selection, empty space can be selected and closed, ripple can be switched off', () => {
+  // 2026-09-27: Delete only worked while the clip had keyboard focus, so after
+  // Ctrl+Z (clip still highlighted, focus gone) Delete did nothing.
+  assert.match(source, /const clipId = \[selectedScreenClipId, \.\.\.selectedScreenClipIds\]\.find/);
+  assert.match(source, /if \(selectedGap\) \{\n\s+event\.preventDefault\(\);\n\s+onAddCutBetween\?\.\(selectedGap\.startFrame, selectedGap\.endFrame\);/);
+  assert.match(source, /className=\{`timelineGap\$\{selected \? ' selectedGap' : ''\}`\}/);
+  assert.match(source, /aria-label="Close gaps when trimming" aria-pressed=\{rippleTrim\}/);
+  assert.match(source, /onTrimClipEdge\(region\.id, edge, commitFrame, \{ ripple: rippleTrim \}\)/);
+  assert.match(source, /if \(options\.ripple === false\) \{\n\s+await trimTimelineClipLeavingGap\(clipId, edge, frame\);/);
 });

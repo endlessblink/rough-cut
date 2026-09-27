@@ -5,6 +5,7 @@ import {
   restoreFullSource,
   restoreSourceEdge,
   rippleDeleteRange,
+  rippleTrimClipEdge,
   splitClip,
   trimClipEdge,
 } from '@rough-cut/project-model';
@@ -247,6 +248,28 @@ export function rippleDeleteRecordingRange(document, { assetId, startFrame, endF
 
   model = selectRecordingEditModel({ document: nextDocument, recordingAssetId: assetId });
   return rippleDeleteRange(nextDocument, { startFrame: start, endFrame: end, linkGroupId: model.linkedGroupId }).document;
+}
+
+/**
+ * Trim one recording section the way a recording editor does: shortening
+ * closes the gap instead of leaving an empty (black) stretch before the next
+ * section, and every linked lane (screen, camera, audio) follows. Frames are
+ * timeline frames.
+ */
+export function trimRecordingClipEdge(document, { assetId, clipId, edge, frame }) {
+  const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
+  const clip = model.document.timeline.tracks.flatMap((track) => track.clips).find((candidate) => candidate.id === clipId);
+  if (!clip) return document;
+  const target = Math.round(Number(frame));
+  if (!Number.isFinite(target)) return document;
+  if (edge === 'head') {
+    if (target > clip.timelineIn) return rippleDeleteRecordingRange(model.document, { assetId, startFrame: clip.timelineIn, endFrame: target });
+    if (target < clip.timelineIn) return trimClipEdge(model.document, { clipId, edge: 'head', frame: target }).document;
+    return document;
+  }
+  if (target < clip.timelineOut) return rippleDeleteRecordingRange(model.document, { assetId, startFrame: target, endFrame: clip.timelineOut });
+  if (target > clip.timelineOut) return rippleTrimClipEdge(model.document, { clipId, edge: 'tail', frame: target }).document;
+  return document;
 }
 
 export function selectRecordingEditModel(input) {

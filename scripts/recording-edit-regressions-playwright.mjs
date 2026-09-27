@@ -141,7 +141,10 @@ try {
     await page.mouse.up();
     await page.waitForTimeout(1000);
     const after = (await selection(page)).clips;
-    check('trim-clip-2-changes-only-clip-2', after[0][2] === before[0][2] && after[0][1] === before[0][1] && after[1][1] > before[1][1], { before, after });
+    // Start trims close the gap: clip 2 keeps its position and gets shorter,
+    // clip 1 is untouched, and nothing is left between sections.
+    check('trim-clip-2-changes-only-clip-2', after[0][2] === before[0][2] && after[0][1] === before[0][1]
+      && after[1][1] === before[1][1] && after[1][2] < before[1][2] && after[2][1] === after[1][2], { before, after });
     await page.keyboard.press('Control+z');
     await page.waitForTimeout(800);
   }
@@ -172,6 +175,95 @@ try {
     .map((entry) => entry.deltaMs)));
   check('cuts-cross-by-standby-handover', swaps.length === 2 && seeks.length === 0, { swaps: swaps.length, seeks: seeks.length });
   check('cut-handover-holds-at-most-a-few-frames', worstGapAtCut <= 100, { worstGapAtCutMs: worstGapAtCut });
+
+  // 2026-09-27: delete used source frames and left a sliver of a shifted
+  // section; after undo, delete again did nothing; trimming a section's end
+  // left a black gap under the playhead.
+  const ranges = async () => (await selection(page)).clips.map(([, timelineIn, timelineOut]) => [timelineIn, timelineOut]);
+  const contiguous = (list) => list.every(([timelineIn], index) => index === 0 || timelineIn === list[index - 1][1]);
+  const previewLuma = () => page.evaluate(() => {
+    const canvas = document.querySelector('canvas.styledPreviewCanvas');
+    const data = canvas.getContext('2d').getImageData(canvas.width * 0.25, canvas.height * 0.25, canvas.width * 0.5, canvas.height * 0.5).data;
+    let sum = 0;
+    for (let index = 0; index < data.length; index += 16) sum += data[index] + data[index + 1] + data[index + 2];
+    return sum / (data.length / 16) / 3;
+  });
+  const deleteSection = async (index) => {
+    await page.locator('.clipBar .clipBody').nth(index).click();
+    await page.keyboard.press('Delete');
+    await page.waitForTimeout(900);
+  };
+  const beforeDelete = await ranges();
+  await deleteSection(1);
+  const afterDelete = await ranges();
+  const removed = beforeDelete[1][1] - beforeDelete[1][0];
+  check('delete-removes-the-whole-section', afterDelete.length === beforeDelete.length - 1 && contiguous(afterDelete)
+    && afterDelete[afterDelete.length - 1][1] === beforeDelete[beforeDelete.length - 1][1] - removed, { beforeDelete, afterDelete });
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(900);
+  const afterUndo = await ranges();
+  check('undo-restores-the-deleted-section', JSON.stringify(afterUndo) === JSON.stringify(beforeDelete), { beforeDelete, afterUndo });
+  // Straight after undo, without clicking again: the section is still
+  // highlighted, so Delete must act on it.
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(900);
+  const afterSecondDelete = await ranges();
+  check('delete-works-again-after-undo', JSON.stringify(afterSecondDelete) === JSON.stringify(afterDelete), { afterDelete, afterSecondDelete });
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(900);
+
+  await page.locator('.clipBar .clipBody').nth(1).click();
+  await page.waitForTimeout(300);
+  const tailHandle = page.locator('.trimHandleEnd').first();
+  const tailBox = await tailHandle.boundingBox();
+  if (!tailBox) {
+    check('end-trim-closes-the-gap-and-keeps-picture', false, 'no end trim handle on the selected section');
+  } else {
+    const beforeTail = await ranges();
+    await page.mouse.move(tailBox.x + tailBox.width / 2, tailBox.y + tailBox.height / 2);
+    await page.mouse.down();
+    for (let dx = 5; dx <= 30; dx += 5) {
+      await page.mouse.move(tailBox.x + tailBox.width / 2 - dx, tailBox.y + tailBox.height / 2);
+      await page.waitForTimeout(20);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(1500);
+    const afterTail = await ranges();
+    const luma = await previewLuma();
+    check('end-trim-closes-the-gap-and-keeps-picture', afterTail[1][1] < beforeTail[1][1] && contiguous(afterTail) && luma > 4, { beforeTail, afterTail, previewLuma: Math.round(luma) });
+  }
+
+  // Ripple off: an end trim leaves an empty space; selecting it and pressing
+  // Delete closes it so the sections sit next to each other again.
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(900);
+  const rippleButton = page.locator('button[aria-label="Close gaps when trimming"]');
+  if ((await rippleButton.getAttribute('aria-pressed')) === 'true') await rippleButton.click();
+  await page.locator('.clipBar .clipBody').nth(1).click();
+  await page.waitForTimeout(300);
+  const gapHandle = await page.locator('.trimHandleEnd').first().boundingBox();
+  if (!gapHandle) {
+    check('ripple-off-leaves-a-gap-that-delete-closes', false, 'no end trim handle');
+  } else {
+    await page.mouse.move(gapHandle.x + gapHandle.width / 2, gapHandle.y + gapHandle.height / 2);
+    await page.mouse.down();
+    for (let dx = 5; dx <= 30; dx += 5) {
+      await page.mouse.move(gapHandle.x + gapHandle.width / 2 - dx, gapHandle.y + gapHandle.height / 2);
+      await page.waitForTimeout(20);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+    const withGap = await ranges();
+    const gapCount = await page.locator('[data-timeline-lane="screen"] .timelineGap').count();
+    if (gapCount > 0) {
+      await page.locator('.timelineGap').first().click({ force: true });
+      await page.keyboard.press('Delete');
+      await page.waitForTimeout(1200);
+    }
+    const closedGap = await ranges();
+    check('ripple-off-leaves-a-gap-that-delete-closes', !contiguous(withGap) && gapCount === 1 && contiguous(closedGap) && (await page.locator('.timelineGap').count()) === 0, { withGap, gapCount, closedGap });
+  }
+  await rippleButton.click();
 
   await page.screenshot({ path: join(outputRoot, 'recording-edit-regressions.png') });
 } finally {

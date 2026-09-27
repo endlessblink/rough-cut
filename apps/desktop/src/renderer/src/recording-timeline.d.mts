@@ -48,6 +48,16 @@ export function rippleDeleteRecordingRange(
   },
 ): MutableProjectDocument;
 
+export function trimRecordingClipEdge(
+  document: MutableProjectDocument,
+  options: {
+    readonly assetId: string;
+    readonly clipId: string;
+    readonly edge: 'head' | 'tail';
+    readonly frame: number;
+  },
+): MutableProjectDocument;
+
 export function selectRecordingEditModel(input: { readonly document: MutableProjectDocument; readonly recordingAssetId?: string | null } | MutableProjectDocument): {
   readonly document: MutableProjectDocument;
   readonly recordingAsset: Record<string, any> | null;
