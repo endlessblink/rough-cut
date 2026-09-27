@@ -478,8 +478,14 @@ function finiteInteger(value: number, label: string): number {
   return frame;
 }
 
+// Ids must be unique across sessions, not just within one: a counter that
+// restarts at launch reissued ids already saved in the project (2026-09-26:
+// selecting one split clip selected another).
 let generatedId = 0;
 function defaultIdFactory(prefix: string): string {
   generatedId += 1;
-  return `${prefix}-${generatedId}`;
+  const cryptoApi = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  const random = cryptoApi?.randomUUID?.()
+    ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}-${random}-${generatedId}`;
 }

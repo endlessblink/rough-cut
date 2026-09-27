@@ -18,7 +18,7 @@ import {
   trimClipEdge,
   updateTrackSettings,
 } from './timeline-commands.js';
-import { assertTimelineInvariants } from './shared-timeline.js';
+import { assertTimelineInvariants, canonicalizeProjectDocument } from './shared-timeline.js';
 
 function track(overrides: Partial<NleTrack>): NleTrack {
   return {
@@ -334,5 +334,50 @@ describe('timeline command service', () => {
     expect(() => moveClip(project, { clipId: 'b', timelineIn: 40 })).toThrow(TimelineCommandError);
     expect(() => trimClipEdge(project, { clipId: 'b', edge: 'head', frame: 130 })).toThrow(TimelineCommandError);
     expect(() => rippleDeleteRange(project, { startFrame: 40, endFrame: 90 })).toThrow(TimelineCommandError);
+  });
+});
+
+describe('clip ids stay unique across sessions', () => {
+  function splitProject() {
+    const asset = createAsset('video', '/tmp/screen.mp4', { id: 'asset-1' as never, duration: 300 });
+    return createProject({ assets: [asset], tracks: [track({ clips: [clip('c1', asset.id, 0, 300)] })] });
+  }
+
+  it('never reissues a split id, even from a fresh counter', () => {
+    // 2026-09-26: a counter reset at launch reissued `clip-l-1`, so one click
+    // selected two different clips.
+    let document = splitProject();
+    document = splitClip(document, { clipId: 'c1', frame: 100 }).document;
+    const [left] = document.timeline.tracks[0]!.clips;
+    document = splitClip(document, { clipId: left!.id, frame: 50 }).document;
+    const ids = document.timeline.tracks[0]!.clips.map((item) => item.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.every((id) => !/^clip-[lr]-\d+$/.test(id))).toBe(true);
+  });
+
+  it('repairs a saved project that already holds duplicate clip ids, the same way every time', () => {
+    const split = splitClip(splitProject(), { clipId: 'c1', frame: 100 }).document;
+    const [first, second] = split.timeline.tracks[0]!.clips;
+    const damaged = {
+      ...split,
+      timeline: {
+        ...split.timeline,
+        tracks: [{ ...split.timeline.tracks[0]!, clips: [first!, { ...second!, id: first!.id }] }],
+      },
+    };
+    const repaired = canonicalizeProjectDocument(damaged as never);
+    const ids = repaired.timeline.tracks[0]!.clips.map((item) => item.id);
+    expect(ids).toEqual([first!.id, `${first!.id}~2`]);
+    expect(canonicalizeProjectDocument(damaged as never).timeline.tracks[0]!.clips.map((item) => item.id)).toEqual(ids);
+    expect(repaired.timeline.tracks[0]!.clips[1]).toMatchObject({ timelineIn: 100, timelineOut: 300 });
+  });
+
+  it('rejects a timeline with duplicate clip ids', () => {
+    const split = splitClip(splitProject(), { clipId: 'c1', frame: 100 }).document;
+    const [first, second] = split.timeline.tracks[0]!.clips;
+    expect(() => assertTimelineInvariants({
+      ...split.timeline,
+      tracks: [{ ...split.timeline.tracks[0]!, clips: [first!, { ...second!, id: first!.id }] }],
+    })).toThrow(/unique/);
   });
 });

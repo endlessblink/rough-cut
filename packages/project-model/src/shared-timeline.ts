@@ -138,7 +138,7 @@ export function canonicalizeProjectDocument(document: ProjectDocument): ProjectD
   const importTracks = rawTimelineTracks.length > 0
     ? canonicalTimelineTracksFromUnknown(rawTimelineTracks, sources, linkedGroups)
     : canonicalTimelineTracks(importNleTracksForDocument(document), sources, linkedGroups);
-  const timelineTracks = ensureRecordingAudioTracks(importTracks, document.assets ?? [], sources, linkedGroups);
+  const timelineTracks = withUniqueClipIds(ensureRecordingAudioTracks(importTracks, document.assets ?? [], sources, linkedGroups));
   const timeline: Timeline = {
     sources,
     linkedGroups,
@@ -216,6 +216,9 @@ export function collectTimelineInvariantIssues(timeline: Timeline): TimelineInva
     }
     let previousTimelineOut = -1;
     track.clips.forEach((clip, clipIndex) => {
+      if (clipIds.has(clip.id)) {
+        issues.push({ path: ['tracks', trackIndex, 'clips', clipIndex, 'id'], message: 'Clip ids must be unique across the timeline' });
+      }
       clipIds.add(clip.id);
       if (clip.trackId !== track.id) {
         issues.push({ path: ['tracks', trackIndex, 'clips', clipIndex, 'trackId'], message: 'Clip trackId must match its containing track' });
@@ -276,6 +279,40 @@ export function collectTimelineInvariantIssues(timeline: Timeline): TimelineInva
   });
 
   return issues;
+}
+
+/**
+ * Projects split before 2026-09-26 could hold two clips with the same id: the
+ * split id counter restarted with every app launch, so a later session reused
+ * ids like `clip-l-1`. Selection, trim and move address clips by id, so one
+ * click acted on both. Later duplicates get a deterministic new id (the same
+ * input always repairs the same way) until the project is saved repaired.
+ */
+export function withUniqueClipIds(tracks: readonly TimelineTrack[]): TimelineTrack[] {
+  const taken = new Set<string>();
+  for (const track of tracks) for (const clip of track.clips) taken.add(clip.id);
+  const seen = new Set<string>();
+  let changed = false;
+  const next = tracks.map((track) => {
+    let trackChanged = false;
+    const clips = track.clips.map((clip) => {
+      if (!seen.has(clip.id)) {
+        seen.add(clip.id);
+        return clip;
+      }
+      let copy = 2;
+      while (taken.has(`${clip.id}~${copy}`)) copy += 1;
+      const id = `${clip.id}~${copy}`;
+      taken.add(id);
+      seen.add(id);
+      trackChanged = true;
+      return { ...clip, id };
+    });
+    if (!trackChanged) return track;
+    changed = true;
+    return { ...track, clips };
+  });
+  return changed ? next : [...tracks];
 }
 
 export function assertTimelineInvariants(timeline: Timeline): Timeline {
