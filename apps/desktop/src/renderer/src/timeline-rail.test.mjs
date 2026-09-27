@@ -13,6 +13,7 @@ import {
   buildTimelineModel,
   clampTimelineTime,
   frameRangeToPlacement,
+  linkedRecordingLaneBoundaryMismatches,
   percentToTime,
   timeToPercent,
 } from './timeline-rail.mjs';
@@ -63,6 +64,45 @@ test('time and percent helpers clamp to the timeline duration', () => {
 
 test('frameRangeToPlacement maps frame ranges deterministically', () => {
   assert.deepEqual(frameRangeToPlacement(30, 90, 30, 10), { left: 10, width: 20 });
+  assert.equal(frameRangeToPlacement(0, 3, 30, 2001).width < 0.01, true);
+});
+
+test('linked recording lane gate rejects a hidden screen/audio boundary mismatch', () => {
+  const screen = [
+    { id: 'screen-1', left: 0, width: 25, timelineIn: 0, timelineOut: 30 },
+    { id: 'screen-2', left: 25, width: 75, timelineIn: 30, timelineOut: 120 },
+  ];
+  const audio = [
+    { id: 'audio:screen-1', left: 0, width: 25, timelineIn: 0, timelineOut: 30 },
+    { id: 'audio:screen-2', left: 25, width: 75, timelineIn: 31, timelineOut: 120 },
+  ];
+
+  assert.deepEqual(linkedRecordingLaneBoundaryMismatches({ screen, audio }), [
+    { kind: 'boundary', index: 1, differences: { timelineIn: { screen: 30, audio: 31 } } },
+  ]);
+});
+
+test('linked recording lane gate pairs audio by linked clip id instead of array order', () => {
+  const screen = [
+    { id: 'screen-1', left: 0, width: 25, timelineIn: 0, timelineOut: 30 },
+    { id: 'screen-2', left: 25, width: 75, timelineIn: 30, timelineOut: 120 },
+  ];
+  const audio = [
+    { id: 'audio:screen-2', left: 25, width: 75, timelineIn: 30, timelineOut: 120 },
+    { id: 'audio:screen-1', left: 0, width: 25, timelineIn: 0, timelineOut: 30 },
+  ];
+
+  assert.deepEqual(linkedRecordingLaneBoundaryMismatches({ screen, audio }), []);
+});
+
+test('buildTimelineModel reports no linked lane mismatch after a split', () => {
+  const model = buildTimelineModel({
+    document: recordingDocument(120),
+    recording: { duration: 120, fps: 30, audio: { source: 'system' } },
+    currentTimeSec: 0,
+  });
+
+  assert.deepEqual(model.linkedLaneBoundaryMismatches, []);
 });
 
 test('buildTimelineModel renders zoom markers and click events from project metadata', () => {

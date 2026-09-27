@@ -209,6 +209,7 @@ test('shipped advanced Editor stays mounted and hands changes to the shared proj
   assert.match(main, /<FreecutEditorSurface/);
   assert.match(main, /projectId=\{project\?\.document\?\.id \?\? null\}/);
   assert.match(main, /projectVersion=\{projectVersion\}/);
-  assert.match(main, /onLayersChange=\{setEditorLayers\}/);
+  assert.match(main, /onLayersChange=\{handleEditorLayersChange\}/);
+  assert.match(main, /handleEditorLayersChange = React\.useCallback\([^]*?setEditorLayers\(filterLinkedRecordingLayers\(layers\)\)/);
   assert.match(css, /\.persistentEditorSlot\s*{/);
 });

@@ -1,26 +1,42 @@
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const root = process.cwd();
+const require = createRequire(import.meta.url);
+const sharp = require(join(root, 'vendor', 'freecut', 'node_modules', 'sharp'));
 const projectPath = resolve(process.argv[2] || process.env.ROUGH_CUT_REAL_PROJECT_PATH || '');
 if (!projectPath || !existsSync(projectPath)) throw new Error('Usage: node scripts/recording-editor-interactions-playwright.mjs <real-project.roughcut>');
 
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appPath = join(artifactRoot, 'resources', 'app');
 const electronPath = join(artifactRoot, 'electron');
-if (!existsSync(appPath) || !existsSync(electronPath)) throw new Error('Package the app before running recording-editor interaction proof.');
+const dockLaunchPath = join(artifactRoot, 'dock-launch.sh');
+if (!existsSync(appPath) || !existsSync(electronPath) || !existsSync(dockLaunchPath)) throw new Error('Package the app before running recording-editor interaction proof.');
+const desktopEntryPath = join(process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share'), 'applications', 'rough-cut-mvp.desktop');
+if (!existsSync(desktopEntryPath)) throw new Error(`Installed Rough Cut desktop entry is missing: ${desktopEntryPath}`);
+const desktopEntry = readFileSync(desktopEntryPath, 'utf8');
+const expectedDesktopExec = `Exec=env ROUGH_CUT_DOCK_LAUNCH=1 ${dockLaunchPath}`;
+if (!desktopEntry.split('\n').some((line) => line === expectedDesktopExec)) {
+  throw new Error(`Installed Rough Cut desktop entry is not bound to the current dock launcher: ${JSON.stringify({ desktopEntryPath, expectedDesktopExec })}`);
+}
 
 const outputRoot = process.env.ROUGH_CUT_RECORDING_INTERACTIONS_OUTPUT || join('/tmp', `rough-cut-recording-interactions-${Date.now()}`);
 mkdirSync(outputRoot, { recursive: true });
 const screenshotPath = join(outputRoot, 'recording-editor-interactions.png');
+const boundaryScreenshotPath = join(outputRoot, 'recording-editor-linked-boundaries.png');
+const repeatedBoundaryScreenshotPath = join(outputRoot, 'recording-editor-repeated-linked-boundaries.png');
+const repeatedBoundaryCloseupScreenshotPath = join(outputRoot, 'recording-editor-repeated-linked-boundaries-closeup.png');
+const boundaryZoomScreenshotPath = join(outputRoot, 'recording-editor-linked-boundary-zoom.png');
+const interactionReportPath = join(outputRoot, 'interaction-report.json');
 const runtimeBeforePath = join(outputRoot, 'runtime-before.png');
 const runtimeChangePath = join(outputRoot, 'runtime-change.png');
 const runtimeAfterPath = join(outputRoot, 'runtime-after.png');
 const { _electron: electron } = loadPlaywright();
-const app = await electron.launch({
-  executablePath: electronPath,
+  const app = await electron.launch({
+    executablePath: dockLaunchPath,
   args: ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${join(outputRoot, 'electron-user-data')}`, appPath],
   env: {
     ...process.env,
@@ -35,6 +51,17 @@ const app = await electron.launch({
 
 try {
   const page = await app.firstWindow();
+  await page.waitForTimeout(300);
+  const provenancePath = '/tmp/rough-cut-dock-provenance.json';
+  const identityPath = join(appPath, 'package-identity.json');
+  if (!existsSync(provenancePath) || !existsSync(identityPath)) throw new Error('Dock launch identity evidence is missing.');
+  const provenance = JSON.parse(readFileSync(provenancePath, 'utf8'));
+  const packageIdentity = JSON.parse(readFileSync(identityPath, 'utf8'));
+  if (provenance.launchSource !== 'installed-desktop-entry'
+    || JSON.stringify(provenance.packageIdentity) !== JSON.stringify(packageIdentity)
+    || Date.parse(provenance.startedAt) < Date.parse(packageIdentity.packagedAt)) {
+    throw new Error(`Dock launch is stale or not installed-entry bound: ${JSON.stringify({ provenance, packageIdentity })}`);
+  }
   const runtimeFailures = [];
   page.on('crash', () => runtimeFailures.push('renderer crashed'));
   page.on('close', () => runtimeFailures.push('editor window closed'));
@@ -130,6 +157,22 @@ try {
   await ruler.waitFor({ state: 'visible', timeout: 30000 });
   await screenTrack.waitFor({ state: 'visible', timeout: 30000 });
   const readLinkedLaneBoxes = async () => page.evaluate(() => ({
+    devicePixelRatio: window.devicePixelRatio,
+    linkedLaneStatus: document.querySelector('.visualTimeline')?.getAttribute('data-recording-linked-lane-boundaries'),
+    linkedLaneMismatchCount: Number(document.querySelector('.visualTimeline')?.getAttribute('data-recording-linked-lane-mismatch-count') ?? NaN),
+    screenTrack: (() => {
+      const rect = document.querySelector('.screenLane .laneTrack')?.getBoundingClientRect();
+      return rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null;
+    })(),
+    audioTrack: (() => {
+      const rect = document.querySelector('.audioLane .laneTrack')?.getBoundingClientRect();
+      return rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null;
+    })(),
+    boundaryMarkers: [...document.querySelectorAll('.clipCutBoundary')].map((node) => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return { className: node.className, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height, background: style.backgroundColor, zIndex: style.zIndex, display: style.display, opacity: style.opacity };
+    }),
     screen: [...document.querySelectorAll('.screenLane [data-recording-clip-id]')].map((node) => {
       const rect = node.getBoundingClientRect();
       return {
@@ -155,11 +198,57 @@ try {
       };
     }),
   }));
+  const readAudioWaveformMapping = async () => page.locator('.audioLane [data-recording-audio-clip-id]').evaluateAll((nodes) => nodes.map((node) => {
+    const waveform = node.querySelector('.audioWaveform');
+    return {
+      timelineIn: Number(node.getAttribute('data-recording-timeline-in')),
+      backgroundImage: waveform?.style.backgroundImage ?? 'none',
+      backgroundPosition: waveform?.style.backgroundPosition ?? '',
+      backgroundSize: waveform?.style.backgroundSize ?? '',
+    };
+  }));
+  const readPaintedBoundaryEvidence = async (imagePath, lanes) => {
+    const { data, info } = await sharp(imagePath).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const score = (track, x) => {
+      if (!track) return 0;
+      const scale = lanes.devicePixelRatio || 1;
+      const pixelX = Math.max(2, Math.min(info.width - 3, Math.round(x * scale)));
+      const top = Math.max(1, Math.round(track.top * scale) + 3);
+      const bottom = Math.min(info.height - 2, Math.round((track.top + track.height) * scale) - 3);
+      let total = 0;
+      let samples = 0;
+      for (let y = top; y <= bottom; y += 1) {
+        const left = (y * info.width + pixelX - 2) * info.channels;
+        const right = (y * info.width + pixelX + 2) * info.channels;
+        total += Math.abs(data[left] - data[right]) + Math.abs(data[left + 1] - data[right + 1]) + Math.abs(data[left + 2] - data[right + 2]);
+        samples += 1;
+      }
+      return samples ? total / samples : 0;
+    };
+    const screenXs = lanes.screen.slice(0, -1).map((clip) => clip.right);
+    const audioXs = lanes.audio.slice(0, -1).map((clip) => clip.right);
+    const allXs = [...new Set([...screenXs, ...audioXs].map((x) => Math.round(x)))].sort((a, b) => a - b);
+    const boundaries = allXs.map((x) => ({
+      x,
+      screenScore: score(lanes.screenTrack, x),
+      audioScore: score(lanes.audioTrack, x),
+    }));
+    const missing = boundaries.filter((boundary) => boundary.screenScore < 24 || boundary.audioScore < 24);
+    if (missing.length > 0) throw new Error(`Painted SCREEN/AUDIO boundary pixels diverged: ${JSON.stringify({ devicePixelRatio: lanes.devicePixelRatio, image: { width: info.width, height: info.height }, screen: lanes.screen, audio: lanes.audio, boundaryMarkers: lanes.boundaryMarkers, boundaries, missing })}`);
+    return { boundaries, threshold: 24, screenshotPath: imagePath };
+  };
   const assertLinkedLaneGeometry = (label, lanes) => {
+    if (lanes.linkedLaneStatus !== 'pass' || lanes.linkedLaneMismatchCount !== 0) throw new Error(`${label} failed the renderer linked-lane invariant: ${JSON.stringify(lanes)}`);
     if (lanes.screen.length !== lanes.audio.length) throw new Error(`${label} changed linked lane counts: ${JSON.stringify(lanes)}`);
+    const audioByScreenId = new Map(lanes.audio.map((audioClip) => [
+      audioClip.id?.startsWith('audio:') ? audioClip.id.slice('audio:'.length) : audioClip.id,
+      audioClip,
+    ]));
+    const matchedAudioIds = new Set();
     const mismatches = lanes.screen.flatMap((screenClip, index) => {
-      const audioClip = lanes.audio[index];
+      const audioClip = audioByScreenId.get(screenClip.id);
       if (!audioClip) return [{ index, screenClip, audioClip: null }];
+      matchedAudioIds.add(audioClip.id);
       const leftErrorPx = Math.abs(screenClip.left - audioClip.left);
       const rightErrorPx = Math.abs(screenClip.right - audioClip.right);
       const frameMismatch = screenClip.timelineIn !== audioClip.timelineIn
@@ -167,7 +256,91 @@ try {
         || (Number.isFinite(screenClip.boundaryFrame) && screenClip.boundaryFrame !== audioClip.boundaryFrame);
       return !frameMismatch && leftErrorPx <= 0.5 && rightErrorPx <= 0.5 ? [] : [{ index, leftErrorPx, rightErrorPx, screenClip, audioClip }];
     });
+    lanes.audio.forEach((audioClip, index) => {
+      if (!matchedAudioIds.has(audioClip.id)) mismatches.push({ index, screenClip: null, audioClip });
+    });
     if (mismatches.length > 0) throw new Error(`${label} left Screen and Audio boundaries misaligned: ${JSON.stringify(mismatches)}`);
+  };
+  const readRenderedCutEvidence = async () => page.evaluate(() => {
+    const screen = [...document.querySelectorAll('.screenLane [data-recording-clip-id]')];
+    const audio = [...document.querySelectorAll('.audioLane [data-recording-audio-clip-id]')];
+    const boundary = (node) => {
+      const marker = node?.querySelector('[data-recording-cut-boundary-frame]');
+      const rect = marker?.getBoundingClientRect();
+      return marker && rect ? {
+        frame: Number(marker.getAttribute('data-recording-cut-boundary-frame')),
+        x: rect.left,
+        width: rect.width,
+      } : null;
+    };
+    const clip = (node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        id: node.getAttribute('data-recording-clip-id') ?? node.getAttribute('data-recording-audio-clip-id'),
+        timelineIn: Number(node.getAttribute('data-recording-timeline-in')),
+        timelineOut: Number(node.getAttribute('data-recording-timeline-out')),
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        selected: node.classList.contains('selectedClip'),
+      };
+    };
+    const renderedRanges = screen.map((screenClip) => {
+      const screenId = screenClip.getAttribute('data-recording-clip-id');
+      const audioClip = audio.find((node) => node.getAttribute('data-recording-audio-clip-id') === `audio:${screenId}`);
+      return {
+        screenId,
+        audioId: audioClip?.getAttribute('data-recording-audio-clip-id'),
+        screenIn: Number(screenClip.getAttribute('data-recording-timeline-in')),
+        audioIn: Number(audioClip?.getAttribute('data-recording-timeline-in')),
+        screenOut: Number(screenClip.getAttribute('data-recording-timeline-out')),
+        audioOut: Number(audioClip?.getAttribute('data-recording-timeline-out')),
+      };
+    });
+    const boundaries = screen.slice(1).flatMap((screenClip) => {
+      const screenId = screenClip.getAttribute('data-recording-clip-id');
+      const audioClip = audio.find((node) => node.getAttribute('data-recording-audio-clip-id') === `audio:${screenId}`);
+      const screenMarker = boundary(screenClip);
+      const audioMarker = boundary(audioClip);
+      return screenMarker && audioMarker ? [{
+        frame: screenMarker.frame,
+        screenX: screenMarker.x,
+        audioX: audioMarker.x,
+        markerErrorPx: Math.abs(screenMarker.x - audioMarker.x),
+      }] : [];
+    });
+    return {
+      selectedScreenClipIds: screen.filter((node) => node.classList.contains('selectedClip')).map((node) => node.getAttribute('data-recording-clip-id')),
+      screen: screen.map(clip),
+      audio: audio.map(clip),
+      screenBoundary: boundary(screen[1]),
+      audioBoundary: boundary(audio.find((node) => node.getAttribute('data-recording-audio-clip-id') === `audio:${screen[1]?.getAttribute('data-recording-clip-id')}`)),
+      boundaries,
+      renderedRanges,
+    };
+  });
+  const assertRenderedCutEvidence = (label, evidence) => {
+    const screenBoundary = evidence.screenBoundary;
+    const audioBoundary = evidence.audioBoundary;
+    if (evidence.selectedScreenClipIds.length !== 1) throw new Error(`${label} did not leave exactly one SCREEN clip selected: ${JSON.stringify(evidence)}`);
+    if (!screenBoundary || !audioBoundary) throw new Error(`${label} did not render both linked cut markers: ${JSON.stringify(evidence)}`);
+    const markerErrorPx = Math.abs(screenBoundary.x - audioBoundary.x);
+    const edgeErrorPx = Math.abs((evidence.screen[0]?.right ?? NaN) - (evidence.audio[0]?.right ?? NaN));
+    if (evidence.screen.length !== 2 || evidence.audio.length !== 2) throw new Error(`${label} did not render exactly two linked clips in both lanes: ${JSON.stringify(evidence)}`);
+    if (evidence.screen[1]?.id === evidence.audio[1]?.id) throw new Error(`${label} lost distinct linked SCREEN/AUDIO clip identities: ${JSON.stringify(evidence)}`);
+    const rangeMismatches = evidence.renderedRanges.filter((range) => (
+      range.audioId !== `audio:${range.screenId}`
+      || range.screenIn !== range.audioIn
+      || range.screenOut !== range.audioOut
+    ));
+    if (rangeMismatches.length > 0) throw new Error(`${label} rendered mismatched linked ranges: ${JSON.stringify(rangeMismatches)}`);
+    if (evidence.boundaries.length !== evidence.screen.length - 1 || evidence.boundaries.some((boundary) => boundary.markerErrorPx > 0.5)) {
+      throw new Error(`${label} rendered repeated SCREEN/AUDIO cut markers at different pixels: ${JSON.stringify(evidence.boundaries)}`);
+    }
+    if (!Number.isFinite(markerErrorPx) || markerErrorPx > 0.5 || !Number.isFinite(edgeErrorPx) || edgeErrorPx > 0.5) {
+      throw new Error(`${label} rendered SCREEN/AUDIO cut edges at different pixels: ${JSON.stringify({ markerErrorPx, edgeErrorPx, evidence })}`);
+    }
+    return { ...evidence, markerErrorPx, edgeErrorPx, selectedScreenClipId: evidence.selectedScreenClipIds[0], screenBoundary, audioBoundary };
   };
   const persistedProject = JSON.parse(readFileSync(projectPath, 'utf8'));
   const persistedRecording = persistedProject.assets?.find((asset) => asset.type === 'recording');
@@ -253,6 +426,27 @@ try {
   if (headSplitWaveforms.some((item) => item.waveformWidth <= 0 || item.background === 'none' || Math.abs(item.waveformWidth - item.regionWidth) > 1)) {
     throw new Error(`Three-frame head split distorted the audio waveform: ${JSON.stringify(headSplitWaveforms)}`);
   }
+  await page.locator('.screenLane .clipBody').first().click({ force: true });
+  await page.locator('.screenLane .selectedClip').first().waitFor({ state: 'visible', timeout: 5000 });
+  const renderedCutEvidence = assertRenderedCutEvidence('selected three-frame head split', await readRenderedCutEvidence());
+  let repeatedCutEvidence = null;
+  await page.screenshot({ path: boundaryScreenshotPath, timeout: 60000 });
+  const boundaryZoomCrop = await page.evaluate(() => {
+    const marker = document.querySelector('.screenLane [data-recording-clip-id]:nth-child(2) [data-recording-cut-boundary-frame]')
+      ?? document.querySelector('.screenLane [data-recording-cut-boundary-frame]');
+    const screenLane = document.querySelector('.screenLane')?.getBoundingClientRect();
+    const audioLane = document.querySelector('.audioLane')?.getBoundingClientRect();
+    const markerRect = marker?.getBoundingClientRect();
+    if (!screenLane || !audioLane || !markerRect) return null;
+    return {
+      x: Math.max(0, markerRect.left - 140),
+      y: Math.max(0, Math.min(screenLane.top, audioLane.top) - 20),
+      width: 280,
+      height: Math.min(220, Math.max(screenLane.bottom, audioLane.bottom) - Math.min(screenLane.top, audioLane.top) + 40),
+    };
+  });
+  if (!boundaryZoomCrop) throw new Error('Could not calculate a zoomed crop around the rendered linked boundary.');
+  await page.screenshot({ path: boundaryZoomScreenshotPath, clip: boundaryZoomCrop, timeout: 60000 });
   await restoreOriginalRecording(page);
   await page.locator('.screenLane .clipBody').first().click({ force: true });
   const headTrimHandle = page.locator('.screenLane [data-recording-trim-edge="head"]').first();
@@ -284,8 +478,24 @@ try {
   await clip.waitFor({ state: 'visible', timeout: 30000 });
   const clipBox = await clip.boundingBox();
   if (!clipBox) throw new Error('Screen clip is not measurable.');
-  await page.mouse.click(clipBox.x + clipBox.width * 0.73, clipBox.y + clipBox.height / 2);
-  await page.waitForTimeout(250);
+  const clipStructure = async () => page.locator('.screenLane [data-recording-clip-id]').evaluateAll((nodes) => nodes.map((node) => ({
+    id: node.getAttribute('data-recording-clip-id'),
+    timelineIn: node.getAttribute('data-recording-timeline-in'),
+    timelineOut: node.getAttribute('data-recording-timeline-out'),
+  })));
+  const normalClickStructureBefore = await clipStructure();
+  const clickX = clipBox.x + clipBox.width * 0.73;
+  const clickY = clipBox.y + clipBox.height / 2;
+  // One pixel of pointer drift must remain a normal click, not a clip edit.
+  await page.mouse.move(clickX, clickY);
+  await page.mouse.down();
+  await page.mouse.move(clickX + 1, clickY);
+  await page.mouse.up();
+  await page.waitForTimeout(900);
+  const normalClickStructureAfter = await clipStructure();
+  if (JSON.stringify(normalClickStructureAfter) !== JSON.stringify(normalClickStructureBefore)) {
+    throw new Error(`Normal clip click changed the timeline structure: ${JSON.stringify({ before: normalClickStructureBefore, after: normalClickStructureAfter })}`);
+  }
   const clipSeek = await page.locator('.playhead').evaluate((node) => Number.parseFloat(getComputedStyle(node).left));
   if (!(clipSeek > 50)) throw new Error(`Clip-body seek did not move the playhead: ${clipSeek}`);
 
@@ -632,12 +842,49 @@ try {
   const afterIconRestore = await page.locator('.screenLane [data-recording-clip-id]').count();
   if (afterIconRestore !== 1) throw new Error(`Restore after scissors did not return to one clip: ${afterIconRestore}`);
 
-  await seekAt(0.33);
+  await seekToExactFrame(3);
   await page.keyboard.press('s');
   await page.waitForTimeout(700);
-  await seekAt(0.66);
+  await seekToExactFrame(6);
   await page.keyboard.press('s');
   await page.waitForTimeout(900);
+  const repeatedZoomButton = page.getByRole('button', { name: 'Zoom timeline in' });
+  for (let index = 0; index < 40; index += 1) {
+    if (await repeatedZoomButton.isDisabled()) break;
+    await repeatedZoomButton.click({ force: true });
+    await page.waitForTimeout(80);
+  }
+  await page.waitForTimeout(300);
+  const repeatedCutLanes = await readLinkedLaneBoxes();
+  assertLinkedLaneGeometry('repeated timeline-start cuts', repeatedCutLanes);
+  if (repeatedCutLanes.screen.length !== 3 || repeatedCutLanes.audio.length !== 3) {
+    throw new Error(`Repeated cuts did not leave three linked clips in both lanes: ${JSON.stringify(repeatedCutLanes)}`);
+  }
+  const repeatedCutWaveforms = await readAudioWaveformMapping();
+  const waveformSizes = new Set(repeatedCutWaveforms.map((waveform) => waveform.backgroundSize));
+  const waveformPositions = new Set(repeatedCutWaveforms.map((waveform) => waveform.backgroundPosition));
+  if (repeatedCutWaveforms.some((waveform) => waveform.backgroundImage === 'none' || !waveform.backgroundSize || !waveform.backgroundPosition)
+    || waveformSizes.size !== 1
+    || waveformPositions.size !== repeatedCutWaveforms.length) {
+    throw new Error(`Cut audio waveforms must share one timeline-scale image with a distinct canonical offset per child: ${JSON.stringify(repeatedCutWaveforms)}`);
+  }
+  repeatedCutEvidence = repeatedCutLanes;
+  await page.screenshot({ path: repeatedBoundaryScreenshotPath, timeout: 60000 });
+  const paintedBoundaryEvidence = await readPaintedBoundaryEvidence(repeatedBoundaryScreenshotPath, repeatedCutLanes);
+  const repeatedBoundaryCloseup = await page.evaluate(() => {
+    const screen = [...document.querySelectorAll('.screenLane [data-recording-clip-id]')];
+    const audio = [...document.querySelectorAll('.audioLane [data-recording-audio-clip-id]')];
+    const tracks = [document.querySelector('.screenLane')?.getBoundingClientRect(), document.querySelector('.audioLane')?.getBoundingClientRect()].filter(Boolean);
+    const boundaryXs = [...screen.slice(0, -1), ...audio.slice(0, -1)].map((node) => node.getBoundingClientRect().right);
+    if (!tracks.length || !boundaryXs.length) return null;
+    const left = Math.max(0, Math.min(...boundaryXs) - 40);
+    const right = Math.max(...boundaryXs) + 40;
+    const top = Math.max(0, Math.min(...tracks.map((rect) => rect.top)) - 20);
+    const bottom = Math.max(...tracks.map((rect) => rect.bottom)) + 20;
+    return { x: left, y: top, width: Math.max(80, right - left), height: Math.max(80, bottom - top) };
+  });
+  if (!repeatedBoundaryCloseup) throw new Error('Could not calculate the repeated linked-boundary close-up.');
+  await page.screenshot({ path: repeatedBoundaryCloseupScreenshotPath, clip: repeatedBoundaryCloseup, timeout: 60000 });
   const beforeRippleDelete = await page.locator('.screenLane [data-recording-clip-id]').count();
   if (beforeRippleDelete !== 3) throw new Error(`Ripple-delete setup did not create three clips: ${beforeRippleDelete}`);
   const linkedAudioBeforeDelete = await page.locator('.audioLane [data-recording-audio-clip-id]').count();
@@ -672,6 +919,11 @@ try {
   if (!Number.isFinite(rippleGapPx) || Math.abs(rippleGapPx) > 3) throw new Error(`Backspace left a gap after deleting the selected clip: ${rippleGapPx}px`);
   const rippleDeleteFingerprint = await timelineFingerprint();
   await restoreOriginal();
+  const fitAfterRepeatedCuts = page.getByRole('button', { name: 'Fit timeline' });
+  if (!(await fitAfterRepeatedCuts.isDisabled())) {
+    await fitAfterRepeatedCuts.click({ force: true });
+    await page.waitForTimeout(300);
+  }
 
   const cameraTrack = page.locator('.cameraLane .laneTrack');
   await cameraTrack.waitFor({ state: 'visible', timeout: 30000 });
@@ -916,7 +1168,31 @@ try {
     ok: true,
     projectPath,
     screenshotPath,
+    boundaryScreenshotPath,
+    renderedCutEvidence: {
+      ...renderedCutEvidence,
+      renderedScreenCount: renderedCutEvidence.screen?.length ?? 2,
+      renderedAudioCount: renderedCutEvidence.audio?.length ?? 2,
+      renderedScreenClipIds: renderedCutEvidence.screen?.map((clip) => clip.id) ?? [],
+      renderedAudioClipIds: renderedCutEvidence.audio?.map((clip) => clip.id) ?? [],
+      boundaryFrame: renderedCutEvidence.screenBoundary?.frame ?? null,
+      screenBoundaryX: renderedCutEvidence.screenBoundary?.x ?? null,
+      audioBoundaryX: renderedCutEvidence.audioBoundary?.x ?? null,
+      boundaryErrorPx: Math.max(renderedCutEvidence.markerErrorPx, renderedCutEvidence.edgeErrorPx),
+      boundaryZoomScreenshotPath,
+      boundaryZoomScreenshotSha256: sha256(boundaryZoomScreenshotPath),
+      repeatedBoundaryScreenshotPath,
+      repeatedBoundaryScreenshotSha256: sha256(repeatedBoundaryScreenshotPath),
+      repeatedCutEvidence,
+      paintedBoundaryEvidence,
+      repeatedBoundaryCloseupScreenshotPath,
+      repeatedBoundaryCloseupScreenshotSha256: sha256(repeatedBoundaryCloseupScreenshotPath),
+      repeatedBoundaryCloseup,
+      interactionReportPath,
+      screenshotSha256: sha256(boundaryScreenshotPath),
+    },
     runtimeEvidence: {
+      installedDesktopEntry: { path: desktopEntryPath, exec: expectedDesktopExec, verified: true },
       before: { projectId: projectPath, screenshotPath: runtimeBeforePath, screenshotSha256: sha256(runtimeBeforePath), timelineFingerprint: beforeTimelineFingerprint },
       change: { projectId: projectPath, screenshotPath: runtimeChangePath, screenshotSha256: sha256(runtimeChangePath), timelineFingerprint: changeTimelineFingerprint },
       after: { projectId: projectPath, screenshotPath: runtimeAfterPath, screenshotSha256: sha256(runtimeAfterPath), timelineFingerprint: afterTimelineFingerprint },
@@ -937,9 +1213,12 @@ try {
     },
     toolbarBox, viewportBox, firstSeek, secondSeek, clipSeek, emptyLaneSeek, beforeSplit, afterSplit, afterRestore, beforeIconSplit, afterIconSplit, afterIconRestore, beforeRippleDelete, afterRippleDelete, beforeRangeCut, afterRangeCut, initialTailFrame, shorterTailFrame, longerTailFrame,
   };
-  writeFileSync(join(outputRoot, 'interaction-report.json'), `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(interactionReportPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
 } finally {
+  if (process.env.ROUGH_CUT_HOLD_FOR_VISUAL_PROOF === '1') {
+    await new Promise((resolve) => setTimeout(resolve, 180000));
+  }
   await app.close().catch(() => undefined);
 }
 

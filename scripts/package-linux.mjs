@@ -2,6 +2,7 @@ import { access, cp, lstat, mkdir, readdir, readFile, rename, rm, stat, symlink,
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,6 +32,20 @@ await cp(join(root, 'packages/project-model/node_modules/zod'), join(appRoot, 'n
   recursive: true,
   dereference: true,
 });
+
+const rendererAssetsRoot = join(appRoot, 'apps/desktop/dist/renderer/assets');
+const rendererBundleNames = (await readdir(rendererAssetsRoot)).filter((name) => /^index-.*\.js$/.test(name)).sort();
+if (rendererBundleNames.length !== 1) throw new Error(`Expected exactly one packaged renderer bundle, found ${rendererBundleNames.length}`);
+const rendererBundleName = rendererBundleNames[0];
+const rendererBundleSha256 = createHash('sha256')
+  .update(await readFile(join(rendererAssetsRoot, rendererBundleName)))
+  .digest('hex');
+await writeFile(join(appRoot, 'package-identity.json'), `${JSON.stringify({
+  version: 1,
+  rendererBundleName,
+  rendererBundleSha256,
+  packagedAt: new Date().toISOString(),
+}, null, 2)}\n`);
 
 await writeFile(
   join(appRoot, 'package.json'),

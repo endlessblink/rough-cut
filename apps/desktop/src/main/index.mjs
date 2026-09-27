@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
@@ -76,6 +76,12 @@ function recordDockProvenance() {
   const launchSource = process.env.ROUGH_CUT_DOCK_LAUNCH === '1'
     ? 'installed-desktop-entry'
     : 'unknown';
+  let packageIdentity = null;
+  try {
+    packageIdentity = JSON.parse(readFileSync(join(app.getAppPath(), 'package-identity.json'), 'utf8'));
+  } catch {
+    // Development and older packages have no identity; the visual gate rejects them.
+  }
   const provenance = {
     version: 1,
     launchSource,
@@ -83,6 +89,7 @@ function recordDockProvenance() {
     parentPid: process.ppid,
     executable: process.execPath,
     appPath: app.getAppPath(),
+    packageIdentity,
     startedAt: new Date().toISOString(),
   };
   writeFileSync(dockProvenancePath, `${JSON.stringify(provenance)}\n`, 'utf8');

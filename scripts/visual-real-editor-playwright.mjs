@@ -13,7 +13,8 @@ if (!projectPath || !existsSync(projectPath)) {
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appPath = join(artifactRoot, 'resources', 'app');
 const electronPath = join(artifactRoot, 'electron');
-if (!existsSync(appPath) || !existsSync(electronPath)) {
+const dockLaunchPath = join(artifactRoot, 'dock-launch.sh');
+if (!existsSync(appPath) || !existsSync(electronPath) || !existsSync(dockLaunchPath)) {
   throw new Error('The packaged app is missing; run pnpm package:linux first.');
 }
 
@@ -24,12 +25,13 @@ const reportPath = join(outputRoot, 'real-editor-report.json');
 const userDataPath = join(outputRoot, 'electron-user-data');
 const { _electron: electron } = loadPlaywright();
 
-const app = await electron.launch({
-  executablePath: electronPath,
-  args: ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${userDataPath}`, appPath],
-  env: {
-    ...process.env,
-    ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+  const app = await electron.launch({
+    executablePath: dockLaunchPath,
+    args: ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${userDataPath}`, appPath],
+    env: {
+      ...process.env,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+      ROUGH_CUT_DOCK_LAUNCH: '1',
     ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: projectPath,
     ROUGH_CUT_STARTUP_VIEW: 'nle',
@@ -72,17 +74,9 @@ try {
       editorChrome: Boolean(document.querySelector('iframe[data-freecut-embed="vendored"]')),
     };
   });
-  // Capture the complete virtual desktop while the packaged app is live; a
-  // page screenshot can crop Electron's lower timeline even when the window
-  // itself is healthy.
-  // Raise the app first. The capture is of the whole root window, so anything the
-  // user (or another agent) has in front of Electron is what gets photographed —
-  // a screenshot of somebody else's terminal passes every geometry check.
-  //
-  // Matched by PID, not by title. Another Rough Cut window — the user's own copy,
-  // or a leftover from an earlier run — carries the same title, and picking one of
-  // those photographed a completely different project while the geometry probe
-  // happily reported the launched window's healthy numbers.
+  // Capture the complete desktop after raising the matched packaged app. The full
+  // desktop proves the dock-launched scope; the window is matched by the launched
+  // process tree, not title alone, so another Rough Cut instance cannot satisfy it.
   let windowId = null;
   for (let attempt = 0; attempt < 5 && !windowId; attempt += 1) {
     windowId = findAppWindow(app.process().pid);

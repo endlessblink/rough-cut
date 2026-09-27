@@ -44,6 +44,7 @@ import {
   findRecordingTemplatePresetId,
   trimClipEdge,
   moveClip,
+  canonicalizeProjectDocument,
   type NormalizedRect,
   type ProjectAspectRatio,
   type CropAspectRatio,
@@ -1754,7 +1755,7 @@ function App() {
         <AppViewTabStrip
           activeId={activeAppView}
           onChange={(nextView) => {
-            if (nextView === 'editor') {
+            if (nextView === 'editor' && activeAppView !== 'editor') {
               setSetupBoardOpen(true);
               setInspectorOpen(true);
               setActiveTool('timeline');
@@ -1898,9 +1899,11 @@ function App() {
               activeTool={activeTool}
               currentTimeSec={clampedSharedTimelineTimeSec}
               onCurrentTimeSecChange={updateSharedTimelineTimeSec}
-              onActiveToolChange={(tool) => {
+              onActiveToolChange={(tool, options) => {
                 setActiveTool(tool);
-                setSetupBoardOpen(true);
+                // Only an explicit tool pick opens the panel; a selection made on
+                // the timeline must not undo the user's choice to hide it.
+                if (options?.revealPanel !== false) setSetupBoardOpen(true);
               }}
             />
           ) : (
@@ -4043,7 +4046,7 @@ function ProjectPreview({
   activeTool: ActiveTool;
   currentTimeSec: number;
   onCurrentTimeSecChange: (nextTimeSec: number) => void;
-  onActiveToolChange: (tool: ActiveTool) => void;
+  onActiveToolChange: (tool: ActiveTool, options?: { revealPanel?: boolean }) => void;
 }) {
   const setCurrentTimeSec = React.useCallback((next: React.SetStateAction<number>) => {
     onCurrentTimeSecChange(typeof next === 'function' ? next(currentTimeSec) : next);
@@ -4587,7 +4590,9 @@ function ProjectPreview({
   async function updateTimelineClipTrim(clipId: string, edge: 'head' | 'tail', frame: number) {
     if (!effectiveRecording) return;
     try {
-      const beforeDocument = project.document as unknown as ProjectDocument;
+      // The timeline shows repaired clip ids (see withUniqueClipIds), so look the
+      // clip up in the same repaired document or a duplicate id finds the wrong one.
+      const beforeDocument = canonicalizeProjectDocument(project.document as unknown as ProjectDocument);
       const beforeClips = beforeDocument.timeline.tracks.flatMap((track) => track.clips);
       const target = beforeClips.find((clip) => clip.id === clipId);
       const linkedClipIds = new Set(
@@ -4921,9 +4926,9 @@ function ProjectPreview({
     setInspectorSelection(selection);
     // Timeline owns zoom marker, recording-clip, and cursor-event selections; camera lives on its own tab.
     if (selection.group === 'camera') {
-      onActiveToolChange('camera');
+      onActiveToolChange('camera', { revealPanel: false });
     } else if (selection.group === 'cursor' || selection.group === 'zoom' || selection.group === 'recording') {
-      onActiveToolChange('timeline');
+      onActiveToolChange('timeline', { revealPanel: false });
     }
   }
 
@@ -5938,14 +5943,18 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     onScrubStart();
     onScrub(Math.max(0, Math.min(model.durationSec, initialFrame / fps)));
     const clamp = (value: number) => Math.max(minIn, Math.min(maxIn, value));
+    const startClientX = event.clientX;
     let latestIn = initialIn;
     let moved = false;
     let cancelled = false;
     const move = (moveEvent: PointerEvent) => {
+      // Pointer capture can report a one-pixel drift for an ordinary click.
+      // Do not turn that click into a persisted timeline edit.
+      if (!moved && Math.abs(moveEvent.clientX - startClientX) < 4) return;
+      moved = true;
       const rawFrame = timelineFrameFromClient(handle, moveEvent.clientX);
       if (rawFrame === null) return;
       const nextIn = clamp(initialIn + (rawFrame - initialFrame));
-      if (nextIn !== initialIn) moved = true;
       latestIn = nextIn;
        setClipDragPreview({ clipId: region.id, timelineIn: nextIn, timelineOut: nextIn + duration });
     };
@@ -6204,8 +6213,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       width: `max(0px, calc(${placement.width}% - 2px))`,
     });
     const baseline = trimDragPreview ? trimDragBaseline.find((clip) => clip.id === region.id) : null;
-    const stableLeft = baseline?.left ?? region.left;
-    const stableWidth = baseline?.width ?? region.width;
+    void baseline;
     if (clipDragPreview?.clipId === region.id) {
       // Screen clips are placed by raw timeline frames over durationSec (no trimStartFrame offset),
       // matching frameRangeToPlacement(clip.timelineIn, clip.timelineOut, ...) in timeline-rail.mjs.
@@ -6215,9 +6223,13 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     // Trimming is an edge edit, not a ripple edit: downstream clips stay put
     // so shortening this clip exposes a real, readable gap immediately.
     if (!trimDragPreview || !Number.isFinite(region.sourceIn) || !Number.isFinite(region.sourceOut) || !Number.isFinite(region.timelineIn) || !Number.isFinite(region.timelineOut)) {
-      return separated({ left: stableLeft, width: stableWidth });
+      const placement = frameRangeToPlacement(region.timelineIn ?? 0, region.timelineOut ?? region.timelineIn ?? 1, fps, model.durationSec);
+      return separated(placement);
     }
-    if (trimDragPreview.clipId !== region.id) return separated({ left: stableLeft, width: stableWidth });
+    if (trimDragPreview.clipId !== region.id) {
+      const placement = frameRangeToPlacement(region.timelineIn ?? 0, region.timelineOut ?? region.timelineIn ?? 1, fps, model.durationSec);
+      return separated(placement);
+    }
     if (trimDragPreview.edge === 'head') {
       const placement = frameRangeToPlacement(trimDragPreview.frame, region.timelineOut ?? trimDragPreview.frame + 1, fps, model.durationSec);
       return separated(placement);
@@ -6239,8 +6251,41 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     }) ?? null;
   }
 
+  function audioRegionStyle(region: { id: string; left: number; width: number; timelineIn?: number; timelineOut?: number }) {
+    const separated = (placement: { left: number; width: number }) => ({
+      left: `calc(${placement.left}% + 1px)`,
+      width: `max(0px, calc(${placement.width}% - 2px))`,
+    });
+    const linkedScreen = linkedScreenRegionForAudio(region);
+    const clipId = linkedScreen?.id ?? (region.id.startsWith('audio:') ? region.id.slice('audio:'.length) : region.id);
+    const baseline = trimDragPreview ? trimDragBaseline.find((clip) => clip.id === clipId) : null;
+    void baseline;
+    if (!trimDragPreview || trimDragPreview.clipId !== clipId || !linkedScreen) {
+      const placement = frameRangeToPlacement(region.timelineIn ?? 0, region.timelineOut ?? region.timelineIn ?? 1, fps, model.durationSec);
+      return separated(placement);
+    }
+    const placement = trimDragPreview.edge === 'head'
+      ? frameRangeToPlacement(trimDragPreview.frame, linkedScreen.timelineOut ?? trimDragPreview.frame + 1, fps, model.durationSec)
+      : frameRangeToPlacement(linkedScreen.timelineIn ?? 0, trimDragPreview.frame, fps, model.durationSec);
+    return separated(placement);
+  }
+
+  function audioWaveformStyle(timelineIn?: number) {
+    const startFrame = Math.max(0, Math.round(timelineIn ?? 0));
+    return {
+      backgroundSize: `${timelineTrackWidthPx}px 100%`,
+      backgroundPosition: `${-Math.round(startFrame * pixelsPerFrame)}px center`,
+    };
+  }
+
   return (
-    <div className="visualTimeline" aria-label="Timeline overview" onPointerDownCapture={handleTimelineSurfacePointerDown}>
+      <div
+        className="visualTimeline"
+        aria-label="Timeline overview"
+        data-recording-linked-lane-boundaries={model.linkedLaneBoundaryMismatches?.length === 0 ? 'pass' : 'fail'}
+        data-recording-linked-lane-mismatch-count={model.linkedLaneBoundaryMismatches?.length ?? 0}
+        onPointerDownCapture={handleTimelineSurfacePointerDown}
+      >
       <span className="visuallyHidden" data-ui-region="timeline-live-region" aria-live="polite">Timeline position {formatClock(model.currentTimeSec)}</span>
       <div className="timelineToolbar" data-ui-region="timeline-toolbar">
         <button type="button" className="timelineToolButton" aria-label="Split at playhead" title="Split at the current playhead (S)" onClick={() => void onSplitAtPlayhead?.()}><PhosphorScissors size={16} weight="duotone" /></button>
@@ -6301,7 +6346,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               {selectedScreenClipId === region.id ? <button type="button" role="slider" className="trimHandle trimHandleStart" data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} /> : null}
               <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}><Icon name="frame" /> Clip</button>
               {selectedScreenClipId === region.id ? <button type="button" role="slider" className="trimHandle trimHandleEnd" data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} /> : null}
-            </div>
+              </div>
           ))}
           {cutDragPreview ? (() => {
             const start = Math.min(cutDragPreview.startFrame, cutDragPreview.endFrame);
@@ -6318,9 +6363,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             </TimelineLane>
             <TimelineLane label="Audio" className="audioLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
            {model.lanes.audio.length > 0
-             ? model.lanes.audio.map((region, index) => { const linkedScreen = model.lanes.screen[index] ?? linkedScreenRegionForAudio(region); const baseline = trimDragPreview && linkedScreen ? trimDragBaseline.find((clip) => clip.id === linkedScreen.id) : null; const left = baseline?.left ?? linkedScreen?.left ?? region.left; const width = baseline?.width ?? linkedScreen?.width ?? region.width; const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={{ left: `calc(${left}% + 1px)`, width: `max(0px, calc(${width}% - 2px))` }} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
+             ? model.lanes.audio.map((region, index) => { const linkedScreen = linkedScreenRegionForAudio(region); const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} data-recording-linked-screen-clip-id={linkedScreen?.id ?? ''} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={audioRegionStyle(region)} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
                   {index > 0 ? <span className="clipCutBoundary audioCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} aria-hidden="true" /> : null}
-                 {waveformUrl ? <span className="audioWaveform" aria-hidden="true" style={{ backgroundImage: `url("${waveformUrl}")` }} /> : null}
+                 {waveformUrl ? <span className="audioWaveform" aria-hidden="true" style={{ backgroundImage: `url("${waveformUrl}")`, ...audioWaveformStyle(region.timelineIn ?? linkedScreen?.timelineIn) }} /> : null}
                  <span className="audioSilenceGuide" aria-hidden="true" />
                   <span className="audioRegionLabel">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
                 </button>; })

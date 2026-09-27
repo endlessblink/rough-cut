@@ -86,7 +86,7 @@ if (!projectPath) {
       devicePath: 'fixture-camera',
     },
   });
-  project = await saveProjectFile(project.path, offsetScreenClip(project.document));
+  project = await saveProjectFile(project.path, contiguousCutBoundaryFixture(project.document));
   projectPath = project.path;
 }
 const projectDocument = JSON.parse(await readFile(projectPath, 'utf8'));
@@ -139,6 +139,7 @@ async function runPlaybackProbeWithRetry({ view, projectPath }) {
       proofOk: result.proof?.ok ?? null,
       rendererExpectationOk: result.rendererExpectation?.ok ?? null,
       activePlaybackDebugOk: result.activePlaybackDebug?.ok ?? null,
+      cutBoundaryTraversalOk: result.cutBoundaryTraversal?.ok ?? null,
     });
     if (result.ok || attempt === maxAttempts) {
       return {
@@ -320,16 +321,18 @@ async function runPlaybackProbe({ view, projectPath }) {
     const cameraGeometry = cameraGeometryProof(pausedState, after);
     const rendererExpectation = rendererExpectationProof(after);
     const activePlaybackDebug = activePlaybackDebugProof(after);
+    const cutBoundaryTraversal = cutBoundaryTraversalProof(after, { required: !externalProjectPath });
     const probeStartedAtMs = typeof after?.probeStartedAtMs === 'number' ? after.probeStartedAtMs : 0;
     const webgpuLifecycle = webgpuLifecycleProof(after, webgpuConsoleLog, probeStartedAtMs);
     const webgpuBackgroundUploads = webgpuBackgroundUploadProof(before, after, webgpuConsoleLog, probeStartedAtMs);
     const webgpuMotionBlur = webgpuMotionBlurProof(after, webgpuConsoleLog, probeStartedAtMs);
     return {
-      ok: proof.ok && cameraGeometry.ok && rendererExpectation.ok && activePlaybackDebug.ok && webgpuLifecycle.ok && webgpuBackgroundUploads.ok && webgpuMotionBlur.ok && screenshotProof.ok,
+      ok: proof.ok && cameraGeometry.ok && rendererExpectation.ok && activePlaybackDebug.ok && cutBoundaryTraversal.ok && webgpuLifecycle.ok && webgpuBackgroundUploads.ok && webgpuMotionBlur.ok && screenshotProof.ok,
       proof,
       cameraGeometry,
       rendererExpectation,
       activePlaybackDebug,
+      cutBoundaryTraversal,
       webgpuLifecycle,
       webgpuBackgroundUploads,
       webgpuMotionBlur,
@@ -383,31 +386,42 @@ async function runPlaybackProbe({ view, projectPath }) {
   }
 }
 
-function offsetScreenClip(document) {
+function contiguousCutBoundaryFixture(document) {
   const recordingAsset = document.assets.find((asset) => asset.type === 'recording');
   if (!recordingAsset) throw new Error('Fixture did not create a recording asset.');
   const mediaId = `source:${recordingAsset.id}:screen`;
   const tracks = document.timeline.tracks.map((track) => ({
     ...track,
-    clips: track.clips.map((clip) => clip.mediaId === mediaId
-      ? {
-          ...clip,
-          timelineIn: 30,
-          timelineOut: 150,
-          sourceIn: 60,
-          sourceOut: 180,
-        }
-      : clip),
+    clips: track.clips.flatMap((clip) => clip.mediaId === mediaId
+      ? [
+          {
+            ...clip,
+            id: `${clip.id}:cut-head`,
+            timelineIn: 0,
+            timelineOut: 30,
+            sourceIn: 0,
+            sourceOut: 30,
+          },
+          {
+            ...clip,
+            id: `${clip.id}:cut-tail`,
+            timelineIn: 30,
+            timelineOut: 120,
+            sourceIn: 30,
+            sourceOut: 120,
+          },
+        ]
+      : [clip]),
   }));
   return {
     ...document,
-    name: 'playback-source-offset-gap',
+    name: 'playback-contiguous-cut-boundary',
     assets: document.assets.map((asset) => asset.id === recordingAsset.id
       ? withPlaybackZoomMarker(asset)
       : asset),
     composition: {
       ...document.composition,
-      duration: 180,
+      duration: 120,
     },
     timeline: {
       ...document.timeline,
@@ -671,6 +685,23 @@ function activePlaybackDebugProof(state) {
     maxLongTask,
     window: state?.activePlaybackWindow ?? null,
     active,
+  };
+}
+
+function cutBoundaryTraversalProof(state, { required }) {
+  if (!required) return { ok: true, skipped: true, reason: 'external-project-does-not-guarantee-fixture-boundary' };
+  const active = state?.activePlaybackDebug ?? null;
+  if (!active) return { ok: false, reason: 'missing-active-playback-debug' };
+  const boundarySeekCount = Number(active?.counts?.['timeline-boundary-seek']) || 0;
+  const continuousBoundaryCount = Number(active?.counts?.['timeline-boundary-continuous']) || 0;
+  const events = Array.isArray(active?.tail)
+    ? active.tail.filter((entry) => entry?.event === 'timeline-boundary-seek' || entry?.event === 'timeline-boundary-continuous')
+    : [];
+  return {
+    ok: boundarySeekCount === 0 && continuousBoundaryCount === 1,
+    boundarySeekCount,
+    continuousBoundaryCount,
+    events,
   };
 }
 

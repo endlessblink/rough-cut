@@ -43,3 +43,20 @@ The Stop hook is part of the project contract and must remain installed with `pn
 Before reporting any renderer, timeline, compositor, or FreeCut change as working, run an end-to-end visual check against the exact freshly packaged app and a real project with real media. The check must capture the actual Editor surface, not only a synthetic smoke fixture, and an independent visual reviewer must inspect the screenshot for the complete Editor layout, viewer bounds, media, playback state, effects, timeline, overlap, and cross-view identity. Synthetic smoke, typecheck, tests, DOM payloads, logs, and extracted frames are supporting evidence only; none can substitute for the real screenshot. If the real packaged app cannot be launched or the screenshot cannot be reviewed, the task remains unverified and must not be handed back to the user as working.
 
 The end-to-end check must fail closed on stale package identity, missing real-project media, missing FreeCut readiness, viewer geometry extending outside the viewer, hidden Editor chrome, blank/overlapping UI, or a screenshot that is not newer than the final source and package. The agent owns this verification; do not hand the user a launch instruction as a substitute for doing it.
+
+## User visual confirmation boundary — HARD RULE
+
+For renderer, timeline, compositor, or FreeCut work, the agent may not report
+"fixed", "complete", or "working" until every automated test, fresh packaged
+dock runtime check, and independent visual review has passed. At that point the
+only allowed handoff state is `READY_FOR_USER_VISUAL_CONFIRMATION`, with the
+fresh screenshot and the exact manual check shown to the user.
+
+Reviewer limits, unavailable reviewer processes, Sure-runner timeouts, and
+challenge-loop exhaustion are retry conditions, not completion blockers: preserve
+the findings, start a fresh review cycle, and continue automatically. Do not
+claim completion or stop with a process-blocked report for those conditions.
+
+The final completion gate is `pnpm completion:gate`; it must remain pending
+until the user explicitly records visual confirmation after inspecting the exact
+packaged app. The agent must never create that confirmation record itself.

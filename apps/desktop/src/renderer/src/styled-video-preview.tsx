@@ -36,6 +36,7 @@ import { resolveCensorRectAtFrame } from '../../shared/censor-regions.mjs';
 import { canvasPointToSourceNormalized, sourceRectToCanvasRect, type CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
 import { moveCensorRect, resizeCensorRect } from '../../shared/censor-regions.mjs';
 import { timelineJoinGain } from '../../shared/timeline-audio-envelope.mjs';
+import { CUT_PREROLL_EARLY_FRAMES, cutPrerollKey, planCutPreroll, standbyAlignedForCut } from './timeline-cut-preroll.mjs';
 import { shouldPublishTimelinePlayhead } from './timeline-playhead-publish.mjs';
 import {
   cameraCoversSourceTime,
@@ -509,8 +510,33 @@ export function StyledVideoPreview({
   mediaUrlOverride?: string | null;
   cameraMediaUrlOverride?: string | null;
 }) {
+  // videoRef/cameraVideoRef always point at the program (drawn, audible)
+  // element. Each lane has a second, standby decoder so a cut that skips source
+  // is crossed by switching elements instead of seeking the playing one — see
+  // timeline-cut-preroll.mjs.
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
+  const screenSlotsRef = React.useRef<[HTMLVideoElement | null, HTMLVideoElement | null]>([null, null]);
+  const cameraSlotsRef = React.useRef<[HTMLVideoElement | null, HTMLVideoElement | null]>([null, null]);
+  const activeSlotRef = React.useRef<0 | 1>(0);
+  const [activeSlot, setActiveSlot] = React.useState<0 | 1>(0);
+  const cutPrerollRef = React.useRef<{ key: string; playing: boolean } | null>(null);
+  // Audio is switched and faded with gain nodes, never element.volume: moving
+  // an element's volume to or from 0 restarts its audio sink and stalls its
+  // video ~200 ms (measured 2026-09-26).
+  const previewAudioRef = React.useRef<{
+    context: AudioContext;
+    gains: Map<HTMLVideoElement, GainNode>;
+    targets: Map<HTMLVideoElement, number>;
+  } | null>(null);
+  const screenSlotRefCallbacks = React.useMemo(() => ([0, 1] as const).map((slot) => (element: HTMLVideoElement | null) => {
+    screenSlotsRef.current[slot] = element;
+    if (activeSlotRef.current === slot) videoRef.current = element;
+  }), []);
+  const cameraSlotRefCallbacks = React.useMemo(() => ([0, 1] as const).map((slot) => (element: HTMLVideoElement | null) => {
+    cameraSlotsRef.current[slot] = element;
+    if (activeSlotRef.current === slot) cameraVideoRef.current = element;
+  }), []);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const webglCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const screenLayerRendererRef = React.useRef<ScreenLayerRenderer | null>(null);
@@ -905,6 +931,76 @@ export function StyledVideoPreview({
     cameraVideo.currentTime = clampedCameraTime(sourceTimeSec, cameraSourceOffsetSec, cameraVideo.duration, fps);
   }
 
+  function standbyScreenVideo() {
+    return screenSlotsRef.current[activeSlotRef.current === 0 ? 1 : 0];
+  }
+
+  function standbyCameraVideo() {
+    return cameraSlotsRef.current[activeSlotRef.current === 0 ? 1 : 0];
+  }
+
+  function isProgramVideo(element: HTMLVideoElement) {
+    return element === videoRef.current || element === cameraVideoRef.current;
+  }
+
+  function ensurePreviewAudio() {
+    const existing = previewAudioRef.current;
+    if (existing) {
+      if (existing.context.state === 'suspended') void existing.context.resume().catch(() => undefined);
+      return existing;
+    }
+    const AudioContextCtor = typeof window !== 'undefined' ? window.AudioContext : undefined;
+    if (!AudioContextCtor) return null;
+    try {
+      const context = new AudioContextCtor();
+      const gains = new Map<HTMLVideoElement, GainNode>();
+      const targets = new Map<HTMLVideoElement, number>();
+      for (const element of screenSlotsRef.current) {
+        if (!element) continue;
+        const gain = context.createGain();
+        const target = element === videoRef.current ? element.volume : 0;
+        gain.gain.value = target;
+        element.volume = 1;
+        context.createMediaElementSource(element).connect(gain).connect(context.destination);
+        gains.set(element, gain);
+        targets.set(element, target);
+      }
+      previewAudioRef.current = { context, gains, targets };
+      void context.resume().catch(() => undefined);
+      return previewAudioRef.current;
+    } catch (err) {
+      recordPlaybackDebug('preview-audio-graph-failed', { message: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  }
+
+  function setScreenGain(element: HTMLVideoElement | null | undefined, value: number) {
+    if (!element) return;
+    const audio = previewAudioRef.current;
+    const gain = audio?.gains.get(element);
+    if (!audio || !gain) {
+      element.volume = value;
+      return;
+    }
+    if (audio.targets.get(element) === value) return;
+    audio.targets.set(element, value);
+    gain.gain.setTargetAtTime(value, audio.context.currentTime, 0.004);
+  }
+
+  function resetCutPreroll() {
+    cutPrerollRef.current = null;
+    const standby = standbyScreenVideo();
+    const standbyCamera = standbyCameraVideo();
+    setScreenGain(standby, 0);
+    if (standby && !standby.paused) standby.pause();
+    if (standbyCamera && !standbyCamera.paused) standbyCamera.pause();
+  }
+
+  React.useEffect(() => () => {
+    void previewAudioRef.current?.context.close().catch(() => undefined);
+    previewAudioRef.current = null;
+  }, []);
+
   function sourceTimeToVisibleTime(sourceTimeSec: number) {
     const relativeFrame = Math.max(0, Math.round((sourceTimeSec - trimStartSec) * fps));
     let removed = 0;
@@ -1029,6 +1125,7 @@ export function StyledVideoPreview({
     if (scrubbing) {
       pausePreviewVideo(video);
       cameraVideo?.pause();
+      resetCutPreroll();
       activeTimelineSegmentRef.current = null;
       setInternalPlaying(false);
       onPlayingChangeRef.current?.(false);
@@ -1060,6 +1157,7 @@ export function StyledVideoPreview({
     } else {
       pausePreviewVideo(video);
       cameraVideo?.pause();
+      resetCutPreroll();
       video.playbackRate = timelineRateRef.current;
       if (cameraVideo) cameraVideo.playbackRate = timelineRateRef.current;
       activeTimelineSegmentRef.current = null;
@@ -1071,15 +1169,17 @@ export function StyledVideoPreview({
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
     if (!video) return;
+    resetCutPreroll();
+    ensurePreviewAudio();
     activeTimelineSegmentRef.current = segment;
     timelineFrameFallbackRef.current = timelineFrame;
     const sourceFrame = segment.sourceIn + (timelineFrame - segment.timelineIn);
     const sourceTime = Math.max(0, sourceFrame / fps);
-    video.volume = timelineJoinGain(
+    setScreenGain(video, timelineJoinGain(
       buildTimelinePlaybackSegments(),
       segment,
       timelineFrame,
-    );
+    ));
     (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
       phase: 'play-start',
       timelineFrame,
@@ -1107,6 +1207,7 @@ export function StyledVideoPreview({
       seekingRef.current = false;
       return;
     }
+    resetCutPreroll();
     const maxTime = video.duration || requestedTime;
     const timelineSourceTime = timeMode === 'timeline' ? timelineTimeToSourceTime(requestedTime) : null;
     const requestedSourceTime = timeMode === 'timeline'
@@ -1172,12 +1273,14 @@ export function StyledVideoPreview({
   }, [overlayLayersKey]);
 
   React.useEffect(() => {
-    const video = videoRef.current;
-    const cameraVideo = cameraVideoRef.current;
+    const initialVideo = videoRef.current;
     const canvas = canvasRef.current;
     const webglCanvas = webglCanvasRef.current;
-    if (!video || !canvas) return undefined;
-    const screenVideo = video;
+    if (!initialVideo || !canvas) return undefined;
+    // Reassigned when a cut hands the program over to the standby decoder.
+    let video: HTMLVideoElement = initialVideo;
+    let screenVideo: HTMLVideoElement = initialVideo;
+    let cameraVideo = cameraVideoRef.current;
 
     // Clear render-derived layout evidence when this loop is rebuilt. Template
     // changes replace the project snapshot and the next draw is authoritative;
@@ -1236,11 +1339,13 @@ export function StyledVideoPreview({
     let rafId = 0;
     let videoFrameCallbackId: number | null = null;
     let watchdogId: number | null = null;
+    let videoFrameCallbackGeneration = 0;
     let disposed = false;
     let lastTickAtMs: number | null = null;
     let lastExpectedDisplayTimeMs: number | null = null;
     let expectedDisplaySampleCount = 0;
     let lastDrawnFrame = -1;
+    let pendingTimelineBoundaryDecode: { startedAtMs: number; segment: TimelinePlaybackSegment } | null = null;
     const renderLoopId = Math.random().toString(36).slice(2, 8);
     recordPlaybackDebug('render-loop-start', {
       renderLoopId,
@@ -1282,7 +1387,10 @@ export function StyledVideoPreview({
 
     function scheduleNextDraw() {
       if (!acceleratedTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && activeTimelineSegmentRef.current && typeof screenVideo.requestVideoFrameCallback === 'function') {
+        const callbackGeneration = ++videoFrameCallbackGeneration;
         videoFrameCallbackId = screenVideo.requestVideoFrameCallback((now, metadata) => {
+          if (disposed || callbackGeneration !== videoFrameCallbackGeneration) return;
+          videoFrameCallbackId = null;
           clearDrawWatchdog();
           tick(now, metadata);
         });
@@ -1292,7 +1400,9 @@ export function StyledVideoPreview({
         // and at the tail of every camera recording). The watchdog re-enters
         // tick so hold/boundary logic still runs and the loop survives.
         watchdogId = window.setTimeout(() => {
+          if (callbackGeneration !== videoFrameCallbackGeneration) return;
           watchdogId = null;
+          videoFrameCallbackGeneration += 1;
           if (videoFrameCallbackId !== null && typeof screenVideo.cancelVideoFrameCallback === 'function') {
             screenVideo.cancelVideoFrameCallback(videoFrameCallbackId);
           }
@@ -1312,6 +1422,7 @@ export function StyledVideoPreview({
     }
 
     function cancelScheduledDraw() {
+      videoFrameCallbackGeneration += 1;
       if (rafId) window.cancelAnimationFrame(rafId);
       clearDrawWatchdog();
       if (videoFrameCallbackId !== null && typeof screenVideo.cancelVideoFrameCallback === 'function') {
@@ -1320,8 +1431,144 @@ export function StyledVideoPreview({
       videoFrameCallbackId = null;
     }
 
+    // Parks the standby decoder on the clip after an upcoming cut and starts it
+    // early and silent, so the cut is crossed by trySwapToCutPreroll.
+    function maintainCutPreroll(segment: TimelinePlaybackSegment, decodedSourceFrame: number) {
+      // Diagnostic switch: compare against plain boundary seeks.
+      if ((window as unknown as { __roughCutDisableCutPreroll?: boolean }).__roughCutDisableCutPreroll) return;
+      const next = nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), segment.timelineOut);
+      const plan = planCutPreroll({ active: segment, next, sourceFrame: decodedSourceFrame, fps, rate: timelineRateRef.current });
+      if (plan.phase !== 'prepare' && plan.phase !== 'play') return;
+      const standby = standbyScreenVideo();
+      const standbyCamera = cameraSrc ? standbyCameraVideo() : null;
+      if (!standby || standby.readyState < 1 || (cameraSrc && !standbyCamera)) return;
+      let state = cutPrerollRef.current;
+      if (!state || state.key !== plan.key) {
+        ensurePreviewAudio();
+        setScreenGain(standby, 0);
+        standby.pause();
+        standbyCamera?.pause();
+        standby.currentTime = plan.seekSourceSec;
+        if (standbyCamera) {
+          standbyCamera.currentTime = clampedCameraTime(plan.seekSourceSec, cameraSourceOffsetSec, standbyCamera.duration, fps);
+        }
+        state = { key: plan.key, playing: false };
+        cutPrerollRef.current = state;
+        recordPlaybackDebug('timeline-cut-preroll-prepare', {
+          renderLoopId,
+          key: plan.key,
+          seekSourceSec: plan.seekSourceSec,
+          remainingWallSec: plan.remainingWallSec,
+        });
+      }
+      if (plan.phase === 'play' && !state.playing && !standby.seeking) {
+        state.playing = true;
+        standby.playbackRate = timelineRateRef.current;
+        if (standbyCamera) standbyCamera.playbackRate = timelineRateRef.current;
+        void standby.play().catch(() => undefined);
+        void standbyCamera?.play().catch(() => undefined);
+        recordPlaybackDebug('timeline-cut-preroll-play', {
+          renderLoopId,
+          key: plan.key,
+          standbyTime: standby.currentTime,
+          remainingWallSec: plan.remainingWallSec,
+        });
+      }
+    }
+
+    // Crosses a cut by making the pre-rolled standby the program element. No
+    // seek, no audio sink restart: the picture holds at most a frame or two.
+    function trySwapToCutPreroll(previousSegment: TimelinePlaybackSegment | null, nextSegment: TimelinePlaybackSegment) {
+      const state = cutPrerollRef.current;
+      if (!state || !previousSegment || state.key !== cutPrerollKey(previousSegment, nextSegment)) return false;
+      const standby = standbyScreenVideo();
+      const standbyCamera = cameraSrc ? standbyCameraVideo() : null;
+      const ready = Boolean(
+        standby &&
+        (!cameraSrc || standbyCamera) &&
+        !standby.seeking &&
+        standby.readyState >= 2 &&
+        standbyAlignedForCut(standby.currentTime, nextSegment, fps),
+      );
+      if (!standby || !ready) {
+        recordPlaybackDebug('timeline-cut-preroll-miss', {
+          renderLoopId,
+          key: state.key,
+          standbyTime: standby?.currentTime ?? null,
+          standbySeeking: standby?.seeking ?? null,
+          standbyReadyState: standby?.readyState ?? null,
+          nextSourceIn: nextSegment.sourceIn,
+        });
+        resetCutPreroll();
+        return false;
+      }
+      cancelScheduledDraw();
+      const previousScreen = screenVideo;
+      const previousCamera = cameraVideo;
+      const nextSlot: 0 | 1 = activeSlotRef.current === 0 ? 1 : 0;
+      activeSlotRef.current = nextSlot;
+      videoRef.current = standby;
+      video = standby;
+      screenVideo = standby;
+      if (standbyCamera) {
+        cameraVideoRef.current = standbyCamera;
+        cameraVideo = standbyCamera;
+      }
+      cutPrerollRef.current = null;
+      setScreenGain(standby, timelineJoinGain(buildTimelinePlaybackSegments(), nextSegment, nextSegment.timelineIn));
+      setScreenGain(previousScreen, 0);
+      claimAudiblePreviewVideo(standby);
+      if (standby.paused) void standby.play().catch(() => undefined);
+      if (standbyCamera?.paused) void standbyCamera.play().catch(() => undefined);
+      previousScreen.pause();
+      if (standbyCamera) previousCamera?.pause();
+      activeTimelineSegmentRef.current = nextSegment;
+      timelineFrameFallbackRef.current = nextSegment.timelineIn;
+      updateCurrentTime(nextSegment.timelineIn / fps, { immediate: true });
+      lastExpectedDisplayTimeMs = null;
+      expectedDisplaySampleCount = 0;
+      lastDrawnFrame = -1;
+      setActiveSlot(nextSlot);
+      recordPlaybackDebug('timeline-cut-preroll-swap', {
+        renderLoopId,
+        timelineIn: nextSegment.timelineIn,
+        sourceIn: nextSegment.sourceIn,
+        standbyTime: standby.currentTime,
+        slot: nextSlot,
+      });
+      return true;
+    }
+
     function seekTimelineBoundary(nextSegment: TimelinePlaybackSegment) {
+      const previousSegment = activeTimelineSegmentRef.current;
       const sourceTime = Math.max(0, nextSegment.sourceIn / fps);
+      const isSourceContinuous = Boolean(previousSegment && previousSegment.sourceOut === nextSegment.sourceIn);
+      if (isSourceContinuous) {
+        // A point cut splits one continuous source into adjacent timeline clips.
+        // The decoder is already presenting the next source frame, so seeking it
+        // back to that same frame flushes decode state and causes a visible hitch.
+        activeTimelineSegmentRef.current = nextSegment;
+        timelineFrameFallbackRef.current = nextSegment.timelineIn;
+        setScreenGain(screenVideo, timelineJoinGain(
+          buildTimelinePlaybackSegments(),
+          nextSegment,
+          nextSegment.timelineIn,
+        ));
+        recordPlaybackDebug('timeline-boundary-continuous', {
+          renderLoopId,
+          timelineIn: nextSegment.timelineIn,
+          timelineOut: nextSegment.timelineOut,
+          sourceIn: nextSegment.sourceIn,
+          sourceOut: nextSegment.sourceOut,
+        });
+        updateCurrentTime(nextSegment.timelineIn / fps, { immediate: true });
+        return true;
+      }
+      if (trySwapToCutPreroll(previousSegment, nextSegment)) return true;
+      pendingTimelineBoundaryDecode = {
+        startedAtMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+        segment: nextSegment,
+      };
       recordPlaybackDebug('timeline-boundary-seek', {
         renderLoopId,
         timelineIn: nextSegment.timelineIn,
@@ -1356,6 +1603,7 @@ export function StyledVideoPreview({
       timelineFrameFallbackRef.current = gapFrame;
       pausePreviewVideo(screenVideo);
       cameraVideo?.pause();
+      resetCutPreroll();
       updateCurrentTime(gapFrame / fps, { immediate: true });
       lastExpectedDisplayTimeMs = null;
       expectedDisplaySampleCount = 0;
@@ -1379,6 +1627,7 @@ export function StyledVideoPreview({
       timelineFrameFallbackRef.current = holdFrame;
       pausePreviewVideo(screenVideo);
       cameraVideo?.pause();
+      resetCutPreroll();
       updateCurrentTime(segment.timelineOut / fps, { immediate: true });
       setInternalPlaying(false);
       onPlayingChangeRef.current?.(false);
@@ -1390,6 +1639,17 @@ export function StyledVideoPreview({
 
     function handleTimelineDecodedFrame(decodedSourceFrame: number) {
       let segment = activeTimelineSegmentRef.current;
+      // A pre-rolled standby can take over a few frames before the next clip's
+      // first frame. Those frames were cut: keep the last picture on screen
+      // until the clip starts rather than drawing them or ending playback.
+      if (segment && decodedSourceFrame < segment.sourceIn && decodedSourceFrame >= segment.sourceIn - CUT_PREROLL_EARLY_FRAMES) {
+        recordPlaybackDebug('timeline-cut-preroll-hold', {
+          renderLoopId,
+          decodedSourceFrame,
+          sourceIn: segment.sourceIn,
+        });
+        return null;
+      }
       const segments = buildTimelinePlaybackSegments();
       if (!segment || decodedSourceFrame < segment.sourceIn || decodedSourceFrame >= segment.sourceOut) {
         const currentTimelineFrame = segment
@@ -1409,6 +1669,21 @@ export function StyledVideoPreview({
         if (!nextSegment) return null;
         if (seekTimelineBoundary(nextSegment)) return null;
         segment = nextSegment;
+      }
+      if (
+        pendingTimelineBoundaryDecode
+        && pendingTimelineBoundaryDecode.segment.timelineIn === segment.timelineIn
+        && pendingTimelineBoundaryDecode.segment.sourceIn === segment.sourceIn
+      ) {
+        const decodedAtMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        recordPlaybackDebug('timeline-boundary-decoded', {
+          renderLoopId,
+          timelineIn: segment.timelineIn,
+          sourceIn: segment.sourceIn,
+          decodedSourceFrame,
+          decodeDelayMs: Math.round((decodedAtMs - pendingTimelineBoundaryDecode.startedAtMs) * 10) / 10,
+        });
+        pendingTimelineBoundaryDecode = null;
       }
       return {
         segment,
@@ -1623,14 +1898,19 @@ export function StyledVideoPreview({
       const currentFrame = timeMode === 'timeline'
         ? timelineDecoded?.timelineFrame ?? playingGapFrame ?? parkedTimelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
         : sourceFrame;
-      screenVideo.volume =
+      setScreenGain(
+        screenVideo,
         timeMode === 'timeline' && timelineDecoded?.segment
           ? timelineJoinGain(
               buildTimelinePlaybackSegments(),
               timelineDecoded.segment,
               currentFrame,
             )
-          : 1;
+          : 1,
+      );
+      if (timeMode === 'timeline' && isPlaying && !acceleratedTimelinePlaybackClock && timelineDecoded?.segment) {
+        maintainCutPreroll(timelineDecoded.segment, sourceFrame);
+      }
       const renderFrame = timeMode === 'timeline' && timelineDecoded
         ? timelineDecoded.timelineFrame + (sourceFrameFloat - sourceFrame)
         : playingGapFrame ?? parkedTimelineFrame ?? sourceFrameFloat;
@@ -2391,60 +2671,80 @@ export function StyledVideoPreview({
 
   return (
     <div className="videoPreview styledPreview">
-      <video
-        ref={videoRef}
-        src={src}
-        preload="auto"
-        playsInline
-        className="hiddenSource"
-        onLoadedMetadata={(event) => {
-          setSourceMediaDuration(event.currentTarget.duration);
-          if (trimStartSec > 0) event.currentTarget.currentTime = trimStartSec;
-          setError(null);
-        }}
-        onPlay={(event) => {
-          claimAudiblePreviewVideo(event.currentTarget);
-          if (timeMode === 'timeline') return;
-          setInternalPlaying(true);
-          onPlayingChangeRef.current?.(true);
-        }}
-        onPause={(event) => {
-          releaseAudiblePreviewVideo(event.currentTarget);
-          if (timeMode === 'timeline') return;
-          setInternalPlaying(false);
-          onPlayingChangeRef.current?.(false);
-        }}
-        onEnded={(event) => {
-          releaseAudiblePreviewVideo(event.currentTarget);
-          if (timeMode === 'timeline') return;
-          setInternalPlaying(false);
-          onPlayingChangeRef.current?.(false);
-        }}
-        onSeeked={handleSeekSettled}
-        onError={(event) => setError(videoErrorMessage(event.currentTarget))}
-        onTimeUpdate={(event) => {
-          const next = event.currentTarget.currentTime;
-          const cutEnd = cutEndForSourceTime(next);
-          if (cutEnd !== null) {
-            event.currentTarget.currentTime = cutEnd;
-            return;
-          }
-          const visibleTime = sourceTimeToVisibleTime(next);
-          if (timeMode === 'timeline') return;
-          updateCurrentTime(Math.min(visibleTime, visibleDuration));
-        }}
-      />
-      {cameraSrc ? (
+      {([0, 1] as const).map((slot) => (
         <video
-          ref={cameraVideoRef}
+          key={`screen-${slot}`}
+          ref={screenSlotRefCallbacks[slot]}
+          src={src}
+          preload="auto"
+          playsInline
+          // Harnesses read the program element through this class; the standby
+          // decoder is hidden the same way but is not the program.
+          className={slot === activeSlot ? 'hiddenSource' : 'hiddenStandbySource'}
+          onLoadedMetadata={(event) => {
+            if (!isProgramVideo(event.currentTarget)) return;
+            setSourceMediaDuration(event.currentTarget.duration);
+            if (trimStartSec > 0) event.currentTarget.currentTime = trimStartSec;
+            setError(null);
+          }}
+          onPlay={(event) => {
+            if (!isProgramVideo(event.currentTarget)) return;
+            claimAudiblePreviewVideo(event.currentTarget);
+            if (timeMode === 'timeline') return;
+            setInternalPlaying(true);
+            onPlayingChangeRef.current?.(true);
+          }}
+          onPause={(event) => {
+            if (!isProgramVideo(event.currentTarget)) return;
+            releaseAudiblePreviewVideo(event.currentTarget);
+            if (timeMode === 'timeline') return;
+            setInternalPlaying(false);
+            onPlayingChangeRef.current?.(false);
+          }}
+          onEnded={(event) => {
+            if (!isProgramVideo(event.currentTarget)) return;
+            releaseAudiblePreviewVideo(event.currentTarget);
+            if (timeMode === 'timeline') return;
+            setInternalPlaying(false);
+            onPlayingChangeRef.current?.(false);
+          }}
+          onSeeked={(event) => {
+            if (!isProgramVideo(event.currentTarget)) return;
+            handleSeekSettled();
+          }}
+          onError={(event) => {
+            if (!isProgramVideo(event.currentTarget)) return;
+            setError(videoErrorMessage(event.currentTarget));
+          }}
+          onTimeUpdate={(event) => {
+            if (!isProgramVideo(event.currentTarget)) return;
+            const next = event.currentTarget.currentTime;
+            const cutEnd = cutEndForSourceTime(next);
+            if (cutEnd !== null) {
+              event.currentTarget.currentTime = cutEnd;
+              return;
+            }
+            const visibleTime = sourceTimeToVisibleTime(next);
+            if (timeMode === 'timeline') return;
+            updateCurrentTime(Math.min(visibleTime, visibleDuration));
+          }}
+        />
+      ))}
+      {cameraSrc ? ([0, 1] as const).map((slot) => (
+        <video
+          key={`camera-${slot}`}
+          ref={cameraSlotRefCallbacks[slot]}
           src={cameraSrc}
           preload="auto"
           playsInline
-          className="hiddenSource"
+          className={slot === activeSlot ? 'hiddenSource' : 'hiddenStandbySource'}
           muted
-          onLoadedMetadata={(event) => setCameraMediaDuration(event.currentTarget.duration)}
+          onLoadedMetadata={(event) => {
+            if (!isProgramVideo(event.currentTarget)) return;
+            setCameraMediaDuration(event.currentTarget.duration);
+          }}
         />
-      ) : null}
+      )) : null}
       <canvas
         ref={webglCanvasRef}
         className={`styledPreviewAcceleratedCanvas styledPreviewWebglCanvas${acceleratedPresentationActive ? ' isActive' : ''}`}

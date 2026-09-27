@@ -52,6 +52,12 @@ test('styled video preview drives edited timeline playback from decoded rVFC fra
   assert.match(source, /watchdogId = window\.setTimeout\(/);
   assert.match(source, /PLAYBACK_DRAW_WATCHDOG_MS = 250/);
   assert.match(source, /clearDrawWatchdog\(\);\n\s+tick\(now, metadata\);/);
+  // A watchdog restart can race a callback that was already queued; stale
+  // callbacks must not create a second render loop and visible playback stutter.
+  assert.match(source, /let videoFrameCallbackGeneration = 0/);
+  assert.match(source, /const callbackGeneration = \+\+videoFrameCallbackGeneration/);
+  assert.match(source, /if \(disposed \|\| callbackGeneration !== videoFrameCallbackGeneration\) return/);
+  assert.match(source, /videoFrameCallbackGeneration \+= 1;\n\s+if \(videoFrameCallbackId !== null/);
   // The accelerated free-running clock is clamped to the decoder's actual
   // position so cursor/zoom can never glide over a frozen frame.
   assert.match(source, /const maxClockTime = videoTimelineSec \+ 2 \/ fps/);
@@ -62,6 +68,11 @@ test('styled video preview drives edited timeline playback from decoded rVFC fra
   assert.match(source, /handleTimelineDecodedFrame\(sourceFrame\)/);
   assert.match(source, /timelineFrameForDecodedSourceFrame\(segment, decodedSourceFrame\)/);
   assert.match(source, /seekTimelineBoundary\(nextSegment\)/);
+  assert.match(source, /const isSourceContinuous = Boolean\(previousSegment && previousSegment\.sourceOut === nextSegment\.sourceIn\)/);
+  assert.match(source, /recordPlaybackDebug\('timeline-boundary-continuous', \{/);
+  assert.match(source, /let pendingTimelineBoundaryDecode: \{ startedAtMs: number; segment: TimelinePlaybackSegment \} \| null = null/);
+  assert.match(source, /recordPlaybackDebug\('timeline-boundary-decoded', \{/);
+  assert.match(source, /decodeDelayMs: Math\.round\(\(decodedAtMs - pendingTimelineBoundaryDecode\.startedAtMs\) \* 10\) \/ 10/);
   assert.match(source, /if \(timeMode !== 'timeline' && Math\.abs\(cameraVideo\.currentTime - expectedCameraTime\)/);
   assert.match(source, /const activeTimelinePlayback = timeMode === 'timeline' && isPlaying/);
   assert.match(source, /ctx\.imageSmoothingQuality = activeTimelinePlayback \? 'low' : 'high'/);
@@ -106,7 +117,8 @@ test('styled video preview uses the canvas as the only visible edited playback c
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
   const css = readFileSync(join(here, 'styles.css'), 'utf8');
 
-  assert.match(source, /className="hiddenSource"/);
+  assert.match(source, /className=\{slot === activeSlot \? 'hiddenSource' : 'hiddenStandbySource'\}/);
+  assert.match(css, /\.styledPreview \.hiddenSource,\n\.styledPreview \.hiddenStandbySource \{/);
   assert.match(source, /className=\{`styledPreviewCanvas/);
   assert.doesNotMatch(source, /nativePlaybackActive/);
   assert.doesNotMatch(source, /nativePlaybackRendered/);
@@ -796,4 +808,24 @@ test('censor rect edits are computed in source space, not canvas-normalized spac
   // normalized to the source frame, so using them here would misplace the censor.
   assert.match(previewSource, /moveCensorRect\(censorEdit\.startRect,/);
   assert.match(previewSource, /resizeCensorRect\(censorEdit\.startRect, censorEdit\.handle,/);
+});
+
+test('cuts that skip source are crossed by a pre-rolled standby decoder, not a seek', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  // The standby takes over before the seek path is tried (2026-09-26: seeking
+  // the playing element froze ~150 ms + ~200 ms audio-sink restart per cut).
+  assert.match(source, /if \(trySwapToCutPreroll\(previousSegment, nextSegment\)\) return true;\n\s+pendingTimelineBoundaryDecode = \{/);
+  assert.match(source, /maintainCutPreroll\(timelineDecoded\.segment, sourceFrame\)/);
+  assert.match(source, /standbyAlignedForCut\(standby\.currentTime, nextSegment, fps\)/);
+  // Frames the standby decodes before the next clip starts were cut: held, not drawn.
+  assert.match(source, /decodedSourceFrame >= segment\.sourceIn - CUT_PREROLL_EARLY_FRAMES/);
+  // Audio is switched and faded through gain nodes; element volume to/from 0
+  // restarts the audio sink and stalls video.
+  assert.match(source, /gain\.gain\.setTargetAtTime\(value, audio\.context\.currentTime, 0\.004\)/);
+  assert.doesNotMatch(source, /screenVideo\.volume =/);
+  assert.doesNotMatch(source, /\bvideo\.volume = timelineJoinGain/);
+  // The standby never claims audio or drives playback state.
+  assert.match(source, /onPlay=\{\(event\) => \{\n\s+if \(!isProgramVideo\(event\.currentTarget\)\) return;\n\s+claimAudiblePreviewVideo/);
+  // Every stop, scrub, seek, gap and end resets the standby.
+  assert.ok((source.match(/resetCutPreroll\(\);/g) ?? []).length >= 6);
 });

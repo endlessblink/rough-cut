@@ -46,6 +46,7 @@ export type TimelineModel = {
     camera: readonly TimelineRegion[];
     audio: readonly TimelineRegion[];
   };
+  linkedLaneBoundaryMismatches: readonly Record<string, unknown>[];
 };
 
 export function clampTimelineTime(timeSec: number, durationSec: number): number;
@@ -53,6 +54,7 @@ export function timeToPercent(timeSec: number, durationSec: number): number;
 export function percentToTime(percent: number, durationSec: number): number;
 export function frameToPercent(frame: number, fps: number, durationSec: number): number;
 export function frameRangeToPlacement(startFrame: number, endFrame: number, fps: number, durationSec: number): { left: number; width: number };
+export function linkedRecordingLaneBoundaryMismatches(lanes: TimelineModel['lanes']): readonly Record<string, unknown>[];
 export function buildTimelineModel(options: {
   document: ProjectDocument;
   recording: TimelineRecording;

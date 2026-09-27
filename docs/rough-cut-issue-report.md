@@ -6,6 +6,9 @@ Passed means the current automated check passed. Unverified means the required r
 
 Summary: 15 passed, 0 failed, 0 unverified.
 
+The linked SCREEN/AUDIO boundary failure modes and their fail-closed regression
+gates are maintained in [the linked-boundary error matrix](rough-cut-linked-boundary-error-matrix.md).
+
 - **PASSED — pane-switch-preserves-canonical-recording**: Switching away from the Editor preserves recording and camera clips
 - **PASSED — editor-layer-round-trip-preserves-content**: Editor-added overlapping layers survive a canonical round trip
 - **PASSED — layer-order-is-explicit**: Overlapping layers have deterministic above/below ordering

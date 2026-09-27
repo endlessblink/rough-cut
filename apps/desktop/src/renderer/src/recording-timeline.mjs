@@ -43,7 +43,7 @@ export function updateRecordingTimelineTrim(document, { assetId, cameraAssetId =
   return nextDocument;
 }
 
-export function splitRecordingAtFrame(document, { assetId, frame }) {
+export function splitRecordingAtFrame(document, { assetId, frame, idFactory }) {
   if (!document || !assetId) return document;
   const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
   const splitFrame = Math.round(Number(frame));
@@ -75,7 +75,7 @@ export function splitRecordingAtFrame(document, { assetId, frame }) {
         && boundary > clip.timelineIn
         && boundary < clip.timelineOut);
     while (candidate) {
-      nextDocument = splitClip(nextDocument, { clipId: candidate.id, frame: boundary }).document;
+      nextDocument = splitClip(nextDocument, { clipId: candidate.id, frame: boundary, idFactory }).document;
       candidate = nextDocument.timeline.tracks
         .flatMap((track) => track.clips)
         .find((clip) => (recordingSourceIds.has(clip.mediaId) || clip.linkGroupId === model.linkedGroupId)
@@ -229,15 +229,20 @@ export function rippleDeleteRecordingRange(document, { assetId, startFrame, endF
   const start = clampFrame(Math.min(startFrame, endFrame), 0, Math.max(0, model.timelineDurationFrames - 1));
   const end = clampFrame(Math.max(startFrame, endFrame), start + 1, model.timelineDurationFrames);
   let nextDocument = model.document;
-
-  const endClip = findScreenClipAt(selectRecordingEditModel({ document: nextDocument, recordingAssetId: assetId }).screenClips, end);
-  if (endClip && end > endClip.timelineIn && end < endClip.timelineOut) {
-    nextDocument = splitClip(nextDocument, { clipId: endClip.id, frame: end, idFactory }).document;
+  const recordingSourceIds = new Set([
+    `source:${assetId}:screen`,
+    `source:${assetId}:camera`,
+    `source:${assetId}:system-audio`,
+    `source:${assetId}:mic-audio`,
+  ]);
+  const boundaries = new Set([start, end]);
+  for (const clip of nextDocument.timeline.tracks.flatMap((track) => track.clips)) {
+    if (!recordingSourceIds.has(clip.mediaId) && clip.linkGroupId !== model.linkedGroupId) continue;
+    boundaries.add(Math.round(clip.timelineIn));
+    boundaries.add(Math.round(clip.timelineOut));
   }
-
-  const startClip = findScreenClipAt(selectRecordingEditModel({ document: nextDocument, recordingAssetId: assetId }).screenClips, start);
-  if (startClip && start > startClip.timelineIn && start < startClip.timelineOut) {
-    nextDocument = splitClip(nextDocument, { clipId: startClip.id, frame: start, idFactory }).document;
+  for (const boundary of [...boundaries].sort((left, right) => left - right)) {
+    nextDocument = splitRecordingAtFrame(nextDocument, { assetId, frame: boundary, idFactory });
   }
 
   model = selectRecordingEditModel({ document: nextDocument, recordingAssetId: assetId });

@@ -31,8 +31,49 @@ export function frameRangeToPlacement(startFrame, endFrame, fps, durationSec) {
   const end = frameToPercent(endFrame, fps, durationSec);
   return {
     left: Math.min(start, end),
-    width: Math.max(0.5, Math.abs(end - start)),
+    // Keep the frame-to-pixel mapping truthful for short cuts. A fixed 0.5%
+    // minimum turns a three-frame piece into hundreds of pixels on a zoomed
+    // timeline and makes the painted boundary disagree with the cut frame.
+    width: Math.max(0.0001, Math.abs(end - start)),
   };
+}
+
+// Screen and attached audio are one logical recording lane. Keep this check
+// reusable by both the renderer and the packaged interaction gate so a stale
+// projection cannot look acceptable merely because both lanes are visible.
+export function linkedRecordingLaneBoundaryMismatches(lanes) {
+  const screen = Array.isArray(lanes?.screen) ? lanes.screen : [];
+  const audio = Array.isArray(lanes?.audio) ? lanes.audio : [];
+  const mismatches = [];
+  if (screen.length !== audio.length) {
+    mismatches.push({ kind: 'count', screenCount: screen.length, audioCount: audio.length });
+  }
+  const audioByLinkedId = new Map(audio.map((region) => [
+    region?.id?.startsWith('audio:') ? region.id.slice('audio:'.length) : region?.id,
+    region,
+  ]));
+  const matchedAudioIds = new Set();
+  for (let index = 0; index < screen.length; index += 1) {
+    const screenRegion = screen[index];
+    const linkedId = screenRegion?.id;
+    const audioRegion = audioByLinkedId.get(linkedId);
+    if (!screenRegion || !audioRegion) {
+      mismatches.push({ kind: 'missing', index, screen: screenRegion ?? null, audio: audioRegion ?? null });
+      continue;
+    }
+    matchedAudioIds.add(audioRegion.id);
+    const fields = ['timelineIn', 'timelineOut', 'left', 'width'];
+    const differences = Object.fromEntries(fields
+      .filter((field) => Math.abs(Number(screenRegion[field]) - Number(audioRegion[field])) > (field === 'left' || field === 'width' ? 0.001 : 0))
+      .map((field) => [field, { screen: screenRegion[field], audio: audioRegion[field] }]));
+    if (Object.keys(differences).length > 0) mismatches.push({ kind: 'boundary', index, differences });
+  }
+  audio.forEach((audioRegion, index) => {
+    if (!matchedAudioIds.has(audioRegion?.id)) {
+      mismatches.push({ kind: 'missing', index, screen: null, audio: audioRegion ?? null });
+    }
+  });
+  return mismatches;
 }
 
 export function buildTimelineModel({ document, recording, currentTimeSec, cameraMediaUrl }) {
@@ -137,6 +178,17 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
         }))
       : [{ id: 'audio', left: 0, width: 100, timelineIn: 0, timelineOut: adapter.timelineDurationFrames }])
     : [];
+  const linkedLaneBoundaryMismatches = linkedRecordingLaneBoundaryMismatches({
+    screen: adapter.screenClips.length > 0
+      ? adapter.screenClips.map((clip, index) => ({
+          timelineIn: clip.timelineIn,
+          timelineOut: clip.timelineOut,
+          ...frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, durationSec),
+          id: clip.id ?? `screen-${index}`,
+        }))
+      : [{ id: 'screen', left: 0, width: 100, timelineIn: 0, timelineOut: adapter.timelineDurationFrames }],
+    audio: attachedAudioRegions,
+  });
 
   return {
     durationSec,
@@ -165,6 +217,7 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
       camera: recording?.camera || cameraMediaUrl ? [{ id: 'camera', left: 0, width: 100 }] : [],
       audio: attachedAudioRegions,
     },
+    linkedLaneBoundaryMismatches,
   };
 }
 

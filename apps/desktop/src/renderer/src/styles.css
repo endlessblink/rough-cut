@@ -2281,7 +2281,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .emptyPreviewMock span { background: #252936; border-radius: 13px; }
 .emptyPreviewMock span:first-child { background: linear-gradient(90deg, #2563eb, #7c3aed); }
 
-.styledPreview .hiddenSource {
+.styledPreview .hiddenSource,
+.styledPreview .hiddenStandbySource {
   height: 720px;
   left: -10000px;
   opacity: 0.001;

@@ -41,7 +41,8 @@ test('recording edit and FreeCut share app-owned project state across tab switch
   assert.match(mainSource, /persistentEditorSlot/);
   assert.match(mainSource, /<FreecutEditorSurface/);
   assert.match(mainSource, /projectVersion=\{projectVersion\}/);
-  assert.match(mainSource, /onLayersChange=\{setEditorLayers\}/);
+  assert.match(mainSource, /onLayersChange=\{handleEditorLayersChange\}/);
+  assert.match(mainSource, /handleEditorLayersChange = React\.useCallback\([^]*?setEditorLayers\(filterLinkedRecordingLayers\(layers\)\)/);
   assert.match(mainSource, /currentTimeSec=\{clampedSharedTimelineTimeSec\}/);
   assert.match(mainSource, /onCurrentTimeSecChange=\{updateSharedTimelineTimeSec\}/);
   assert.match(freecutSurfaceSource, /freecut:flush/);

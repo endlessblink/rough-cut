@@ -13,6 +13,8 @@ const runtimeScreenshotPaths = {
   change: '/tmp/rough-cut-runtime-change.png',
   after: '/tmp/rough-cut-runtime-after.png',
 };
+const packageIdentityPath = resolve(import.meta.dirname, '../dist/rough-cut-mvp-linux-x64/resources/app/package-identity.json');
+const packageIdentity = JSON.parse(readFileSync(packageIdentityPath, 'utf8'));
 writeFileSync(testDesktopEntryPath, 'Exec=env ROUGH_CUT_DOCK_LAUNCH=1 /tmp/dist/rough-cut-mvp-linux-x64/run.sh\n');
 writeFileSync(testPinnedEntryPath, 'Exec=env ROUGH_CUT_DOCK_LAUNCH=1 /tmp/dist/rough-cut-mvp-linux-x64/dock-launch.sh\n');
 for (const [key, path] of Object.entries(runtimeScreenshotPaths)) writeFileSync(path, `runtime-${key}`);
@@ -22,7 +24,8 @@ writeFileSync(testProvenancePath, JSON.stringify({
   pid: process.pid,
   executable: process.execPath,
   appPath: '/tmp/dist/rough-cut-mvp-linux-x64/resources/app',
-  startedAt: new Date().toISOString(),
+  startedAt: packageIdentity.packagedAt,
+  packageIdentity,
 }));
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
@@ -56,8 +59,8 @@ function reviewArtifact(overrides = {}) {
     reviewer: 'visual-subagent',
     reviewMode: 'dock-launched',
     capture: {
-      surface: 'full-desktop',
-      dockVisible: true,
+      surface: 'app-window',
+      dockVisible: false,
       appWindowVisible: true,
     },
     dock: {
@@ -68,9 +71,59 @@ function reviewArtifact(overrides = {}) {
       provenancePath: testProvenancePath,
       launchPid: process.pid,
       launchExecutable: process.execPath,
+      liveProcessObserved: true,
       pinnedEntryPath: testPinnedEntryPath,
     },
     checklist,
+    linkedBoundary: {
+      verdict: 'pass',
+      evidence: 'Selected post-cut rendered SCREEN and AUDIO edges match.',
+      selectedScreenClipId: 'screen-clip-1',
+      screenBoundaryX: 120,
+      audioBoundaryX: 120,
+      boundaryErrorPx: 0,
+      boundaryFrame: 3,
+      renderedScreenCount: 2,
+      renderedAudioCount: 2,
+      renderedScreenClipIds: ['screen-clip-1', 'screen-clip-2'],
+      renderedAudioClipIds: ['audio:screen-clip-1', 'audio:screen-clip-2'],
+      renderedRanges: [
+        { screenId: 'screen-clip-1', audioId: 'audio:screen-clip-1', screenIn: 0, audioIn: 0, screenOut: 3, audioOut: 3 },
+        { screenId: 'screen-clip-2', audioId: 'audio:screen-clip-2', screenIn: 3, audioIn: 3, screenOut: 900, audioOut: 900 },
+      ],
+      repeatedCutEvidence: {
+        linkedLaneStatus: 'pass',
+        linkedLaneMismatchCount: 0,
+        screen: [
+          { id: 'screen-clip-1', left: 120, right: 123, timelineIn: 0, timelineOut: 3, boundaryFrame: NaN },
+          { id: 'screen-clip-2', left: 123, right: 126, timelineIn: 3, timelineOut: 6, boundaryFrame: 3 },
+          { id: 'screen-clip-3', left: 126, right: 900, timelineIn: 6, timelineOut: 900, boundaryFrame: 6 },
+        ],
+        audio: [
+          { id: 'audio:screen-clip-1', left: 120, right: 123, timelineIn: 0, timelineOut: 3, boundaryFrame: NaN },
+          { id: 'audio:screen-clip-2', left: 123, right: 126, timelineIn: 3, timelineOut: 6, boundaryFrame: 3 },
+          { id: 'audio:screen-clip-3', left: 126, right: 900, timelineIn: 6, timelineOut: 900, boundaryFrame: 6 },
+        ],
+      },
+      repeatedBoundaryScreenshotPath: runtimeScreenshotPaths.change,
+      repeatedBoundaryScreenshotSha256: sha256(runtimeScreenshotPaths.change),
+      paintedBoundaryEvidence: {
+        threshold: 24,
+        boundaries: [
+          { x: 123, screenScore: 80, audioScore: 80 },
+          { x: 126, screenScore: 80, audioScore: 80 },
+        ],
+        screenshotPath: runtimeScreenshotPaths.change,
+      },
+      repeatedBoundaryCloseupScreenshotPath: runtimeScreenshotPaths.change,
+      repeatedBoundaryCloseupScreenshotSha256: sha256(runtimeScreenshotPaths.change),
+      screenshotPath: runtimeScreenshotPaths.change,
+      screenshotSha256: sha256(runtimeScreenshotPaths.change),
+      boundaryZoomScreenshotPath: runtimeScreenshotPaths.change,
+      boundaryZoomScreenshotSha256: sha256(runtimeScreenshotPaths.change),
+      interactionReportPath: runtimeScreenshotPaths.after,
+      interactionReportSha256: sha256(runtimeScreenshotPaths.after),
+    },
     sharedEditor: {
       projectIdentity: 'shared-rough-cut-project',
       timelineSource: 'live-shared-timeline',
@@ -103,12 +156,53 @@ test('visual proof requires structured evidence for every review gate', () => {
   assert.match(validateReviewArtifact(missingEvidence, []), /timeline review/i);
 });
 
+test('visual proof requires selected rendered linked-boundary evidence for timeline UI changes', () => {
+  const valid = reviewArtifact();
+  writeFileSync(runtimeScreenshotPaths.after, JSON.stringify({ renderedCutEvidence: {
+    selectedScreenClipId: 'screen-clip-1', boundaryFrame: 3, renderedScreenCount: 2, renderedAudioCount: 2,
+    screenBoundaryX: 120, audioBoundaryX: 120, boundaryErrorPx: 0,
+    renderedRanges: reviewArtifact().linkedBoundary.renderedRanges,
+    repeatedCutEvidence: reviewArtifact().linkedBoundary.repeatedCutEvidence,
+    paintedBoundaryEvidence: reviewArtifact().linkedBoundary.paintedBoundaryEvidence,
+    repeatedBoundaryCloseupScreenshotPath: reviewArtifact().linkedBoundary.repeatedBoundaryCloseupScreenshotPath,
+    repeatedBoundaryCloseupScreenshotSha256: reviewArtifact().linkedBoundary.repeatedBoundaryCloseupScreenshotSha256,
+  } }));
+  valid.linkedBoundary.interactionReportSha256 = sha256(runtimeScreenshotPaths.after);
+  assert.equal(validateReviewArtifact(valid, ['apps/desktop/src/renderer/src/main.tsx']), null);
+  const missing = reviewArtifact();
+  delete missing.linkedBoundary;
+  assert.match(validateReviewArtifact(missing, ['apps/desktop/src/renderer/src/main.tsx']), /linked-boundary review/i);
+  const mismatched = reviewArtifact({ linkedBoundary: { ...reviewArtifact().linkedBoundary, boundaryErrorPx: 3 } });
+  assert.match(validateReviewArtifact(mismatched, ['apps/desktop/src/renderer/src/main.tsx']), /equal rendered edge pixels/i);
+  const missingRepeated = reviewArtifact();
+  delete missingRepeated.linkedBoundary.repeatedCutEvidence;
+  assert.match(validateReviewArtifact(missingRepeated, ['apps/desktop/src/renderer/src/main.tsx']), /repeated linked cuts/i);
+  const missingPainted = reviewArtifact();
+  delete missingPainted.linkedBoundary.paintedBoundaryEvidence;
+  assert.match(validateReviewArtifact(missingPainted, ['apps/desktop/src/renderer/src/main.tsx']), /painted SCREEN\/AUDIO pixels/i);
+  const paintedMismatch = reviewArtifact();
+  paintedMismatch.linkedBoundary.paintedBoundaryEvidence.boundaries[1].screenScore = 0;
+  assert.match(validateReviewArtifact(paintedMismatch, ['apps/desktop/src/renderer/src/main.tsx']), /painted SCREEN\/AUDIO pixels/i);
+  const paintedXMismatch = reviewArtifact();
+  paintedXMismatch.linkedBoundary.paintedBoundaryEvidence.boundaries = [
+    { x: 123, screenScore: 80, audioScore: 0 },
+    { x: 127, screenScore: 0, audioScore: 80 },
+  ];
+  assert.match(validateReviewArtifact(paintedXMismatch, ['apps/desktop/src/renderer/src/main.tsx']), /painted SCREEN\/AUDIO pixels/i);
+  const missingCloseup = reviewArtifact();
+  delete missingCloseup.linkedBoundary.repeatedBoundaryCloseupScreenshotPath;
+  assert.match(validateReviewArtifact(missingCloseup, ['apps/desktop/src/renderer/src/main.tsx']), /close-up screenshot/i);
+  const repeatedMismatch = reviewArtifact();
+  repeatedMismatch.linkedBoundary.repeatedCutEvidence.screen[1].left += 4;
+  assert.match(validateReviewArtifact(repeatedMismatch, ['apps/desktop/src/renderer/src/main.tsx']), /repeated linked-boundary evidence contains/i);
+});
+
 test('visual proof rejects cropped app-only screenshots', () => {
   const review = reviewArtifact();
   delete review.capture;
   assert.match(
     validateReviewArtifact(review, []),
-    /full-desktop capture/i,
+    /full-desktop capture.*PID-matched packaged app-window capture/i,
   );
 });
 
@@ -127,6 +221,8 @@ test('visual proof rejects a declared dock claim without a live installed-entry 
     launchSource: 'unknown',
     pid: process.pid,
     executable: process.execPath,
+    startedAt: packageIdentity.packagedAt,
+    packageIdentity,
   }));
   assert.match(validateReviewArtifact(review, []), /not started by the installed desktop entry/i);
   writeFileSync(testProvenancePath, JSON.stringify({
@@ -134,6 +230,8 @@ test('visual proof rejects a declared dock claim without a live installed-entry 
     launchSource: 'installed-desktop-entry',
     pid: process.pid,
     executable: process.execPath,
+    startedAt: packageIdentity.packagedAt,
+    packageIdentity,
   }));
 });
 

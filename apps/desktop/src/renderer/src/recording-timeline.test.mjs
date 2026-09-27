@@ -142,6 +142,32 @@ test('splitRecordingAtFrame reconciles pre-existing audio boundary drift before 
   assert.ok(model.screenClips.some((clip) => clip.timelineIn === 123));
 });
 
+test('rippleDeleteRecordingRange reconciles pre-existing linked audio boundaries before deleting', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+  const audioTrack = createTrack('audio', { name: 'Mic', index: 2 });
+  const audioClip = createClip(recording.id, audioTrack.id, { timelineIn: 0, timelineOut: 300, sourceIn: 0, sourceOut: 300 });
+  const withDrift = {
+    ...project,
+    timeline: {
+      ...project.timeline,
+      tracks: [...project.timeline.tracks, {
+        ...audioTrack,
+        clips: [
+          { ...audioClip, id: 'audio-left', mediaId: `source:${recording.id}:mic-audio`, linkGroupId: `linked:${recording.id}`, timelineOut: 120, sourceOut: 120 },
+          { ...audioClip, id: 'audio-right', mediaId: `source:${recording.id}:mic-audio`, linkGroupId: `linked:${recording.id}`, timelineIn: 120, sourceIn: 120 },
+        ],
+      }],
+    },
+  };
+
+  const next = rippleDeleteRecordingRange(withDrift, { assetId: recording.id, startFrame: 90, endFrame: 150 });
+  const model = selectRecordingEditModel({ document: next, recordingAssetId: recording.id });
+  const audio = model.document.timeline.tracks.find((track) => track.kind === 'audio');
+  assert.deepEqual(model.screenClips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut]), [[0, 90, 0, 90], [90, 240, 150, 300]]);
+  assert.deepEqual(audio.clips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut]), [[0, 90, 0, 90], [90, 240, 150, 300]]);
+});
+
 test('getRecordingTimelineClip reads the shared timeline before legacy composition tracks', () => {
   const project = projectWithRecordingAndCamera();
   const recording = project.assets[0];
@@ -510,4 +536,47 @@ test('syncRecordingTimelinePresentation mirrors cursor and camera presentation i
   assert.equal(next.timeline.effects.find((effect) => effect.id === `effect:${recording.id}:cursor`)?.params.style, 'spotlight');
   assert.equal(next.timeline.effects.find((effect) => effect.id === `effect:${recording.id}:click`)?.params.clickEffect, 'ring');
   assert.equal(next.timeline.effects.find((effect) => effect.id === `effect:${recording.id}:camera-pip`)?.params.position, 'corner-tl');
+});
+
+// 2026-09-26: the split id counter restarted at every launch, so a project cut
+// across two sessions held two clips named `clip-l-1` in every lane. Clicking
+// clip 2 selected clip 1 too, and trimming clip 2 edited clip 1.
+function projectWithCrossSessionDuplicateIds() {
+  const project = projectWithRecordingAndCamera();
+  const assetId = project.assets[0].id;
+  let document = splitRecordingAtFrame(project, { assetId, frame: 100 });
+  document = splitRecordingAtFrame(document, { assetId, frame: 200 });
+  return {
+    assetId,
+    document: {
+      ...document,
+      timeline: {
+        ...document.timeline,
+        tracks: document.timeline.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.map((clip, index) => (index === 1 ? { ...clip, id: track.clips[0].id } : clip)),
+        })),
+      },
+    },
+  };
+}
+
+test('a project with clips sharing an id opens with one id per clip, the same way every time', () => {
+  const { document, assetId } = projectWithCrossSessionDuplicateIds();
+  const rawIds = document.timeline.tracks[0].clips.map((clip) => clip.id);
+  assert.equal(new Set(rawIds).size, rawIds.length - 1, 'fixture reproduces the saved duplicate');
+
+  const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
+  const ids = model.screenClips.map((clip) => clip.id);
+  assert.equal(ids.length, 3);
+  assert.equal(new Set(ids).size, 3);
+  assert.deepEqual(selectRecordingEditModel({ document, recordingAssetId: assetId }).screenClips.map((clip) => clip.id), ids);
+  assert.deepEqual(model.screenClips.map((clip) => [clip.timelineIn, clip.timelineOut]), [[0, 100], [100, 200], [200, 300]]);
+});
+
+test('splitting again after a restart never reuses an existing clip id', () => {
+  const { document, assetId } = projectWithCrossSessionDuplicateIds();
+  const next = splitRecordingAtFrame(document, { assetId, frame: 250 });
+  const ids = next.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.id));
+  assert.equal(new Set(ids).size, ids.length);
 });
