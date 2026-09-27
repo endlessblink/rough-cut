@@ -2526,7 +2526,9 @@ export function isSingleUneditedRecordingWithCamera(project, assetId) {
   if (!recording?.cameraAssetId) return false;
   const camera = project.assets.find((asset) => asset.id === recording.cameraAssetId && asset.metadata?.isCamera === true);
   if (!camera) return false;
-  const tracks = project.composition.tracks;
+  // Every recording project carries a linked audio track; only screen + camera
+  // video tracks decide whether this is a plain camera recording.
+  const tracks = project.composition.tracks.filter((track) => track.type !== 'audio');
   if (tracks.length !== 2) return false;
   const clips = tracks.flatMap((track) => track.clips);
   const screenClip = clips.find((clip) => clip.assetId === recording.id);

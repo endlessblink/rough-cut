@@ -2012,6 +2012,13 @@ test('styled export accepts unedited linked camera with preroll offset', () => {
   assert.equal(isSingleUneditedRecordingWithCamera(project, assetId), true);
 });
 
+// The app edits a recording's linked audio lane together with its screen lane,
+// so fixtures apply the same screen edit to the linked audio clips.
+function isLinkedAudioTrack(track, screenClip) {
+  return track.kind === 'audio'
+    && track.clips.some((item) => item.linkGroupId && item.linkGroupId === screenClip.linkGroupId);
+}
+
 function withPrimaryTimelineClip(project, patch, compositionDuration = project.composition.duration) {
   const track = project.timeline.tracks.find((candidate) => candidate.clips.some((clip) => clip.mediaId === `source:${project.assets[0].id}:screen`));
   const clip = track?.clips.find((candidate) => candidate.mediaId === `source:${project.assets[0].id}:screen`);
@@ -2024,12 +2031,19 @@ function withPrimaryTimelineClip(project, patch, compositionDuration = project.c
     },
     timeline: {
       ...project.timeline,
-      tracks: project.timeline.tracks.map((candidate) => candidate.id === track.id
-        ? {
+      tracks: project.timeline.tracks.map((candidate) => {
+        if (candidate.id === track.id) {
+          return {
             ...candidate,
             clips: candidate.clips.map((item) => item.id === clip.id ? { ...item, ...patch } : item),
-          }
-        : candidate),
+          };
+        }
+        if (isLinkedAudioTrack(candidate, clip)) {
+          const { id: _id, ...timing } = patch;
+          return { ...candidate, clips: candidate.clips.map((item) => ({ ...item, ...timing })) };
+        }
+        return candidate;
+      }),
     },
   };
 }
@@ -2046,12 +2060,28 @@ function withPrimaryTimelineClips(project, clipPatches, compositionDuration) {
     },
     timeline: {
       ...project.timeline,
-      tracks: project.timeline.tracks.map((candidate) => candidate.id === track.id
-        ? {
+      tracks: project.timeline.tracks.map((candidate) => {
+        if (candidate.id === track.id) {
+          return {
             ...candidate,
             clips: clipPatches.map((patch) => ({ ...clip, ...patch, trackId: track.id, mediaId: clip.mediaId })),
-          }
-        : candidate),
+          };
+        }
+        if (isLinkedAudioTrack(candidate, clip)) {
+          const audioClip = candidate.clips[0];
+          return {
+            ...candidate,
+            clips: clipPatches.map((patch, index) => ({
+              ...audioClip,
+              ...patch,
+              id: `audio:${patch.id ?? index}`,
+              trackId: candidate.id,
+              mediaId: audioClip.mediaId,
+            })),
+          };
+        }
+        return candidate;
+      }),
     },
   };
 }
