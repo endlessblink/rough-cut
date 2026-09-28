@@ -795,7 +795,7 @@ test('a selected censor outranks the screen frame but yields to the camera PiP',
   // Order matters: the screen frame is the backdrop so the censor must win there, but
   // the PiP is a small distinct object on top so it must keep its own drags.
   const censorAt = previewSource.indexOf('if (selectedCensor && onCensorRectChange) {');
-  const screenGuardAt = previewSource.indexOf('if (!onCameraFrameChange && !onScreenFrameChange && !onZoomFocalChange) return;');
+  const screenGuardAt = previewSource.indexOf('if (!onCameraFrameChange && !onScreenFrameChange && !activeFocalChange) return;');
   assert.ok(censorAt > -1 && screenGuardAt > -1);
   assert.ok(censorAt < screenGuardAt, 'censor must be considered before screen-frame dragging');
   assert.match(previewSource, /if \(\(censorHandle \|\| insideCensor\) && !overCameraNow\)/);

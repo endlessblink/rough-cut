@@ -2,6 +2,12 @@ export { resolveFrame, resolveTimelinePreviewFrame } from './resolve-frame.js';
 export { resolveTimelineFrame } from './timeline-frame.js';
 export { resolveCompositionFrame } from './composition-frame.js';
 export {
+  cursorLookupInCropSpace,
+  resolveFollowCursorCrop,
+  resolveFramedCrop,
+  type NormalizedCursorLookup,
+} from './follow-crop.js';
+export {
   normalizeCompositionPresentationStyle,
   resolveHeadlessCameraLayout,
   resolveHeadlessScreenLayout,

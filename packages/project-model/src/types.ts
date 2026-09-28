@@ -207,6 +207,11 @@ export interface RegionCrop {
   readonly width: number;
   readonly height: number;
   readonly aspectRatio: CropAspectRatio;
+  /**
+   * Pan the crop so it tracks the recorded cursor over time (Story · 9:16).
+   * `x`/`y` stay the resting position used when no cursor data exists.
+   */
+  readonly followCursor?: boolean;
 }
 
 /**
@@ -281,6 +286,19 @@ export interface CensorRegion {
   readonly keyframes?: readonly CensorKeyframe[];
 }
 
+/**
+ * A span where the screen crop holds a chosen spot instead of following the
+ * cursor. Frames are recording (source) frames, like censor regions, so a range
+ * stays on its footage through trims and cuts. `focalPoint` is normalized in the
+ * full source recording (not crop space — the crop itself moves).
+ */
+export interface FramingRange {
+  readonly id: string;
+  readonly startFrame: Frame;
+  readonly endFrame: Frame;
+  readonly focalPoint: ZoomFocalPoint;
+}
+
 export interface RecordingPresentation {
   readonly templateId: string;
   readonly zoom: ZoomPresentation;
@@ -295,6 +313,7 @@ export interface RecordingPresentation {
   readonly screenCrop?: RegionCrop;
   readonly cameraCrop?: RegionCrop;
   readonly censorRegions?: readonly CensorRegion[];
+  readonly framingRanges?: readonly FramingRange[];
   // highlights, titles to be added later
 }
 

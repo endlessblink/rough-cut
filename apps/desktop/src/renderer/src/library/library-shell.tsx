@@ -12,6 +12,9 @@ import { resolveContextTargets } from './context-targets.mjs';
 import { IMPORT_REJECTION_MESSAGE, isImportableMimeType } from '../../../shared/import-mime.mjs';
 import { TemplatePickerModal } from './template-picker-modal';
 import type { ProjectAspectRatio } from '@rough-cut/project-model';
+import { CaretDown as PhosphorCaretDown, Clock as PhosphorClock, MagnifyingGlass as PhosphorMagnifyingGlass, Plus as PhosphorPlus, VideoCamera as PhosphorVideoCamera } from '@phosphor-icons/react';
+import { formatDuration, formatRelativeTime } from './format';
+import { formatProjectName } from './project-name.mjs';
 
 const SIZE_STEPS: ReadonlyArray<SizeStep> = ['S', 'M', 'L'];
 
@@ -36,6 +39,7 @@ export function LibraryShell({
   onRenameInFlight,
   onCloseOpenProject,
   onProjectRenamed,
+  onNewRecording,
 }: {
   onOpenProjectByPath: (path: string) => void;
   onOpenProjectDialog: () => void;
@@ -54,6 +58,8 @@ export function LibraryShell({
   // Called after a successful rename so App can swap React state if it's the
   // open project. Receives old path + the new ProjectState from the IPC.
   onProjectRenamed: (oldPath: string, updated: ProjectStateLike) => void;
+  // Starts a new take (switches to the recorder).
+  onNewRecording?: () => void;
 }) {
   const [state, setState] = React.useState<LoadState>({ status: 'loading' });
   const [viewId, setViewId] = React.useState<LibraryViewId>(DEFAULT_VIEW_ID);
@@ -73,6 +79,21 @@ export function LibraryShell({
   const [newProjectDialogOpen, setNewProjectDialogOpen] = React.useState(false);
   const [renamingProject, setRenamingProject] = React.useState<ProjectSummary | null>(null);
   const activeView = findView(viewId);
+  const [query, setQuery] = React.useState('');
+  const [newMenuOpen, setNewMenuOpen] = React.useState(false);
+  const newMenuRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    if (!newMenuOpen) return undefined;
+    const close = (event: Event) => {
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !newMenuRef.current?.contains(event.target as Node)) setNewMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [newMenuOpen]);
 
   const handleImportClick = React.useCallback(async () => {
     setImportError(null);
@@ -407,47 +428,65 @@ export function LibraryShell({
     <section className="libraryShell" aria-label="Project library" data-ui-region="project-library">
       <header className="libraryHeader">
         <div className="libraryHeaderTitle">
-          <p className="eyebrow">Projects</p>
-          <h2>{summaryCountLabel(state)}</h2>
+          <h2>Projects</h2>
+          <p className="libraryHeaderCount">{summaryCountLabel(state)}</p>
         </div>
         <div className="libraryHeaderControls">
+          <label className="librarySearch">
+            <PhosphorMagnifyingGlass size={15} weight="regular" aria-hidden />
+            <input type="search" placeholder="Search recordings" aria-label="Search recordings" value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
+          </label>
           <ViewSwitcher activeId={viewId} onChange={setViewId} />
           {activeView.supportsSizeSlider ? (
             <SizeSwitcher value={sizeStep} onChange={setSizeStep} />
           ) : null}
           <SelectModeToggle active={selectMode} onToggle={() => setSelectMode((on) => !on)} />
-          <button type="button" className="libraryOpenFile" onClick={onOpenProjectDialog}>Open project...</button>
-          {/* P-AI-C/TASK-166: stub entry points. Handlers wired in TASK-167–170. */}
           <button
             type="button"
             className="libraryOpenFile"
             data-testid="library-import-file"
             onClick={handleImportClick}
           >
-            Import file
+            <PhosphorPlus size={14} weight="bold" aria-hidden /> Import
           </button>
-          <button
-            type="button"
-            className="libraryOpenFile"
-            data-testid="library-blank-project"
-            onClick={() => {
-              setImportError(null);
-              setNewProjectDialogOpen(true);
-            }}
-          >
-            New empty project
-          </button>
-          <button
-            type="button"
-            className="libraryOpenFile"
-            data-testid="library-from-template"
-            onClick={() => {
-              setImportError(null);
-              setTemplatePickerOpen(true);
-            }}
-          >
-            From template
-          </button>
+          {/* Everything else that starts a project lives in one menu. */}
+          <div className="libraryNewMenu" ref={newMenuRef}>
+            <button type="button" className="libraryOpenFile" data-ui-region="library-new-menu" aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen((open) => !open)}>
+              New <PhosphorCaretDown size={13} weight="bold" aria-hidden />
+            </button>
+            {newMenuOpen ? (
+              <div className="libraryNewMenuList" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="library-blank-project"
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    setImportError(null);
+                    setNewProjectDialogOpen(true);
+                  }}
+                >
+                  New empty project
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="library-from-template"
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    setImportError(null);
+                    setTemplatePickerOpen(true);
+                  }}
+                >
+                  From template
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); onOpenProjectDialog(); }}>Open project…</button>
+              </div>
+            ) : null}
+          </div>
+          {onNewRecording ? (
+            <button type="button" className="libraryRecord" onClick={onNewRecording}><span className="libraryRecordDot" aria-hidden="true" />New recording</button>
+          ) : null}
         </div>
       </header>
       {importError ? (
@@ -465,6 +504,9 @@ export function LibraryShell({
             ×
           </button>
         </div>
+      ) : null}
+      {state.status === 'ready' && state.summaries.length > 0 && selection.size === 0 && !selectMode ? (
+        <ContinueEditingCard summary={mostRecentSummary(state.summaries)} onOpen={onOpenProjectByPath} />
       ) : null}
       <FilterToSelect
         summaries={state.status === 'ready' ? state.summaries : []}
@@ -494,7 +536,7 @@ export function LibraryShell({
           <LibraryEmptyState eyebrow="No projects yet" body="Create an empty project, open a .roughcut file, import media, or record a take." />
         ) : null}
         {state.status === 'ready' && state.summaries.length > 0 ? (
-          <LibraryViewport view={activeView} summaries={state.summaries} viewProps={viewProps} onGroupSelectAll={handleGroupSelectAll} />
+          <LibraryViewport view={activeView} summaries={filterSummariesByQuery(state.summaries, query)} viewProps={viewProps} onGroupSelectAll={handleGroupSelectAll} />
         ) : null}
       </div>
       {pendingDelete ? (
@@ -679,6 +721,33 @@ function summaryCountLabel(state: LoadState): string {
   return `${n} project${n === 1 ? '' : 's'}`;
 }
 
+function mostRecentSummary(summaries: ReadonlyArray<ProjectSummary>): ProjectSummary {
+  const time = (summary: ProjectSummary) => (summary.modifiedAt ? Date.parse(summary.modifiedAt) : 0) || 0;
+  return summaries.reduce((latest, summary) => (time(summary) > time(latest) ? summary : latest), summaries[0] as ProjectSummary);
+}
+
+// The take you were last working on, one click from the editor.
+function ContinueEditingCard({ summary, onOpen }: { summary: ProjectSummary; onOpen: (path: string) => void }) {
+  return (
+    <section className="libraryHero" aria-label="Continue editing" data-library-hero={summary.path}>
+      <button type="button" className="libraryHeroShot" onClick={() => onOpen(summary.path)} aria-label={`Open ${formatProjectName(summary.name)}`}>
+        {summary.thumbnailUrl ? <img src={summary.thumbnailUrl} alt="" /> : <span className="libraryHeroEmpty" aria-hidden="true" />}
+      </button>
+      <div className="libraryHeroText">
+        <p className="libraryHeroKicker">Continue editing</p>
+        <h3>{formatProjectName(summary.name)}</h3>
+        <div className="libraryHeroFacts">
+          <span className="libraryFact"><PhosphorClock size={13} weight="regular" aria-hidden />{formatDuration(summary.durationMs)}</span>
+          {summary.resolutionLabel ? <span className="libraryFact">{summary.resolutionLabel}</span> : null}
+          {summary.hasCamera ? <span className="libraryFact"><PhosphorVideoCamera size={13} weight="regular" aria-hidden />Camera</span> : null}
+          {summary.modifiedAt ? <span className="libraryFact">Edited {formatRelativeTime(summary.modifiedAt).toLowerCase()}</span> : null}
+        </div>
+        <button type="button" className="libraryHeroOpen" onClick={() => onOpen(summary.path)}>Open in editor</button>
+      </div>
+    </section>
+  );
+}
+
 function LibraryEmptyState({ eyebrow, body, tone }: { eyebrow: string; body: string; tone?: 'error' }) {
   return (
     <div className={`libraryEmptyState ${tone === 'error' ? 'libraryEmptyError' : ''}`} role={tone === 'error' ? 'alert' : undefined}>
@@ -760,4 +829,11 @@ function SizeSwitcher({ value, onChange }: { value: SizeStep; onChange: (step: S
       ))}
     </div>
   );
+}
+
+// Matches the name as typed or as shown (timestamp names read as dates).
+function filterSummariesByQuery(summaries: ProjectSummary[], query: string): ProjectSummary[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return summaries;
+  return summaries.filter((summary) => summary.name.toLowerCase().includes(needle) || formatProjectName(summary.name).toLowerCase().includes(needle));
 }

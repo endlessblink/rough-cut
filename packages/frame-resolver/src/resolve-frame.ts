@@ -11,9 +11,16 @@ import type {
   CameraLayoutMarker,
   RecordingVisibility,
   RecordingVisibilitySegment,
+  RecordingPresentation,
+  RegionCrop,
 } from '@rough-cut/project-model';
 import { activeCensorRegionsAt, normalizeRegionCrop } from '@rough-cut/project-model';
 import { resolveTimelineFrame } from './timeline-frame.js';
+import {
+  cursorLookupInCropSpace,
+  resolveFramedCrop,
+  type NormalizedCursorLookup,
+} from './follow-crop.js';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
 import type {
@@ -102,10 +109,7 @@ function resolveCameraTransformForFrame(
   canvasWidth: number,
   canvasHeight: number,
   fps: number,
-  options?: {
-    assetId?: string;
-    getCursorPosition?: (assetId: string, sourceFrame: number) => { x: number; y: number } | null;
-  },
+  getCursorPosition?: NormalizedCursorLookup,
 ): CameraTransform {
   if (!zoom) return DEFAULT_CAMERA_TRANSFORM;
 
@@ -116,10 +120,7 @@ function resolveCameraTransformForFrame(
     followPadding: zoom.followPadding,
     cursorSmoothing: zoom.cursorSmoothing,
     fps,
-    getCursorPosition:
-      options?.assetId && options.getCursorPosition
-        ? (frame) => options.getCursorPosition?.(options.assetId!, frame) ?? null
-        : undefined,
+    getCursorPosition,
   });
 
   if (zt.scale !== 1 || zt.translateX !== 0 || zt.translateY !== 0) {
@@ -136,6 +137,73 @@ function resolveCameraTransformForFrame(
   // generateAutoZoomMarkers in timeline-engine); it must not apply a standing
   // center zoom here because doing so silently crops ~4% of each edge.
   return DEFAULT_CAMERA_TRANSFORM;
+}
+
+// One lookup per (caller's cursor function, asset), so the follow's path cache
+// (keyed by lookup) survives across the frames of a preview or an export.
+const cursorLookups = new WeakMap<NonNullable<ResolveFrameOptions['getCursorPosition']>, Map<string, NormalizedCursorLookup>>();
+
+function stableCursorLookup(
+  getCursorPosition: NonNullable<ResolveFrameOptions['getCursorPosition']>,
+  assetId: string,
+): NormalizedCursorLookup {
+  let byAsset = cursorLookups.get(getCursorPosition);
+  if (!byAsset) {
+    byAsset = new Map();
+    cursorLookups.set(getCursorPosition, byAsset);
+  }
+  let lookup = byAsset.get(assetId);
+  if (!lookup) {
+    lookup = (frame) => getCursorPosition(assetId, frame) ?? null;
+    byAsset.set(assetId, lookup);
+  }
+  return lookup;
+}
+
+/**
+ * The screen crop for this frame (panned to the cursor when it follows) and
+ * the zoom transform expressed inside that crop. The preview draws the zoom
+ * around the cropped viewport, and a zoom's focal point is picked on the
+ * cropped picture, so both the size and the cursor must be in crop space.
+ */
+function resolveScreenCropAndZoom(
+  presentation: RecordingPresentation | undefined,
+  sourceFrame: number,
+  screenSourceSize: { width: number; height: number },
+  settings: ProjectDocument['settings'],
+  assetId: string | undefined,
+  getCursorPosition: ResolveFrameOptions['getCursorPosition'],
+): { screenCrop: RegionCrop | undefined; cameraTransform: CameraTransform } {
+  const { width, height } = screenSourceSize;
+  const baseCrop = presentation?.screenCrop?.enabled
+    ? normalizeRegionCrop(
+        presentation.screenCrop,
+        width,
+        height,
+        settings.resolution.width,
+        settings.resolution.height,
+      )
+    : undefined;
+  const cursor = assetId && getCursorPosition ? stableCursorLookup(getCursorPosition, assetId) : undefined;
+  const framingRanges = presentation?.framingRanges;
+  const cropAt = (frame: number): RegionCrop | undefined =>
+    baseCrop && ((baseCrop.followCursor && cursor) || framingRanges?.length)
+      ? resolveFramedCrop(baseCrop, width, height, frame, settings.frameRate, cursor, framingRanges)
+      : baseCrop;
+  const screenCrop = cropAt(sourceFrame);
+  const zoomCursor =
+    cursor && baseCrop
+      ? cursorLookupInCropSpace(cursor, (frame) => cropAt(frame) ?? baseCrop, width, height)
+      : cursor;
+  const cameraTransform = resolveCameraTransformForFrame(
+    presentation?.zoom,
+    sourceFrame,
+    screenCrop?.width ?? width,
+    screenCrop?.height ?? height,
+    settings.frameRate,
+    zoomCursor,
+  );
+  return { screenCrop, cameraTransform };
 }
 
 /**
@@ -284,27 +352,15 @@ export function resolveFrame(
     ? project.assets.find((asset) => asset.id === activeRecording.cameraAssetId)
     : undefined;
   const cameraSourceSize = getAssetSourceSize(cameraAsset);
-  const cameraTransform = resolveCameraTransformForFrame(
-    presentation?.zoom,
+  const { screenCrop, cameraTransform } = resolveScreenCropAndZoom(
+    presentation,
     activeRecordingSourceFrame,
-    screenSourceSize.width,
-    screenSourceSize.height,
-    settings.frameRate,
-    {
-      assetId: activeRecording?.id,
-      getCursorPosition: options?.getCursorPosition,
-    },
+    screenSourceSize,
+    settings,
+    activeRecording?.id,
+    options?.getCursorPosition,
   );
   const cursor = resolveCursorPresentation(presentation?.cursor, recordingVisibility);
-  const screenCrop = presentation?.screenCrop?.enabled
-    ? normalizeRegionCrop(
-        presentation.screenCrop,
-        screenSourceSize.width,
-        screenSourceSize.height,
-        settings.resolution.width,
-        settings.resolution.height,
-      )
-    : undefined;
   const cameraCrop = presentation?.cameraCrop?.enabled
     ? normalizeRegionCrop(
         presentation.cameraCrop,
@@ -392,27 +448,15 @@ export function resolveTimelinePreviewFrame(
     ? project.assets.find((asset) => asset.id === activeRecording.cameraAssetId)
     : undefined;
   const cameraSourceSize = getAssetSourceSize(cameraAsset);
-  const cameraTransform = resolveCameraTransformForFrame(
-    presentation?.zoom,
+  const { screenCrop, cameraTransform } = resolveScreenCropAndZoom(
+    presentation,
     activeRecordingSourceFrame,
-    screenSourceSize.width,
-    screenSourceSize.height,
-    settings.frameRate,
-    {
-      assetId: activeRecording?.id,
-      getCursorPosition: options?.getCursorPosition,
-    },
+    screenSourceSize,
+    settings,
+    activeRecording?.id,
+    options?.getCursorPosition,
   );
   const cursor = resolveCursorPresentation(presentation?.cursor, recordingVisibility);
-  const screenCrop = presentation?.screenCrop?.enabled
-    ? normalizeRegionCrop(
-        presentation.screenCrop,
-        screenSourceSize.width,
-        screenSourceSize.height,
-        settings.resolution.width,
-        settings.resolution.height,
-      )
-    : undefined;
   const cameraCrop = presentation?.cameraCrop?.enabled
     ? normalizeRegionCrop(
         presentation.cameraCrop,

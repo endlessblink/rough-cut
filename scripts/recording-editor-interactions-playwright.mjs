@@ -147,7 +147,7 @@ try {
   }, null, { timeout: 60000 });
   const initialPreviewMedia = await readPreviewMediaEvidence();
   if (!initialPreviewMedia.hasVisibleMedia) throw new Error(`Visible preview canvas is blank despite ready source media: ${JSON.stringify({ sourceVideoDebug, initialPreviewMedia })}`);
-  const timelineTool = page.locator('nav[aria-label="Editor tools"] button[aria-label="Timeline"]');
+  const timelineTool = page.locator('nav[aria-label="Editor tools"] button[aria-label="Zoom"]');
   await timelineTool.waitFor({ state: 'visible', timeout: 30000 });
   await timelineTool.evaluate((button) => button.click());
   const surface = page.locator('.visualTimeline');

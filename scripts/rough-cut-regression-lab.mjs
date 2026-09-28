@@ -226,9 +226,9 @@ await scenarioAsync('nle-source-guards-match-the-shipped-shell', 'Source guards 
   const rendererSource = await readFile(join(repoRoot, 'apps', 'desktop', 'src', 'renderer', 'src', 'main.tsx'), 'utf8');
   const mainProcessSource = await readFile(join(repoRoot, 'apps', 'desktop', 'src', 'main', 'index.mjs'), 'utf8');
   const exportServiceSource = await readFile(join(repoRoot, 'apps', 'desktop', 'src', 'main', 'export-service.mjs'), 'utf8');
-  assert.match(rendererSource, /data-export-action="styled"/);
-  assert.match(rendererSource, /data-export-action="raw"/);
-  assert.match(rendererSource, /onClick=\{\(\) => onExportMode\('styled'\)\}/);
+  assert.match(rendererSource, /data-export-format=\{option\.mode\}/);
+  assert.match(rendererSource, /data-export-action="export"/);
+  assert.match(rendererSource, /onClick=\{\(\) => onExportMode\(exportFormat\)\}/);
   assert.match(rendererSource, /onClick=\{\(\) => onExportMode\('raw'\)\}/);
   assert.match(rendererSource, /event\.key\.toLowerCase\(\) === 'e'/);
   assert.match(rendererSource, /exportWithResolvedPreviewLayout\(exportMode\)/);

@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
+import { resolveFramedCrop } from '@rough-cut/frame-resolver';
 
 // Pre-compute per-frame crop parameters via getZoomTransformAtFrame, then
 // emit a sendcmd file that drives FFmpeg's crop filter parameters per
@@ -57,7 +58,7 @@ function normalizeViewport(viewport, sourceWidth, sourceHeight) {
   };
 }
 
-function buildCursorPositionLookup(cursorEvents, viewport) {
+export function buildCursorPositionLookup(cursorEvents, viewport) {
   if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) {
     return () => null;
   }
@@ -110,6 +111,9 @@ export function buildZoomSendcmd({
   totalFrames,
   presentationOptions = {},
   viewport = null,
+  // Per-frame viewport for a screen crop that moves (follow cursor / framing
+  // ranges). Takes precedence over `viewport`.
+  viewportAt = null,
 } = {}) {
   if (!Array.isArray(markers) || markers.length === 0) {
     return { filterFragment: null, sendcmdContent: '', present: false, initialCrop: null };
@@ -135,8 +139,22 @@ export function buildZoomSendcmd({
     ? presentationOptions.followPadding
     : 0.22;
 
-  const view = normalizeViewport(viewport, sourceWidth, sourceHeight);
-  const cursorLookup = buildCursorPositionLookup(cursorEvents, view);
+  const staticView = normalizeViewport(viewport, sourceWidth, sourceHeight);
+  const viewAt = typeof viewportAt === 'function'
+    ? (frame) => normalizeViewport(viewportAt(frame), sourceWidth, sourceHeight)
+    : () => staticView;
+  // The zoom aims inside the crop, so the cursor is re-expressed in the crop
+  // shown at that same frame (as the preview's cursorLookupInCropSpace does).
+  const fullSourceLookup = buildCursorPositionLookup(cursorEvents, { x: 0, y: 0, w: sourceWidth, h: sourceHeight });
+  const cursorLookup = (frame) => {
+    const point = fullSourceLookup(frame);
+    if (!point) return null;
+    const view = viewAt(frame);
+    return {
+      x: (point.x * sourceWidth - view.x) / view.w,
+      y: (point.y * sourceHeight - view.y) / view.h,
+    };
+  };
   const transformOptions = followCursor
     ? { followCursor: true, followAnimation, followPadding, fps, getCursorPosition: cursorLookup }
     : undefined;
@@ -144,6 +162,7 @@ export function buildZoomSendcmd({
   const lines = [];
   let initialCrop = null;
   for (let frame = 0; frame < totalFrames; frame += 1) {
+    const view = viewAt(frame);
     const transform = getZoomTransformAtFrame(frame, markers, transformOptions);
     const local = transformToCropWindow(transform, view.w, view.h);
     const window = { ...local, x: local.x + view.x, y: local.y + view.y };
@@ -154,7 +173,7 @@ export function buildZoomSendcmd({
     );
   }
 
-  const cropInit = initialCrop ?? view;
+  const cropInit = initialCrop ?? staticView;
   const filterFragment = `crop=w=${formatNumber(cropInit.w)}:h=${formatNumber(cropInit.h)}:x=${formatNumber(cropInit.x)}:y=${formatNumber(cropInit.y)}`;
 
   return {
@@ -174,6 +193,7 @@ export async function createZoomSendcmdLayer({
   totalFrames,
   presentationOptions = {},
   viewport = null,
+  viewportAt = null,
 } = {}) {
   const result = buildZoomSendcmd({
     markers,
@@ -184,6 +204,7 @@ export async function createZoomSendcmdLayer({
     totalFrames,
     presentationOptions,
     viewport,
+    viewportAt,
   });
   if (!result.present) return null;
 
@@ -194,6 +215,109 @@ export async function createZoomSendcmdLayer({
     path,
     filterFragment: result.filterFragment,
     initialCrop: result.initialCrop,
+    cleanup: () => rm(root, { recursive: true, force: true }),
+  };
+}
+
+/**
+ * The screen crop for every exported (timeline) frame when it moves — following
+ * the cursor and/or held by framing ranges. Each timeline frame is mapped back to
+ * its recording frame and resolved with the preview's own `resolveFramedCrop`,
+ * with the cursor in recording frames, so export pans exactly where the preview
+ * does. Returns null when the crop is off or never moves.
+ *
+ * `segments` are the timeline→recording mappings of the exported screen clips.
+ */
+export function buildScreenCropTrack({
+  screenCrop,
+  framingRanges = [],
+  sourceCursorEvents = [],
+  sourceWidth,
+  sourceHeight,
+  fps,
+  totalFrames,
+  segments = [],
+} = {}) {
+  if (!screenCrop?.enabled) return null;
+  const ranges = Array.isArray(framingRanges) ? framingRanges : [];
+  if (!screenCrop.followCursor && ranges.length === 0) return null;
+  if (!(sourceWidth > 0) || !(sourceHeight > 0) || !(fps > 0) || !(totalFrames > 0)) return null;
+
+  const w = clamp(Math.round(Number(screenCrop.width) || sourceWidth), 1, sourceWidth);
+  const h = clamp(Math.round(Number(screenCrop.height) || sourceHeight), 1, sourceHeight);
+  const base = {
+    ...screenCrop,
+    width: w,
+    height: h,
+    x: clamp(Math.round(Number(screenCrop.x) || 0), 0, sourceWidth - w),
+    y: clamp(Math.round(Number(screenCrop.y) || 0), 0, sourceHeight - h),
+  };
+  const cursor = buildCursorPositionLookup(sourceCursorEvents, { x: 0, y: 0, w: sourceWidth, h: sourceHeight });
+  const sourceFrameAt = (frame) => {
+    const segment = segments.find((candidate) => frame >= candidate.timelineIn && frame < candidate.timelineOut);
+    return segment ? segment.sourceIn + (frame - segment.timelineIn) : null;
+  };
+
+  const crops = [];
+  let lastCrop = base;
+  for (let frame = 0; frame < totalFrames; frame += 1) {
+    const sourceFrame = sourceFrameAt(frame);
+    // A gap shows no recording; hold the last position so nothing jumps.
+    if (sourceFrame !== null) {
+      lastCrop = resolveFramedCrop(base, sourceWidth, sourceHeight, sourceFrame, fps, cursor, ranges);
+    }
+    crops.push({ x: lastCrop.x, y: lastCrop.y, w: lastCrop.width, h: lastCrop.height });
+  }
+  return crops;
+}
+
+/**
+ * sendcmd driving crop x/y per frame for a moving (non-zoomed) screen crop.
+ *
+ * FFmpeg crops on whole pixels (even ones for 4:2:0 video), and the narrow
+ * Story slice is then scaled up ~1.8x — so cropping the source directly turns a
+ * slow glide into visible 2–4 px steps. With `renderSize` (the size the crop is
+ * finally drawn at), the source is first scaled so the crop is already at that
+ * size, converted to RGBA, and cropped exactly: each step is then one output
+ * pixel, the finest the video can show.
+ */
+export function buildCropPanSendcmd(crops, fps, { sourceWidth = null, sourceHeight = null, renderSize = null } = {}) {
+  if (!Array.isArray(crops) || crops.length === 0) return null;
+  const first = crops[0];
+  const scale = renderSize && sourceWidth > 0 && sourceHeight > 0 && first.w > 0
+    ? renderSize.w / first.w
+    : 1;
+  const lines = [];
+  let previous = null;
+  crops.forEach((crop, frame) => {
+    const x = Math.round(crop.x * scale);
+    const y = Math.round(crop.y * scale);
+    // Only emit changes — a held crop would otherwise write a line per frame.
+    if (previous && previous.x === x && previous.y === y) return;
+    previous = { x, y };
+    lines.push(`${formatTimestamp(frame / fps)} crop x ${x}, crop y ${y};`);
+  });
+  const cropW = Math.round(first.w * scale);
+  const cropH = Math.round(first.h * scale);
+  const cropStep = `crop=w=${cropW}:h=${cropH}:x=${Math.round(first.x * scale)}:y=${Math.round(first.y * scale)}`;
+  const filterFragment = scale === 1
+    ? cropStep
+    : `scale=${Math.round(sourceWidth * scale)}:${Math.round(sourceHeight * scale)}:flags=bicubic,format=rgba,${cropStep}:exact=1`;
+  return {
+    filterFragment,
+    sendcmdContent: `${lines.join('\n')}\n`,
+  };
+}
+
+export async function createCropPanSendcmdLayer(crops, fps, options = {}) {
+  const result = buildCropPanSendcmd(crops, fps, options);
+  if (!result) return null;
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-crop-sendcmd-'));
+  const path = join(root, 'crop.cmd');
+  await writeFile(path, result.sendcmdContent, 'utf8');
+  return {
+    path,
+    filterFragment: result.filterFragment,
     cleanup: () => rm(root, { recursive: true, force: true }),
   };
 }

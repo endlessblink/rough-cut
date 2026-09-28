@@ -1,8 +1,10 @@
 import React from 'react';
 import type { LibraryView, LibraryViewProps, ProjectSummary, SizeStep } from './types';
 import { formatDuration, formatRelativeTime } from './format';
+import { formatProjectName } from './project-name.mjs';
 import { useHoverScrub } from './use-hover-scrub';
 import { CardCheckbox } from './checkbox-chip';
+import { VideoCamera as PhosphorVideoCamera } from '@phosphor-icons/react';
 
 const SIZE_TO_CARD_WIDTH: Record<SizeStep, number> = {
   S: 200,
@@ -93,19 +95,16 @@ function GridCard({ summary, selected, hoverScrubEnabled, onCardClick, onToggleS
             }}
           />
         ) : null}
-        {summary.resolutionLabel ? (
-          <span className="galleryChip galleryChipResolution">{summary.resolutionLabel}</span>
-        ) : null}
         {summary.hasCamera ? (
-          <span className="galleryChip galleryChipCamera" title="Includes camera recording" aria-label="Includes camera recording">Cam</span>
+          <span className="galleryChip galleryChipCamera" title="Includes camera recording" aria-label="Includes camera recording"><PhosphorVideoCamera size={13} weight="fill" aria-hidden /></span>
         ) : null}
         <span className="galleryChip galleryChipDuration" aria-label={`Duration ${formatDuration(summary.durationMs)}`}>
           {formatDuration(summary.durationMs)}
         </span>
       </div>
       <div className="galleryCardBody">
-        <p className="galleryCardName" title={summary.name}>{summary.name}</p>
-        <p className="galleryCardMeta">{formatRelativeTime(summary.modifiedAt)}</p>
+        <p className="galleryCardName" title={summary.name}>{formatProjectName(summary.name)}</p>
+        <p className="galleryCardMeta">{[summary.resolutionLabel, formatRelativeTime(summary.modifiedAt)].filter(Boolean).join(' · ')}</p>
       </div>
     </button>
   );

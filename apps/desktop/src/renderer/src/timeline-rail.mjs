@@ -1,5 +1,6 @@
 import { listMarkers } from './zoom-markers.mjs';
 import { listCensorRegions } from './censor-markers.mjs';
+import { listFramingRanges } from './framing-ranges.mjs';
 import { selectRecordingEditModel } from './recording-timeline.mjs';
 
 const DEFAULT_TICK_COUNT = 7;
@@ -167,6 +168,25 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
         width: Math.max(0, right - left),
       }];
     });
+  // Framing ranges ride the footage the same way, so a held spot stays on the
+  // moment it was aimed at.
+  const framingRegions = listFramingRanges(document)
+    .filter((range) => range.endFrame >= trimStartFrame && range.startFrame <= trimEndFrame)
+    .flatMap((range) => {
+      const pieces = sourceRangeToTimelinePlacements(adapter.screenClips, range.startFrame, range.endFrame, fps, durationSec);
+      if (pieces.length === 0) return [];
+      const left = Math.min(...pieces.map((piece) => piece.left));
+      const right = Math.max(...pieces.map((piece) => piece.left + piece.width));
+      return [{
+        id: range.id,
+        startFrame: range.startFrame,
+        endFrame: range.endFrame,
+        focalPoint: range.focalPoint,
+        label: 'Hold framing',
+        left,
+        width: Math.max(0, right - left),
+      }];
+    });
   const attachedAudioRegions = hasRecordingAudio
     ? (adapter.screenClips.length > 0
       ? adapter.screenClips.map((clip, index) => ({
@@ -213,6 +233,7 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
         : [{ id: 'screen', left: 0, width: 100, sourceIn: 0, sourceOut: frameDuration, timelineIn: 0, timelineOut: adapter.timelineDurationFrames }],
       zoom: zoomRegions,
       censor: censorRegions,
+      framing: framingRegions,
       clicks: clickEvents,
       camera: recording?.camera || cameraMediaUrl ? [{ id: 'camera', left: 0, width: 100 }] : [],
       audio: attachedAudioRegions,

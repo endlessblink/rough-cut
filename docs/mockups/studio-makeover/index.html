@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rough Cut Makeover</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: Inter, system-ui, sans-serif; }
+iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
+.today { position: fixed; inset: 0; overflow: auto; background: #000; display: none; }
+.today img { width: 100%; display: block; }
+body.showToday .today { display: block; }
+body.showToday iframe { visibility: hidden; }
+.switch {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 10;
+  display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 999px;
+  background: rgb(250 250 252 / 0.97); color: #111; box-shadow: 0 12px 40px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(0 0 0 / 0.08);
+  font-size: 12px; font-weight: 500;
+}
+.grp { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: #e6e7ec; }
+.grp button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: none; color: #555; font: inherit; cursor: pointer; white-space: nowrap; }
+.grp button:hover { color: #111; }
+.grp button[aria-pressed="true"] { background: #fff; color: #111; font-weight: 600; box-shadow: 0 1px 3px rgb(0 0 0 / 0.15); }
+.grp button small { color: #888; font-weight: 400; margin-left: 4px; }
+.note { padding: 0 8px 0 4px; color: #666; max-width: 260px; line-height: 1.3; font-size: 11px; }
+.hide { position: fixed; right: 14px; bottom: 20px; z-index: 10; height: 28px; padding: 0 10px; border: 0; border-radius: 999px; background: rgb(250 250 252 / 0.9); font: 500 11px Inter, sans-serif; cursor: pointer; }
+body.min .switch { display: none; }
+</style>
+</head>
+<body>
+<iframe id="frame" title="Mockup"></iframe>
+<div class="today"><img id="todayImg" alt="The app today"></div>
+
+<div class="switch" role="toolbar" aria-label="Compare options">
+  <div class="grp" id="dirs">
+    <button data-dir="a" aria-pressed="true">A · Studio<small>Screen Studio</small></button>
+    <button data-dir="b">B · Pro<small>Resolve</small></button>
+    <button data-dir="c">C · Calm<small>Linear</small></button>
+    <button data-dir="today">Today</button>
+  </div>
+  <div class="grp" id="views">
+    <button data-view="edit" aria-pressed="true">Recording edit</button>
+    <button data-view="projects">Projects</button>
+  </div>
+  <div class="grp" id="sliders" title="Slider style">
+    <button data-sl="bar" aria-pressed="true">Bar sliders</button>
+    <button data-sl="knob">Knob</button>
+    <button data-sl="ruler">Ruler</button>
+  </div>
+  <span class="note" id="note"></span>
+</div>
+<button class="hide" id="hide" title="Hide this bar (H)">Hide bar</button>
+
+<script>
+const NOTES = {
+  a: 'Canvas first. Visual pickers for background, frame and camera. Export in a pop-over. Click Export (top right).',
+  b: 'Dense pro tool. Inspector with numeric fields, Deliver panel with a render queue, page tabs at the bottom.',
+  c: 'Floating panels. The side panel shows whatever you selected (here: a screen clip). Pages in a slim left rail.',
+  today: 'The app as it ships now.',
+};
+let dir = 'a', view = 'edit', sl = 'bar';
+document.querySelectorAll('#sliders button').forEach((b) => b.onclick = () => {
+  sl = b.dataset.sl;
+  document.querySelectorAll('#sliders button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  frame.contentWindow && frame.contentWindow.postMessage({ sliderStyle: sl }, '*');
+});
+const frame = document.getElementById('frame');
+function render(reload = true) {
+  document.querySelectorAll('#dirs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dir === dir)));
+  document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+  document.body.classList.toggle('showToday', dir === 'today');
+  document.getElementById('todayImg').src = view === 'projects' ? 'current-projects.png' : 'current-edit.png';
+  document.getElementById('note').textContent = NOTES[dir];
+  if (dir !== "today" && reload) frame.src = `${dir}.html?view=${view}&sl=${sl}`;
+  document.getElementById("sliders").style.display = dir === "today" ? "none" : "";
+  history.replaceState(null, '', `#${dir}-${view}`);
+}
+document.querySelectorAll('#dirs button').forEach((b) => b.onclick = () => { dir = b.dataset.dir; render(); });
+document.querySelectorAll('#views button').forEach((b) => b.onclick = () => {
+  view = b.dataset.view;
+  if (dir !== 'today' && frame.contentWindow) { frame.contentWindow.postMessage({ setView: view }, '*'); render(false); } else render();
+});
+window.addEventListener('message', (e) => { if (e.data && e.data.view && e.data.view !== view) { view = e.data.view; render(false); } });
+const hideBar = () => { document.body.classList.toggle('min'); document.getElementById('hide').textContent = document.body.classList.contains('min') ? 'Show bar' : 'Hide bar'; };
+document.getElementById('hide').onclick = hideBar;
+document.addEventListener('keydown', (e) => { if (e.key === 'h' || e.key === 'H') hideBar(); });
+const m = location.hash.match(/^#(a|b|c|today)-(edit|projects)$/);
+if (m) { dir = m[1]; view = m[2]; }
+render();
+</script>
+</body>
+</html>

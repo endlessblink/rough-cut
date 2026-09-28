@@ -76,22 +76,25 @@ try {
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 60000 });
-  await page.waitForSelector('[data-export-action="raw"]', { timeout: 30000 });
+  await page.locator('[data-ui-region="export-popover-toggle"][aria-pressed="false"]').click().catch(() => {});
+  await page.waitForSelector('[data-export-format="raw"]', { timeout: 30000 });
   await page.waitForFunction(() => document.querySelector('video')?.readyState >= 1, null, { timeout: 60000 });
 
-  // Export mode 1: the visible Raw export action.
-  await page.locator('[data-export-action="raw"]').click();
+  // Export mode 1: pick Raw, then Export.
+  await page.locator('[data-export-format="raw"]').click();
+  await page.locator('[data-export-action="export"][data-export-format="raw"]').click();
   await waitForExport(page);
   copyFileSync(sharedOutputPath, rawOutputPath);
   const rawState = await readExportState(page);
   const firstExportMtime = statSync(sharedOutputPath).mtimeMs;
 
-  // Export mode 2: the visible Styled export action, using the same project.
+  // Export mode 2: pick Styled, then Export, using the same project.
   await page.waitForFunction(() => {
-    const button = document.querySelector('[data-export-action="styled"]');
+    const button = document.querySelector('[data-export-format="styled"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 120000 });
-  await page.locator('[data-export-action="styled"]').click({ force: true });
+  await page.locator('[data-export-format="styled"]').click({ force: true });
+  await page.locator('[data-export-action="export"][data-export-format="styled"]').click({ force: true });
   await waitForFileUpdate(sharedOutputPath, firstExportMtime);
   copyFileSync(sharedOutputPath, styledOutputPath);
   const styledState = await readExportState(page);

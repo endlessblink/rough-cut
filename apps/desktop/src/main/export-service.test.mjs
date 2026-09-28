@@ -195,6 +195,8 @@ test('imported single-video timeline remains exportable after stabilization is e
     timelineDurationFrames: 150,
     timelineSegments: [],
     cursorEvents: [],
+    sourceCursorEvents: [],
+    sourceTimingSegments: [{ timelineIn: 0, timelineOut: 150, sourceIn: 0, sourceOut: 150 }],
     zoomMarkers: [],
     cutRanges: [],
   });
@@ -1719,6 +1721,25 @@ test('styled export args apply manual screen crop before fitting the screen fram
 
   assert(joined.includes('[base]crop=640:360:120:40,scale=1536:864:force_original_aspect_ratio=decrease'));
   assert(!joined.includes('crop=iw*1:ih*1'));
+});
+
+test('styled export args drive a moving screen crop with sendcmd instead of a fixed crop', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1080,
+    height: 1920,
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    screenCrop: { enabled: true, x: 656, y: 0, width: 608, height: 1080, aspectRatio: '9:16', followCursor: true },
+    screenCropPanFilter: 'crop=w=608:h=1080:x=200:y=0',
+    screenCropPanSendcmdPath: '/tmp/crop.cmd',
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('crop=w=608:h=1080:x=200:y=0,sendcmd=f='));
+  assert(joined.includes('crop.cmd'));
+  assert(!joined.includes('crop=608:1080:656:0'));
 });
 
 test('styled export args fall back to camera presentation when no normalized frame is set', () => {

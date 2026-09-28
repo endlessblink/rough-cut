@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildZoomSendcmd } from './zoom-sendcmd.mjs';
+import { buildCropPanSendcmd, buildScreenCropTrack, buildZoomSendcmd } from './zoom-sendcmd.mjs';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { createAsset, createClip, createDefaultCameraPresentation, createDefaultRecordingBackgroundStyle, createProject, createTrack, createZoomMarker } from '@rough-cut/project-model';
 
@@ -97,6 +97,128 @@ function interpolatedCursorAtFrame(events, frame, sourceWidth, sourceHeight) {
     y: (before.y + (after.y - before.y) * t) / sourceHeight,
   };
 }
+
+function storyParityProject() {
+  const project = parityProject();
+  const recording = project.assets[0];
+  recording.presentation.zoom.markers = [];
+  recording.presentation.screenCrop = { enabled: true, x: 437, y: 0, width: 405, height: 720, aspectRatio: '9:16', followCursor: true };
+  recording.presentation.framingRanges = [{ id: 'framing-40', startFrame: 40, endFrame: 70, focalPoint: { x: 0.85, y: 0.5 } }];
+  return project;
+}
+
+const storyCursorEvents = [
+  { frame: 0, x: 100, y: 300, type: 'move' },
+  { frame: 30, x: 300, y: 320, type: 'move' },
+  { frame: 60, x: 640, y: 360, type: 'move' },
+  { frame: 119, x: 200, y: 400, type: 'move' },
+];
+
+test('exported moving screen crop matches the preview crop frame by frame', () => {
+  const project = storyParityProject();
+  const recording = project.assets[0];
+  const crops = buildScreenCropTrack({
+    screenCrop: recording.presentation.screenCrop,
+    framingRanges: recording.presentation.framingRanges,
+    sourceCursorEvents: storyCursorEvents,
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    fps: 30,
+    totalFrames: 120,
+    segments: [{ timelineIn: 0, timelineOut: 120, sourceIn: 0, sourceOut: 120 }],
+  });
+  assert.equal(crops.length, 120);
+  for (const frame of [0, 20, 35, 50, 75, 100]) {
+    const resolved = resolveFrame(project, frame, {
+      getCursorPosition: (_assetId, sourceFrame) => interpolatedCursorAtFrame(storyCursorEvents, sourceFrame, 1280, 720),
+    });
+    assert.deepEqual(crops[frame], { x: resolved.screenCrop.x, y: resolved.screenCrop.y, w: resolved.screenCrop.width, h: resolved.screenCrop.height }, `frame ${frame}`);
+  }
+  // Inside the framing range the crop holds the aimed spot, not the cursor.
+  assert.equal(crops[55].x + crops[55].w / 2, Math.min(1280 - 405, Math.round(0.85 * 1280 - 405 / 2)) + 405 / 2);
+});
+
+test('exported moving screen crop follows the recording frame across a cut', () => {
+  const project = storyParityProject();
+  const recording = project.assets[0];
+  const crops = buildScreenCropTrack({
+    screenCrop: recording.presentation.screenCrop,
+    framingRanges: [],
+    sourceCursorEvents: storyCursorEvents,
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    fps: 30,
+    totalFrames: 60,
+    segments: [
+      { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
+      { timelineIn: 30, timelineOut: 60, sourceIn: 90, sourceOut: 120 },
+    ],
+  });
+  const expected = buildScreenCropTrack({
+    screenCrop: recording.presentation.screenCrop,
+    framingRanges: [],
+    sourceCursorEvents: storyCursorEvents,
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    fps: 30,
+    totalFrames: 120,
+    segments: [{ timelineIn: 0, timelineOut: 120, sourceIn: 0, sourceOut: 120 }],
+  });
+  assert.deepEqual(crops[40], expected[100]);
+});
+
+test('a still crop with no framing ranges needs no moving crop', () => {
+  assert.equal(buildScreenCropTrack({
+    screenCrop: { enabled: true, x: 0, y: 0, width: 405, height: 720, aspectRatio: '9:16' },
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    fps: 30,
+    totalFrames: 30,
+  }), null);
+});
+
+test('crop pan sendcmd emits only position changes', () => {
+  const result = buildCropPanSendcmd([
+    { x: 10, y: 0, w: 405, h: 720 },
+    { x: 10, y: 0, w: 405, h: 720 },
+    { x: 12, y: 0, w: 405, h: 720 },
+  ], 30);
+  assert.equal(result.filterFragment, 'crop=w=405:h=720:x=10:y=0');
+  assert.deepEqual(result.sendcmdContent.trim().split('\n'), [
+    '0.000000 crop x 10, crop y 0;',
+    '0.066667 crop x 12, crop y 0;',
+  ]);
+});
+
+test('crop pan cuts at the drawn size so each step is one output pixel, not an even source pixel', () => {
+  const result = buildCropPanSendcmd([
+    { x: 100.25, y: 0, w: 608, h: 1080 },
+    { x: 100.9, y: 0, w: 608, h: 1080 },
+  ], 30, { sourceWidth: 1920, sourceHeight: 1080, renderSize: { w: 1080, h: 1918 } });
+  const scale = 1080 / 608;
+  assert.equal(result.filterFragment, `scale=${Math.round(1920 * scale)}:${Math.round(1080 * scale)}:flags=bicubic,format=rgba,crop=w=1080:h=1918:x=${Math.round(100.25 * scale)}:y=0:exact=1`);
+  assert.deepEqual(result.sendcmdContent.trim().split('\n'), [
+    `0.000000 crop x ${Math.round(100.25 * scale)}, crop y 0;`,
+    `0.033333 crop x ${Math.round(100.9 * scale)}, crop y 0;`,
+  ]);
+});
+
+test('zoom inside a moving crop uses that frame\'s crop as its viewport', () => {
+  const crops = Array.from({ length: 60 }, (_, frame) => ({ x: frame * 10, y: 0, w: 405, h: 720 }));
+  const result = buildZoomSendcmd({
+    markers: [marker({ startFrame: 0, endFrame: 60, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 1 })],
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    fps: 30,
+    totalFrames: 60,
+    viewportAt: (frame) => crops[frame],
+  });
+  const windows = parseCropWindows(result.sendcmdContent);
+  for (const frame of [10, 30, 50]) {
+    const view = crops[frame];
+    assert.ok(windows[frame].x >= view.x - 1e-6 && windows[frame].x + windows[frame].w <= view.x + view.w + 1e-6, `frame ${frame}`);
+  }
+});
 
 test('buildZoomSendcmd returns no fragment when markers is empty', () => {
   const result = buildZoomSendcmd({

@@ -90,7 +90,9 @@ try {
     overlayDiagnostics: window.__roughCutOverlayDiag ?? null,
   }));
   if (process.env.ROUGH_CUT_PREVIEW_PARITY_SKIP_EXPORT !== '1') {
-    await page.locator('[data-export-action="styled"]').click();
+    await page.locator('[data-ui-region="export-popover-toggle"][aria-pressed="false"]').click().catch(() => {});
+    await page.locator('[data-export-format="styled"]').click();
+    await page.locator('[data-export-action="export"]').click();
     await page.waitForFunction(() => document.body.textContent?.includes('Exported to:'), null, { timeout: 900000 });
   }
 } finally {

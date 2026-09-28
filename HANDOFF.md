@@ -1,66 +1,61 @@
-# Dropoff — 2026-09-27 17:34 Sunday
+# Handoff — 2026-09-28 20:55 Monday
 
-```text
+```
 You are continuing work in rough-cut-mvp on branch fix/freecut-timeline-sync-foundation.
 
 ## Current task & next step
-Recording-edit usability pass, driven by the user's live testing. The uncommitted batch
-adds Story · 9:16, the screen picker, the region overlay, the stay-on-top recorder,
-the window-size fallback, zoom lane placement, and edge extend/reveal.
-Next: once the user has closed Rough Cut, run `pnpm package:linux` and have them try
-Story · 9:16 in the app. Commit only when they say "commit".
+"Studio" visual makeover of the desktop app (user-approved mockup "A · Studio") — built
+into the real app and verified on the packaged build; user has NOT yet signed off.
+Next: get the user's verdict after they click through the dock app (Recording edit: six
+right-hand tabs + Export pop-up; Projects page), then fix what they flag.
 
-## Files touched / in flight (all UNCOMMITTED; last commit 3dd5d12)
-- Story template: packages/project-model/src/recording-templates.ts (story-9-16:
-  screenCropAspect '9:16' + backgroundOverrides no padding/radius/shadow).
-  main.tsx applyTemplatePreset sets a centred 9:16 screenCrop and drops it when
-  leaving. A test export (1080x1920) matched the preview.
-- Recorder screen picker: main.tsx ScreenPreviewCard (live getUserMedia desktop
-  stream per monitor) sits in one row with a Region card; wholeDisplayCaptureRegion
-  records the picked monitor. index.mjs RECORDING_GET_DISPLAYS adds previewSourceId.
-- Region overlay: NEW apps/desktop/src/main/region-selector.mjs (+ test) plus a
-  RECORDING_SELECT_CAPTURE_REGION handler in index.mjs. Before this the handler never
-  existed, so Region had always failed.
-- index.mjs: setRecorderStacking (recorder window always-on-top), maximizeStudioWindow
-  fallback to the display workArea, keepWindowOnScreen.
-- Zoom lane: timeline-rail.mjs timelineFrameToSourceFrame /
-  sourceRangeToTimelinePlacement; main.tsx sourceTimeFromClient maps lane→timeline→source.
-  shared-timeline.ts computeTimelineDuration skips linkedGroupId markers.
-  The auto-zoom count now counts only visible zooms.
-- Edges: recording-timeline.mjs extendRecordingSection (fill empty space first,
-  then push); clipTrimBounds is ripple-aware; amber hasHiddenFootage chevrons.
-- Tests/gates updated: recording-edit-regressions-playwright.mjs (15 checks),
-  visual-region-selector-playwright.mjs, verify-recording-editor-design-gate.mjs,
-  and the UI smoke inside index.mjs.
-- scripts/probe-zoom-drag.mjs is untracked and was NOT written in this session.
-  Ask the user before committing or deleting it.
+## Files touched / in flight
+Makeover (this session):
+- apps/desktop/src/renderer/src/main.tsx — top bar (project name as date, page tabs in
+  bar, Export pop-up toggle), device row removed, EditorToolBoard rebuilt as six tabs
+  (background/frame/camera/cursor/zoom/censor; ActiveTool type changed), PaneTitle,
+  BackgroundKindTabs, export pop-up (pick Styled/Raw tile → footer Export), timeline
+  toolbar (delete, zoom slider + %), lane icons, "Screen 4.6s" clip labels, section help
+  text moved into an info tooltip, toggles are switches, slider `unit` prop.
+- apps/desktop/src/renderer/src/styles.css — token scales (--text-2xs…3xl, --weight-*,
+  --space-*, --radius-*), then a large "Studio" block appended at the END of the file.
+- styled-video-preview.tsx — quieter selection handles, dimmed total time, size chip,
+  removed "Space play/pause" hint.
+- library/library-shell.tsx, grid-view.tsx, list-view.tsx, project-name.mjs (+test) —
+  Continue-editing hero, search, New ▾ menu, New recording, readable timestamp names.
+- design-tokens.test.mjs (new guard), DESIGN.md (tokens + Studio layout rules).
+- main/index.mjs (UI smoke) + scripts/* — updated to the new tabs/export contract
+  (export = click [data-export-format] then [data-export-action="export"]).
+- packages/project-model/src/migrations.ts (+test) — legacy projects with null
+  thumbnailPath / bare {enabled:false} crop now open (all 617 real projects load).
+- docs/mockups/studio-makeover/ — the approved mockup (index.html switches A/B/C/Today).
+Uncommitted WIP from EARLIER sessions also in this tree (framing ranges, follow-crop,
+export-service, zoom-sendcmd, frame-resolver) — not part of the makeover.
 
 ## Key decisions & gotchas
-- Zoom and censor ranges live in RECORDING (source) frames by design, so they follow
-  the footage through trims and cuts. The lanes are laid out in TIMELINE frames, so
-  always convert with timelineFrameToSourceFrame / sourceRangeToTimelinePlacement.
-- The user runs the dock app. Never rebuild while it runs: the package step deletes
-  its folder. Detect it with `pgrep -f dist/rough-cut-mvp-linux-x64/electron` and
-  comm == electron; a hidden or tray window still counts as running. An earlier check
-  missed it once and the user tested a stale build.
-- The render-guard hook blocks ffmpeg, `node *export*.mjs` and `render` commands.
-  Exports need an explicit user OK, asked via AskUserQuestion.
-- On this busy desktop, run Playwright probes under `xvfb-run -a`, or check rAF counts;
-  throttled windows fake 250 ms stalls. Probe only temp copies of real projects;
-  scratch helper copy-project.mjs makes media paths absolute.
-- The user wants picture and audio of a section selected together, as one linked
-  pair. Ripple (magnet) is ON by default and remembered in localStorage.
-- Recording flow still to do: an always-visible stop/pause control while recording.
-  Offered, not started.
-- The Editor view shows camera only for the 07-25 project; linked-lanes gate fails
-  on load (1px markers around a 45-frame clip). Both pre-existing and unfixed.
+- User wants the app to look EXACTLY like mockup A; they reject restyles of old panels
+  and "lazy"/cheap looks. Judge at 1920 wide against docs/mockups/studio-makeover.
+- Never fake controls the app can't do (no export quality/fps, no Window-frame switch,
+  no camera "Wide"/mirror). Rare controls go under "More … options", never deleted.
+- design-tokens.test.mjs fails on raw font sizes/weights/radii/rem spacing outside
+  :root — use tokens (add a token if a new role is needed).
+- Real-app capture: packaged app via Playwright _electron + xdotool/import screen grab
+  (page.screenshot hangs). Always rebuild with `pnpm package:linux` before capturing.
+- A render-guard hook blocks anything that looks like an export/ffmpeg run (even
+  `node --check` on export scripts) — ask the user before running smoke:ui.
+- Known pre-existing failures: 2 WebGPU tests in scripts/repo-regression.test.mjs
+  (fail on HEAD too). Desktop suite: 1044/1044 pass.
+- Real project "Sun 19 Jul · 21:07" (rough-cut-2026-07-19T18-07-16-622Z) had its
+  screenFrame moved to bottom-right at 17:54 (x/y 0.09→0.18, align right+bottom);
+  .bak holds the old value. User was asked whether to restore — don't touch unasked.
+- Open gaps the reviewer noted (need real features, not fakes): camera filmstrip lane,
+  chunkier waveform, "No preview yet" for black thumbnails.
 
 ## Env / run state
-Branch: fix/freecut-timeline-sync-foundation | Last commit: 3dd5d12 fix: delete, trim and gaps behave like an editor timeline (pushed)
-Running: the user's packaged Rough Cut (dock) is OPEN and blocks the rebuild.
-Tests at handoff: desktop 1024 pass, project-model 271 pass, real-app regression gate
-and recording smoke pass.
+Branch: fix/freecut-timeline-sync-foundation | Last commit: see git log (this dropoff)
+Running: nothing (mockup server on :4178 was session-local; serve
+docs/mockups/studio-makeover with `python3 -m http.server 4178 --directory <dir>`).
 
-Start by: checking whether Rough Cut is closed. If it is, run `pnpm package:linux`
-and tell the user to try Story · 9:16. Otherwise, ask them to close it.
+Start by: asking the user what they saw in the rebuilt dock app and whether to restore
+the 19 Jul project's screen position.
 ```

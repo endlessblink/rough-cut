@@ -157,6 +157,7 @@ export const RegionCropSchema = z.object({
   width: nonNegativeInt,
   height: nonNegativeInt,
   aspectRatio: CropAspectRatioSchema,
+  followCursor: z.boolean().optional(),
 });
 
 export const NormalizedRectSchema = z.object({
@@ -229,6 +230,16 @@ export const CensorRegionSchema = z.object({
   path: ['rect'],
 });
 
+export const FramingRangeSchema = z.object({
+  id: z.string().min(1),
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  focalPoint: ZoomFocalPointSchema,
+}).refine((range) => range.endFrame > range.startFrame, {
+  message: 'Framing range endFrame must be greater than startFrame',
+  path: ['endFrame'],
+});
+
 export const RecordingBackgroundStyleSchema = z.object({
   bgColor: hexColor,
   bgGradient: z.string().nullable(),
@@ -260,6 +271,8 @@ export const RecordingPresentationSchema = z.object({
   screenCrop: RegionCropSchema.optional(),
   cameraCrop: RegionCropSchema.optional(),
   censorRegions: z.array(CensorRegionSchema).optional(),
+  // Optional so documents saved before framing ranges existed parse unchanged.
+  framingRanges: z.array(FramingRangeSchema).optional(),
 });
 
 export const AssetSchema = z.object({

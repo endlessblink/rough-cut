@@ -392,7 +392,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           result.hasOpenAspectScreenshot = true;
         }
         if (process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH) {
-          await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Timeline"]')?.click();`, true);
+          await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Zoom"]')?.click();`, true);
           await new Promise((resolve) => setTimeout(resolve, 400));
           const timelineImage = await window.webContents.capturePage();
           await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH), { recursive: true });
@@ -2121,6 +2121,8 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
         await waitFor(() => !document.querySelector('[data-ui-region="recording-workspace"]'), 'recording workspace stays closed after opening projects');
         const hasProjectsView = Boolean(await waitFor(() => document.querySelector('[data-ui-region="project-library"]'), 'project library'));
         if (options.startupCreateBlankProject) {
+          // "New empty project" lives in the library's New menu.
+          (await waitFor(() => document.querySelector('[data-ui-region="library-new-menu"]'), 'library new menu'))?.click();
           const createBlankButton = await waitFor(() => document.querySelector('[data-testid="library-blank-project"]:not(:disabled)'), 'new empty project button');
           createBlankButton.click();
           const projectName = 'Smoke empty project';
@@ -2233,7 +2235,8 @@ async function runRendererUiSmoke() {
   const hasShortcutsDialog = Boolean(await waitFor(() => document.querySelector('[data-ui-region="shortcuts-dialog"]'), 'shortcuts dialog'));
   document.querySelector('[data-ui-region="shortcuts-dialog"] button')?.click();
   await waitFor(() => !document.querySelector('[data-ui-region="shortcuts-dialog"]'), 'shortcuts dialog closed');
-  const hasCaptureCommandArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-command-area"]'), 'capture command region'));
+  // Studio shell: capture sources live in the recorder, not in a device row above the editor.
+  const hasNoLegacyDeviceRow = !document.querySelector('[data-ui-region="capture-command-area"]');
   const hasStateBanner = Boolean(await waitFor(() => document.querySelector('[data-ui-region="state-banner"]'), 'state banner region'));
   const hasCentralStage = Boolean(await waitFor(() => document.querySelector('[data-ui-region="central-stage"]'), 'central stage region'));
   const hasTimelineRail = Boolean(await waitFor(() => document.querySelector('[data-ui-region="timeline-review-rail"]'), 'timeline rail region'));
@@ -2266,7 +2269,7 @@ async function runRendererUiSmoke() {
   const styledPreviewCanvas = await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'styled preview canvas');
   const hasStyledPreviewCanvas = true;
   const hasFrameDragHandles = styledPreviewCanvas?.getAttribute('data-screen-draggable') === 'true' && styledPreviewCanvas?.getAttribute('data-camera-draggable') === 'true';
-  document.querySelector('button[aria-label="Timeline"]')?.click();
+  document.querySelector('button[aria-label="Zoom"]')?.click();
   const stageRectBeforeToolSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
   await waitFor(() => document.querySelector('[data-timeline-lane="zoom"][aria-label="Zoom markers"]'), 'zoom marker lane');
   const hasZoomMarkerPanel = true;
@@ -2283,17 +2286,20 @@ async function runRendererUiSmoke() {
     const board = document.querySelector('.setupBoard');
     return board && board.scrollWidth <= board.clientWidth + 1;
   }, 'setup board without horizontal overflow'));
-  // Clicking a zoom region or clip on the timeline switches the active tool to Timeline
-  // (where the marker editor and cut list live).
+  // Clicking a zoom region opens the Zoom tab; clicking a clip keeps whatever tab
+  // is open (clips are edited on the timeline itself).
+  document.querySelector('button[aria-label="Background"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board before zoom click');
   const zoomRegion = document.querySelector('[data-timeline-lane="zoom"] .timelineRegion');
   zoomRegion?.click();
   const hasZoomInspectorContext = zoomRegion
-    ? Boolean(await waitFor(() => document.querySelector('[aria-label="Timeline board"]'), 'timeline board active after zoom region click'))
+    ? Boolean(await waitFor(() => document.querySelector('[aria-label="Zoom board"]'), 'zoom board active after zoom region click'))
     : false;
   document.querySelector('[data-timeline-lane="screen"] .clipBody')?.click();
-  const hasRecordingInspectorContext = Boolean(await waitFor(() => document.querySelector('[aria-label="Timeline board"]'), 'timeline board active after clip click'));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const hasRecordingInspectorContext = Boolean(document.querySelector('[aria-label="Zoom board"]'));
   const hasInspectorContext = hasZoomInspectorContext || hasRecordingInspectorContext;
-  // Cut controls now live on Timeline tab.
+  // Cut controls live on the Zoom tab.
   const hasCutControls = Boolean(
     document.querySelector('[data-cut-range-panel="true"]')
       && document.querySelector('button[aria-label="Cut tool"]')
@@ -2307,12 +2313,13 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board active');
   const stageRectAfterBackgroundSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
   const hasStableToolSwitchLayout = sameRect(stageRectBeforeToolSwitch, stageRectAfterInspectorSwitch) && sameRect(stageRectBeforeToolSwitch, stageRectAfterBackgroundSwitch);
-  // Background tab now hosts templates, background presets, frame, shadow.
-  // (The standalone "canvas" aspect-ratio section was removed — aspect ratio
-  // is now driven by template selection.)
-  const hasInspectorGroups = Boolean(
+  // Background owns wallpapers/gradients/colors; Frame owns size, look, layouts,
+  // and (under "More") shadow detail and screen crop.
+  const hasBackgroundGroup = Boolean(document.querySelector('[aria-label="Background board"] [data-inspector-group="canvas-background"]'));
+  document.querySelector('button[aria-label="Frame"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Frame board"]'), 'frame board active');
+  const hasInspectorGroups = hasBackgroundGroup && Boolean(
     document.querySelector('[data-inspector-group="templates"]')
-      && document.querySelector('[data-inspector-group="canvas-background"]')
       && document.querySelector('[data-inspector-group="screen-crop"]')
       && document.querySelector('[data-inspector-group="screen-frame"]')
       && document.querySelector('[data-inspector-group="screen-shadow"]')
@@ -2331,19 +2338,13 @@ async function runRendererUiSmoke() {
   // Return to Background for the remaining assertions (Background owns templates + aspect ratio now).
   document.querySelector('button[aria-label="Background"]')?.click();
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active after camera tab');
-  await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export action');
-  const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
-  const hasExperimentalHeadlessExportAction = Boolean(document.querySelector('[data-export-action="experimental-headless"]'));
+  await waitFor(() => document.querySelector('[data-export-format="styled"]'), 'styled export format');
+  const hasReviewExportActions = Boolean(document.querySelector('[data-export-format="styled"]') && document.querySelector('[data-export-format="raw"]') && document.querySelector('[data-export-action="export"]'));
+  const hasExperimentalHeadlessExportAction = Boolean(document.querySelector('[data-export-format="experimental-headless"]'));
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
-  const hasStyledPresetDetails = Boolean(
-    document.body.textContent?.includes('Styled preset:')
-      && document.body.textContent?.includes('selected aspect ratio'),
-  );
+  // The export pop-over summarises the styled look as key/value rows, not a sentence.
+  const hasStyledPresetDetails = Boolean(document.querySelector('[data-export-summary="styled"] .exportPresetChip[data-active-aspect-ratio]'));
 
-  const selectByLabel = (text) => {
-    const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
-    return label?.querySelector('select') ?? null;
-  };
   const inputByLabel = (text, type = 'range') => {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
     return label?.querySelector(`input[type="${type}"]`) ?? null;
@@ -2354,7 +2355,8 @@ async function runRendererUiSmoke() {
   };
   const outputTextByLabel = (text) => {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
-    return label?.querySelector('output')?.textContent ?? null;
+    // Read the number only; panel readouts carry units such as " px" or "%".
+    return label?.querySelector('output')?.textContent?.replace(/[^0-9.-]/g, '') ?? null;
   };
   const setControlValue = (control, value) => {
     const prototype = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
@@ -2369,12 +2371,10 @@ async function runRendererUiSmoke() {
   const waitForEnabled = (control, label) => waitFor(() => !control.disabled, `${label} enabled`);
   const waitForButtonEnabled = (button, label) => waitFor(() => button instanceof HTMLButtonElement && !button.disabled, `${label} enabled`);
 
-  // Templates + Padding/Radius/Softness all live on Background now. The
-  // standalone aspect-ratio dropdown was removed — aspect ratio is now
-  // implicit in the applied template. Verify via the export preset chip's
-  // `data-active-aspect-ratio` attribute instead.
-  document.querySelector('button[aria-label="Background"]')?.click();
-  await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active');
+  // Layout templates live on the Frame tab. Aspect ratio is verified through the
+  // export summary chip's `data-active-aspect-ratio` attribute.
+  document.querySelector('button[aria-label="Frame"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Frame board"]'), 'frame board for templates');
   await waitFor(() => document.querySelector('.exportPresetChip[data-active-aspect-ratio]'), 'aspect ratio chip');
   const activeAspectRatio = () => document.querySelector('.exportPresetChip[data-active-aspect-ratio]')?.getAttribute('data-active-aspect-ratio') ?? null;
   const readCameraRect = (label) => waitFor(() => {
@@ -2440,12 +2440,19 @@ async function runRendererUiSmoke() {
   const hasTemplateCameraLayoutBounds = true;
   const hasTemplatePresetSelection = true;
 
+  // Wallpapers live on Background; shadow detail, screen crop, padding and
+  // roundness live on Frame.
+  document.querySelector('button[aria-label="Background"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board for presets');
+  Array.from(document.querySelectorAll('[aria-label="Background type"] button')).find((button) => button.textContent === 'Wallpaper')?.click();
   const backgroundPreset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background preset');
   backgroundPreset.click();
-  await waitFor(() => backgroundPreset.getAttribute('aria-pressed') === 'true', 'background preset selected', 15000);
+  await waitFor(() => document.querySelector('button[aria-label="Soft blur"]')?.getAttribute('aria-pressed') === 'true', 'background preset selected', 15000);
   const hasBackgroundPresetSelection = true;
   const hasNoInactiveBackgroundTabs = !Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Image' || button.textContent === 'Video');
-  const hasBackgroundShadowControls = ['Enable shadow', 'Strength', 'Softness', 'Distance'].every((text) => document.body.textContent?.includes(text));
+  document.querySelector('button[aria-label="Frame"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Frame board"]'), 'frame board for look controls');
+  const hasBackgroundShadowControls = ['Enable shadow', 'Softness', 'Distance', 'Angle'].every((text) => document.body.textContent?.includes(text));
   const hasScreenCropControls = ['Manual screen crop', 'Crop aspect', 'Crop zoom', 'Crop X', 'Crop Y'].every((text) => document.body.textContent?.includes(text));
 
   const paddingInput = await waitFor(() => inputByLabel('Padding'), 'padding control');
@@ -2467,22 +2474,22 @@ async function runRendererUiSmoke() {
       && rangeVisualStyle.borderRadius !== '0px',
   );
   setControlValue(paddingInput, 96);
-  await waitFor(() => paddingInput.closest('label')?.querySelector('output')?.textContent === '96', 'padding output');
+  await waitFor(() => paddingInput.closest('label')?.querySelector('output')?.textContent?.replace(/[^0-9.-]/g, '') === '96', 'padding output');
 
-  const radiusInput = await waitFor(() => inputByLabel('Radius'), 'corner radius control');
+  const radiusInput = await waitFor(() => inputByLabel('Roundness'), 'corner radius control');
   await waitForEnabled(radiusInput, 'corner radius control');
-  const initialCornerRadius = outputTextByLabel('Radius');
+  const initialCornerRadius = outputTextByLabel('Roundness');
   setControlValue(radiusInput, 44);
-  await waitFor(() => outputTextByLabel('Radius') === '44', 'corner radius output');
+  await waitFor(() => outputTextByLabel('Roundness') === '44', 'corner radius output');
   await waitForEnabled(radiusInput, 'corner radius save complete');
   const undoButton = await waitFor(() => {
     const button = document.querySelector('button[aria-label="Undo last edit"]');
     return button && !button.disabled ? button : null;
   }, 'undo button enabled');
   undoButton.click();
-  await waitFor(() => initialCornerRadius && outputTextByLabel('Radius') === initialCornerRadius, 'corner radius undo output');
+  await waitFor(() => initialCornerRadius && outputTextByLabel('Roundness') === initialCornerRadius, 'corner radius undo output');
   await waitFor(() => {
-    const control = inputByLabel('Radius');
+    const control = inputByLabel('Roundness');
     return control && !control.disabled ? control : null;
   }, 'corner radius undo save complete');
   const redoButton = await waitFor(() => {
@@ -2490,13 +2497,13 @@ async function runRendererUiSmoke() {
     return button && !button.disabled ? button : null;
   }, 'redo button enabled');
   redoButton.click();
-  await waitFor(() => outputTextByLabel('Radius') === '44', 'corner radius redo output');
+  await waitFor(() => outputTextByLabel('Roundness') === '44', 'corner radius redo output');
   const hasUndoRedoControls = true;
 
   const shadowInput = await waitFor(() => inputByLabel('Softness'), 'shadow softness control');
   await waitForEnabled(shadowInput, 'shadow softness control');
   setControlValue(shadowInput, 72);
-  await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent === '72', 'shadow softness output');
+  await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent?.replace(/[^0-9.-]/g, '') === '72', 'shadow softness output');
 
   let cameraPosition = null;
   let cameraShape = null;
@@ -2518,34 +2525,35 @@ async function runRendererUiSmoke() {
       controlByLabel(cameraSourceCropGroup, 'X position', 'input[type="range"]') &&
       controlByLabel(cameraSourceCropGroup, 'Y position', 'input[type="range"]')
     );
-    const cameraPositionSelect = await waitFor(() => selectByLabel('Position'), 'camera position control');
-    await waitForEnabled(cameraPositionSelect, 'camera position control');
-    setControlValue(cameraPositionSelect, 'corner-tl');
-    await waitFor(() => cameraPositionSelect.value === 'corner-tl', 'camera position value');
-    cameraPosition = cameraPositionSelect.value;
-
-    const cameraShapeSelect = await waitFor(() => selectByLabel('Shape'), 'camera shape control');
-    await waitForEnabled(cameraShapeSelect, 'camera shape control');
+    // Position is a grid of buttons; shape is a row of labelled tiles.
+    const positionButton = (label) => document.querySelector(`[aria-label="Camera position"] button[aria-label="${label}"]`);
+    const topLeft = await waitFor(() => positionButton('Top left'), 'camera position control');
+    await waitForButtonEnabled(topLeft, 'camera position control');
+    topLeft.click();
+    await waitFor(() => positionButton('Top left')?.getAttribute('aria-pressed') === 'true', 'camera position value');
+    cameraPosition = 'corner-tl';
+    const shapeTile = (label) => Array.from(document.querySelectorAll('[aria-label="Camera shape"] button')).find((button) => button.textContent?.trim() === label);
+    const shapePressed = (label) => shapeTile(label)?.getAttribute('aria-pressed') === 'true';
+    await waitFor(() => shapeTile('Circle'), 'camera shape control');
     const originalCameraRect = await readCameraRect('camera rect before circle shape change');
-    setControlValue(cameraShapeSelect, 'circle');
-    await waitFor(() => cameraShapeSelect.value === 'circle', 'camera shape value');
+    shapeTile('Circle').click();
+    await waitFor(() => shapePressed('Circle'), 'camera shape value');
     const firstCircleCameraRect = await readCameraRect('circle camera rect after shape change');
-    setControlValue(cameraShapeSelect, 'square');
-    await waitFor(() => cameraShapeSelect.value === 'square', 'camera square shape value');
+    shapeTile('Square').click();
+    await waitFor(() => shapePressed('Square'), 'camera square shape value');
     const squareCameraRect = await readCameraRect('camera rect after returning to square shape');
     hasRectangleAfterCircleShape = Boolean(
       originalCameraRect &&
       squareCameraRect &&
       Math.abs((squareCameraRect.w * 9) - (squareCameraRect.h * 16)) > 0.05
     );
-    setControlValue(cameraShapeSelect, 'circle');
-    await waitFor(() => cameraShapeSelect.value === 'circle', 'camera final circle shape value');
-    cameraShape = cameraShapeSelect.value;
-
-    const cameraSizeInput = await waitFor(() => document.querySelector('[aria-label="Camera layout"] input[type="range"]'), 'camera size control');
+    shapeTile('Circle').click();
+    await waitFor(() => shapePressed('Circle'), 'camera final circle shape value');
+    cameraShape = 'circle';
+    const cameraSizeInput = await waitFor(() => controlByLabel(document.querySelector('[aria-label="Camera board"]'), 'Size', 'input[type="range"]'), 'camera size control');
     await waitForEnabled(cameraSizeInput, 'camera size control');
     setControlValue(cameraSizeInput, 130);
-    await waitFor(() => cameraSizeInput.closest('label')?.querySelector('output')?.textContent === '130', 'camera size output');
+    await waitFor(() => cameraSizeInput.closest('label')?.querySelector('output')?.textContent?.replace(/[^0-9.-]/g, '') === '130', 'camera size output');
     cameraSize = Number(cameraSizeInput.value);
     circleCameraRect = await readCameraRect('circle camera rect after size change');
     hasCircleCameraPixelSquare = Math.abs((circleCameraRect.w * 9) - (circleCameraRect.h * 16)) <= 0.02;
@@ -2562,10 +2570,16 @@ async function runRendererUiSmoke() {
   const pauseBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Pause'));
   if (pauseBtn) pauseBtn.click();
 
-  const exportButton = await waitFor(() => {
-    const button = document.querySelector('[data-export-action="styled"]');
+  // Export is pick-then-go: choose the Styled look, then press Export.
+  const styledFormat = await waitFor(() => {
+    const button = document.querySelector('[data-export-format="styled"]');
     return button && !button.disabled ? button : null;
-  }, 'styled review export button');
+  }, 'styled export format');
+  styledFormat.click();
+  const exportButton = await waitFor(() => {
+    const button = document.querySelector('[data-export-action="export"][data-export-format="styled"]');
+    return button && !button.disabled ? button : null;
+  }, 'styled export button');
   exportButton.click();
   const hasExportProgressMeter = Boolean(await waitFor(() => document.querySelector('[data-export-progress-meter="true"]'), 'export progress meter', 5000).catch(() => null));
 
@@ -2623,7 +2637,7 @@ async function runRendererUiSmoke() {
     hasCaptureBar,
     hasNoInertTopBarIcons,
     hasShortcutsDialog,
-    hasCaptureCommandArea,
+    hasNoLegacyDeviceRow,
     hasStateBanner,
     hasCentralStage,
     hasTimelineRail,
@@ -2950,9 +2964,9 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const savedBannerRect = document.querySelector('[data-recording-state="saved"]')?.getBoundingClientRect();
   const savedBannerHidden = !savedBannerRect || savedBannerRect.width === 0 || savedBannerRect.height === 0;
   const hasPostRecordingActions = Boolean(document.querySelector('[data-ui-region="post-recording-actions"]'));
-  const reviewActionText = document.querySelector('[data-ui-region="post-recording-actions"]')?.textContent ?? '';
-  const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
-  const hasReviewNextActions = ['Folder', 'Diagnostics', 'Project', 'New'].every((label) => reviewActionText.includes(label));
+  const hasReviewExportActions = Boolean(document.querySelector('[data-export-format="styled"]') && document.querySelector('[data-export-format="raw"]') && document.querySelector('[data-export-action="export"]'));
+  const reviewLinkText = document.querySelector('[data-ui-region="post-recording-review"] .exportLinks')?.textContent ?? '';
+  const hasReviewNextActions = ['Show folder', 'Diagnostics', 'Project file', 'New take'].every((label) => reviewLinkText.includes(label));
   const reviewCameraWarningText = document.querySelector('[data-review-warning="camera"]')?.textContent ?? '';
   const hasReviewCameraWarning = reviewCameraWarningText.includes('Screen recording preserved') && reviewCameraWarningText.includes('without webcam PiP');
   const hasStateCameraWarning = document.body.textContent?.includes('Camera was unavailable') ?? false;
@@ -3033,7 +3047,6 @@ async function runRendererEditorLoadedSmoke() {
   await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas');
   await waitFor(() => document.querySelector('video'), 'post-recording video');
   await waitFor(() => document.querySelector('[data-ui-region="post-recording-review"]'), 'post-recording review workspace');
-  const reviewActionText = document.querySelector('[data-ui-region="post-recording-actions"]')?.textContent ?? '';
   const reviewCameraWarningText = document.querySelector('[data-review-warning="camera"]')?.textContent ?? '';
   const rectJson = (rect) => rect ? {
     x: Math.round(rect.x),
@@ -3065,8 +3078,8 @@ async function runRendererEditorLoadedSmoke() {
     hasRightInspector: Boolean(document.querySelector('[data-ui-region="right-inspector"]')),
     hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
     hasPostRecordingActions: Boolean(document.querySelector('[data-ui-region="post-recording-actions"]')),
-    hasReviewExportActions: Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]')),
-    hasReviewNextActions: ['Folder', 'Diagnostics', 'Project', 'New'].every((label) => reviewActionText.includes(label)),
+    hasReviewExportActions: Boolean(document.querySelector('[data-export-format="styled"]') && document.querySelector('[data-export-format="raw"]') && document.querySelector('[data-export-action="export"]')),
+    hasReviewNextActions: ['Show folder', 'Diagnostics', 'Project file', 'New take'].every((label) => (document.querySelector('[data-ui-region="post-recording-review"] .exportLinks')?.textContent ?? '').includes(label)),
     hasReviewCameraWarning: reviewCameraWarningText.includes('Screen recording preserved') && reviewCameraWarningText.includes('without webcam PiP'),
     hasVisibleReviewWorkspace,
     reviewWorkspaceGeometry: {

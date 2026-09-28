@@ -12,6 +12,10 @@ import {
   FilmStrip as PhosphorFilmStrip,
   Folder as PhosphorFolder,
   FrameCorners as PhosphorFrameCorners,
+  Info as PhosphorInfo,
+  Cursor as PhosphorCursor,
+  Image as PhosphorImage,
+  Check as PhosphorCheck,
   GearSix as PhosphorGearSix,
   Icon as PhosphorIconType,
   Magnet as PhosphorMagnet,
@@ -30,6 +34,8 @@ import {
   SpeakerHigh as PhosphorSpeakerHigh,
   Stop as PhosphorStop,
   VideoCamera as PhosphorVideoCamera,
+  Waveform as PhosphorWaveform,
+  X as PhosphorX,
 } from '@phosphor-icons/react';
 import {
   createDefaultCameraPresentation,
@@ -62,7 +68,7 @@ import {
   type RecordingBackgroundStyle,
   type ZoomMarker,
 } from '@rough-cut/project-model';
-import { getCameraLayoutRect, resolveFrame } from '@rough-cut/frame-resolver';
+import { getCameraLayoutRect, resolveFrame, resolveFramedCrop } from '@rough-cut/frame-resolver';
 import './styles.css';
 
 const hostBundleSignature = Array.from(document.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'))
@@ -71,6 +77,7 @@ const hostBundleSignature = Array.from(document.querySelectorAll<HTMLScriptEleme
   .join('|');
 document.documentElement.dataset.hostBundleSignature = hostBundleSignature;
 import { LibraryShell } from './library/library-shell';
+import { formatProjectName } from './library/project-name.mjs';
 import { AiShell } from './ai/ai-shell';
 import { FreecutEditorSurface } from './freecut-editor-surface';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout, type StyledPreviewProject, type EditorOverlayLayer } from './styled-video-preview';
@@ -102,6 +109,9 @@ import {
   updateCensorRegionRange,
   updateCensorRegionRect,
 } from './censor-markers.mjs';
+import { addFramingRangeAt, listFramingRanges, removeFramingRange, updateFramingRangeFocalPoint, updateFramingRangeRange } from './framing-ranges.mjs';
+import { getCursorEvents } from './cursor-data.mjs';
+import { cursorAtTimeMs } from './styled-preview.mjs';
 import { resolveProjectOpenAppView, resolveRequestedAppView } from './boot-app-view.mjs';
 import { buildTimelineModel, dragSourceRangeOnTimeline, frameRangeToPlacement, timelineFrameToSourceFrame } from './timeline-rail.mjs';
 import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
@@ -379,11 +389,6 @@ const CAMERA_POSITION_OPTIONS: ReadonlyArray<{ value: CameraPosition; label: str
   { value: 'corner-tl', label: 'Top left' },
   { value: 'center', label: 'Center' },
 ];
-const CAMERA_SHAPE_OPTIONS: ReadonlyArray<{ value: CameraShape; label: string }> = [
-  { value: 'rounded', label: 'Rounded' },
-  { value: 'circle', label: 'Circle' },
-  { value: 'square', label: 'Square' },
-];
 type CameraFrameAspectRatio = 'free' | CameraAspectRatio;
 const CAMERA_FRAME_ASPECT_OPTIONS: ReadonlyArray<{ value: CameraFrameAspectRatio; label: string }> = [
   { value: 'free', label: 'Free' },
@@ -535,7 +540,7 @@ function App() {
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
   const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(() => isRecorderMode);
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
-  const [inspectorOpen, setInspectorOpen] = React.useState(true);
+  const [inspectorOpen, setInspectorOpen] = React.useState(false);
   const [activeAppView, setActiveAppView] = React.useState<AppViewId>(initialAppView);
   const preRecordSetupVisible = isRecorderMode ? preRecordPanelOpen : activeAppView === 'recording';
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
@@ -1267,14 +1272,6 @@ function App() {
     setPreRecordPanelOpen(false);
   }
 
-  function openRegionPickerFromStrip() {
-    if (recording.state === 'recording') return;
-    setCaptureMode('region');
-    setScreenPickerOpen(true);
-    if (isRecorderMode) setPreRecordPanelOpen(true);
-    else setActiveAppView('recording');
-  }
-
   function openProjectState(opened: ProjectState) {
     setProject(opened);
     setEditHistory(EMPTY_EDIT_HISTORY);
@@ -1561,19 +1558,32 @@ function App() {
       >
         <header className="topBar" data-ui-region="capture-bar">
           <div className="brandCluster">
-            <span className="windowDots" aria-hidden="true"><i /><i /><i /></span>
-            <div>
-              <p className="eyebrow">Rough Cut</p>
-              <h1>Studio</h1>
+            {activeAppView === 'editor' && project ? (
+              <button type="button" className="iconButton brandBack" onClick={() => setActiveAppView('projects')} aria-label="Back to projects" title="Back to projects">
+                <PhosphorCaretLeft size={18} weight="bold" aria-hidden />
+              </button>
+            ) : (
+              <span className="brandMark" aria-hidden="true" />
+            )}
+            <div className="brandTitle">
+              <h1 title={activeAppView === 'editor' && project ? project.document.name : undefined}>{activeAppView === 'editor' && project ? formatProjectName(project.document.name) : 'Rough Cut'}</h1>
+              <p className={`brandStatus ${activeAppView === 'editor' && project && recording.state === 'saved' ? 'isSaved' : ''}`}>
+                {activeAppView === 'editor' && project ? (recording.state === 'saved' ? 'Saved' : 'Editing') : 'Studio'}
+              </p>
             </div>
           </div>
+          <AppViewTabStrip
+            activeId={activeAppView}
+            onChange={(nextView) => {
+              if (nextView === 'editor' && activeAppView !== 'editor') {
+                setSetupBoardOpen(true);
+                setActiveTool('background');
+              }
+              setActiveAppView(nextView);
+            }}
+            editorEnabled={project !== null}
+          />
           <div className="topActions">
-            <button type="button" className="iconButton" onClick={() => setSetupBoardOpen((open) => !open)} aria-pressed={setupBoardOpen} aria-label="Toggle setup board" title="Toggle setup board">
-              <Icon name="sparkle" />
-            </button>
-            <button type="button" className="iconButton" onClick={() => setInspectorOpen((open) => !open)} aria-pressed={inspectorOpen} aria-label="Toggle inspector board" title="Toggle inspector board">
-              <Icon name="sliders" />
-            </button>
             <button type="button" className="iconButton" onClick={undoProjectEdit} disabled={editHistory.undo.length === 0} aria-label="Undo last edit" title="Undo last edit">
               <Icon name="undo" />
             </button>
@@ -1607,145 +1617,29 @@ function App() {
                 Cancel take
               </button>
             ) : null}
-            <button type="button" onClick={openProject} className="secondary" disabled={recording.state === 'recording'}>
-              <Icon name="folder" />
-              Open project
-            </button>
+            {activeAppView === 'editor' && project ? (
+              <button
+                type="button"
+                className={`exportAction ${inspectorOpen ? 'isOpen' : ''}`}
+                onClick={() => setInspectorOpen((open) => !open)}
+                aria-pressed={inspectorOpen}
+                aria-expanded={inspectorOpen}
+                aria-label={inspectorOpen ? 'Hide export panel' : 'Show export panel'}
+                title={inspectorOpen ? 'Hide export panel' : 'Show export panel'}
+                data-ui-region="export-popover-toggle"
+              >
+                <Icon name="export" />
+                Export
+              </button>
+            ) : (
+              <button type="button" onClick={openProject} className="secondary" disabled={recording.state === 'recording'}>
+                <Icon name="folder" />
+                Open project
+              </button>
+            )}
           </div>
         </header>
         {shortcutsOpen ? <ShortcutsDialog onClose={() => setShortcutsOpen(false)} /> : null}
-        {/* Recording setup belongs to capture views. Inside the NLE and AI
-            views it is dead vertical space — those views start right under
-            the top bar (Editor v2 / LANE NLE-R). */}
-        {activeAppView !== 'recording' && activeAppView !== 'nle' && activeAppView !== 'ai' ? (
-        <div className={setupBoardOpen ? 'recordingStrip' : 'recordingStrip collapsed'} aria-label="Recording setup" data-ui-region="capture-command-area">
-          <span className="captureSummary"><Icon name="display" /> {captureStatusLabel(recording, elapsedMs)}</span>
-          <div className="sourceGroup">
-          <label className="sourceToggle" aria-label="Record microphone" title="Microphone">
-            <input
-              type="checkbox"
-              checked={recordMic}
-              disabled={recording.state === 'recording' || micSources.length === 0}
-              onChange={(event) => setRecordMic(event.currentTarget.checked)}
-            />
-            <Icon name="mic" />
-          </label>
-          <select
-            className="sourceSelect"
-            value={selectedMicSource}
-            disabled={recording.state === 'recording' || !recordMic || micSources.length === 0}
-            onChange={(event) => setSelectedMicSource(event.currentTarget.value)}
-            aria-label="Microphone source"
-          >
-            {micSources.length === 0 ? (
-              <option value="">No microphone sources found</option>
-            ) : (
-              micSources.map((source) => (
-                <option key={source.name} value={source.name}>
-                  {source.label || source.name}{source.state ? ` (${source.state.toLowerCase()})` : ''}
-                </option>
-              ))
-            )}
-          </select>
-          {recordMic ? (
-            <RecordedGainControl
-              label="Mic gain"
-              value={micGainPercent}
-              disabled={recording.state === 'recording'}
-              compact
-              dataRegion="mic-audio-gain"
-              onChange={setMicGainPercent}
-            />
-          ) : null}
-          </div>
-          <div className="sourceGroup">
-          <label className="sourceToggle" aria-label="Record system audio" title="System audio">
-            <input
-              type="checkbox"
-              checked={recordSystemAudio}
-              disabled={recording.state === 'recording' || systemAudioSources.length === 0}
-              onChange={(event) => setRecordSystemAudio(event.currentTarget.checked)}
-            />
-            <Icon name="volume" />
-          </label>
-          <select
-            className="sourceSelect"
-            value={selectedSystemAudioSource}
-            disabled={recording.state === 'recording' || !recordSystemAudio || systemAudioSources.length === 0}
-            onChange={(event) => setSelectedSystemAudioSource(event.currentTarget.value)}
-            aria-label="System audio source"
-          >
-            {systemAudioSources.length === 0 ? (
-              <option value="">No system audio sources found</option>
-            ) : (
-              systemAudioSources.map((source) => (
-                <option key={source.name} value={source.name}>
-                  {source.label || source.name}{source.state ? ` (${source.state.toLowerCase()})` : ''}
-                </option>
-              ))
-            )}
-          </select>
-          {recordSystemAudio ? (
-            <RecordedGainControl
-              label="System gain"
-              value={systemAudioGainPercent}
-              disabled={recording.state === 'recording'}
-              compact
-              dataRegion="system-audio-gain"
-              onChange={setSystemAudioGainPercent}
-            />
-          ) : null}
-          </div>
-          <div className="sourceGroup">
-          <label className="sourceToggle" aria-label="Record camera" title="Camera">
-            <input
-              type="checkbox"
-              checked={recordCamera}
-              disabled={recording.state === 'recording' || cameraSources.length === 0}
-              onChange={(event) => setRecordCamera(event.currentTarget.checked)}
-            />
-            <Icon name="camera" />
-          </label>
-          <select
-            className="sourceSelect"
-            value={selectedCameraSource}
-            disabled={recording.state === 'recording' || !recordCamera || cameraSources.length === 0}
-            onChange={(event) => setSelectedCameraSource(event.currentTarget.value)}
-            aria-label="Camera source"
-          >
-            {cameraSources.length === 0 ? (
-              <option value="">No camera sources found</option>
-            ) : (
-              cameraSources.map((source) => (
-                <option key={source.name} value={source.name}>
-                  {source.label || source.name}
-                </option>
-              ))
-            )}
-          </select>
-          </div>
-          <label className="targetSelect">
-            <Icon name="display" />
-            <select
-              value={captureMode}
-              disabled={recording.state === 'recording'}
-              onChange={(event) => setCaptureMode(event.currentTarget.value as CaptureMode)}
-              aria-label="Capture target"
-            >
-              <option value="display">Full display</option>
-              <option value="region">Region</option>
-            </select>
-          </label>
-          {captureMode === 'region' ? (
-            <div className="regionControls" aria-label="Capture region controls">
-              <span className="regionSummary" aria-label="Current capture region">
-                {captureRegion.displayLabel ?? captureDisplays.find((display) => display.id === selectedCaptureDisplayId)?.label ?? 'Region'} · {captureRegion.width} x {captureRegion.height}
-              </span>
-              <button type="button" className="secondary compact" disabled={recording.state === 'recording'} onClick={openRegionPickerFromStrip}>Reselect</button>
-            </div>
-          ) : null}
-        </div>
-        ) : null}
         <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} warning={recordingWarning} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
         {activeCameraFailure ? (
           <CameraFailureBanner
@@ -1755,18 +1649,6 @@ function App() {
             onContinueScreenOnly={() => setDismissedCameraFailureForStartedAt(activeCameraFailure.startedAt)}
           />
         ) : null}
-        <AppViewTabStrip
-          activeId={activeAppView}
-          onChange={(nextView) => {
-            if (nextView === 'editor' && activeAppView !== 'editor') {
-              setSetupBoardOpen(true);
-              setInspectorOpen(true);
-              setActiveTool('timeline');
-            }
-            setActiveAppView(nextView);
-          }}
-          editorEnabled={project !== null}
-        />
         <div key={activeAppView} className="editorContentSlot" data-ui-region="editor-content-slot" data-active-app-view={activeAppView}>
           {activeAppView === 'recording' ? (
             <section className="recordingWorkspace" data-ui-region="recording-workspace">
@@ -1810,6 +1692,7 @@ function App() {
           ) : activeAppView === 'projects' ? (
             <LibraryShell
               onOpenProjectByPath={openProjectByPath}
+              onNewRecording={handlePrimaryRecordAction}
               onOpenProjectDialog={openProject}
               onCreateBlankProject={createBlankProject}
               openProjectPath={project?.path ?? null}
@@ -2800,15 +2683,9 @@ function getFocusableElements(root: HTMLElement) {
   ].join(','))).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
 }
 
-function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
-  if (recording.state === 'recording') return formatElapsed(elapsedMs);
-  if (recording.state === 'saved') return 'Saved';
-  return 'Screen';
-}
-
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom' | 'censor';
 type FrameAlignmentMode = 'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
-type ActiveTool = 'background' | 'timeline' | 'cursor' | 'camera';
+type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'censor';
 
 const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
   folder: PhosphorFolder,
@@ -2839,27 +2716,22 @@ function Icon({ name }: { name: IconName }) {
   return <Component size={20} weight="duotone" className="icon" aria-hidden />;
 }
 
-function BoardHeader({ icon, title, action, onAction, actionDisabled = false }: { icon: IconName; title: string; action?: string; onAction?: () => void; actionDisabled?: boolean }) {
-  return (
-    <div className="boardHeader">
-      <span><Icon name={icon} /> {title}</span>
-      {action ? <button type="button" className="textButton" disabled={actionDisabled} onClick={onAction}>{action}</button> : null}
-    </div>
-  );
-}
 
 function ToolRail({ active, onSelect, panelOpen, onTogglePanel }: { active: ActiveTool; onSelect: (tool: ActiveTool) => void; panelOpen: boolean; onTogglePanel: () => void }) {
-  const tools: Array<{ id: ActiveTool; icon: IconName; label: string }> = [
-    { id: 'background', icon: 'sparkle', label: 'Background' },
-    { id: 'timeline', icon: 'timeline', label: 'Timeline' },
-    { id: 'cursor', icon: 'cursor', label: 'Cursor' },
-    { id: 'camera', icon: 'camera', label: 'Camera' },
+  const tools: Array<{ id: ActiveTool; icon: PhosphorIconType; label: string }> = [
+    { id: 'background', icon: PhosphorImage, label: 'Background' },
+    { id: 'frame', icon: PhosphorFrameCorners, label: 'Frame' },
+    { id: 'camera', icon: PhosphorVideoCamera, label: 'Camera' },
+    { id: 'cursor', icon: PhosphorCursor, label: 'Cursor' },
+    { id: 'zoom', icon: PhosphorMagnifyingGlassPlus, label: 'Zoom' },
+    { id: 'censor', icon: PhosphorEyeSlash, label: 'Censor' },
   ];
   return (
     <nav className="toolRail" aria-label="Editor tools" data-panel-state={panelOpen ? 'expanded' : 'collapsed'}>
       {tools.map((tool) => (
         <button key={tool.id} type="button" className={tool.id === active ? 'toolButton active' : 'toolButton'} onClick={() => onSelect(tool.id)} aria-label={tool.label} aria-pressed={tool.id === active}>
-          <Icon name={tool.icon} />
+          <tool.icon size={24} weight="duotone" className="icon" aria-hidden />
+          <span className="toolButtonLabel" aria-hidden="true">{tool.label}</span>
         </button>
       ))}
       <button
@@ -2881,10 +2753,13 @@ function InspectorSection({ id, title, children, description, muted = false, act
   return (
     <section className={`inspectorSection ${muted ? 'mutedSection' : ''}`} data-inspector-group={id} aria-label={title}>
       <div className="inspectorSectionHead">
-        <p className="eyebrow">{title}</p>
+        <p className="eyebrow">
+          {title}
+          {/* Guidance lives behind an info mark, not as a paragraph inside the tool panel. */}
+          {description ? <span className="inspectorInfo" title={description} aria-label={description} role="img"><PhosphorInfo size={15} weight="regular" aria-hidden /></span> : null}
+        </p>
         {action ? <div className="inspectorSectionAction">{action}</div> : null}
       </div>
-      {description ? <p className="inspectorHelp">{description}</p> : null}
       {children}
     </section>
   );
@@ -2995,15 +2870,15 @@ function InspectorSelect<T extends string>({ label, value, options, disabled = f
   );
 }
 
-function InspectorSlider({ label, value, min, max, step, disabled = false, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
-  return <RangeField label={label} value={value} min={min} max={max} step={step} disabled={disabled} onChange={onChange} />;
+function InspectorSlider({ label, value, min, max, step, unit = '', disabled = false, onChange }: { label: string; value: number; min: number; max: number; step: number; unit?: string; disabled?: boolean; onChange: (value: number) => void }) {
+  return <RangeField label={label} value={value} min={min} max={max} step={step} unit={unit} disabled={disabled} onChange={onChange} />;
 }
 
 function InspectorToggle({ label, checked, disabled = false, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }) {
   return (
     <label className="toggleField inspectorToggle">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} />
-      {label}
+      <span>{label}</span>
+      <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} />
     </label>
   );
 }
@@ -3040,6 +2915,7 @@ function normalizeCameraCrop(crop: RegionCrop | null | undefined, sourceSize: { 
     width,
     height,
     aspectRatio: base.aspectRatio ?? 'free',
+    ...(base.followCursor ? { followCursor: true } : {}),
   };
 }
 
@@ -3169,58 +3045,6 @@ function alignNormalizedFrame(frame: NormalizedRect, mode: FrameAlignmentMode): 
     w: clampUnit(next.w, 0.05),
     h: clampUnit(next.h, 0.05),
   };
-}
-
-function InspectorPresetGrid({ label, disabled = false, value, onSelect }: { label: string; disabled?: boolean; value?: string; onSelect?: (id: string) => void }) {
-  return (
-    <div className="inspectorPresetGroup">
-      <p className="eyebrow">{label}</p>
-      <div className="swatchGrid" aria-label={label}>
-        {RECORDING_BACKGROUND_PRESETS.map((preset) => (
-          <button
-            type="button"
-            key={preset.id}
-            aria-label={preset.label}
-            aria-pressed={value === preset.id}
-            className={value === preset.id ? 'active' : ''}
-            disabled={disabled}
-            style={{ background: preset.style.bgImage ? `center / cover url(${preset.style.bgImage})` : (preset.style.bgGradient ?? preset.style.bgColor) }}
-            onClick={() => onSelect?.(preset.id)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Inline cursor-size preview for the Cursor inspector. The preview canvas
-// often shows a frame where the cursor isn't visible (cursor parked off-
-// screen at the current playhead), so the Size slider feels like a no-op.
-// This SVG mirrors the styled-export polygon and scales with sizePercent
-// so the user gets immediate feedback next to the slider.
-const CURSOR_PREVIEW_POLYGON = '0,0 0,26 7,20 12,33 18,31 13,19 24,19';
-function CursorSizePreview({ sizePercent }: { sizePercent: number }) {
-  const clamped = Math.max(50, Math.min(150, Number.isFinite(sizePercent) ? sizePercent : 100));
-  const scale = clamped / 100;
-  // ViewBox covers the polygon (24×33) plus a small margin so the largest
-  // scale (1.5×) still fits without clipping. Render area is fixed so the
-  // slider row's height never shifts as the user drags.
-  const vbSize = 60;
-  const inset = (vbSize - 24 * scale) / 2;
-  const insetY = (vbSize - 33 * scale) / 2;
-  return (
-    <svg
-      className="cursorSizePreview"
-      width={32}
-      height={32}
-      viewBox={`0 0 ${vbSize} ${vbSize}`}
-      aria-hidden="true"
-    >
-      <g transform={`translate(${inset}, ${insetY}) scale(${scale})`}>
-        <polygon points={CURSOR_PREVIEW_POLYGON} fill="#ffffff" stroke="#333A46" strokeWidth={2.2 / scale} strokeLinejoin="round" />
-      </g>
-    </svg>
-  );
 }
 
 function CursorStylePicker({ value, disabled = false, onChange }: { value: CursorStyle; disabled?: boolean; onChange: (value: CursorStyle) => void }) {
@@ -3613,7 +3437,7 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
-function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRestoreOriginal, onRemoveCutRange, onClearCutRanges, censorCount = 0, censorDrawArmed = false, onCensorDrawArmedChange, selectedCensorId = null, selectedCensorSoftness = 0, onCensorSoftnessChange, selectedCensorFollows = false, censorTrackBusy = false, censorTrackStatus = null, onCensorTrack, onCensorClearTrack }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRestoreOriginal?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void; censorCount?: number; censorDrawArmed?: boolean; onCensorDrawArmedChange?: (armed: boolean) => void; selectedCensorId?: string | null; selectedCensorSoftness?: number; onCensorSoftnessChange?: (censorId: string, softness: number) => void; selectedCensorFollows?: boolean; censorTrackBusy?: boolean; censorTrackStatus?: string | null; onCensorTrack?: (censorId: string) => void; onCensorClearTrack?: (censorId: string) => void }) {
+function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRestoreOriginal, onRemoveCutRange, onClearCutRanges, censorCount = 0, censorDrawArmed = false, onCensorDrawArmedChange, selectedCensorId = null, selectedCensorSoftness = 0, onCensorSoftnessChange, selectedCensorFollows = false, censorTrackBusy = false, censorTrackStatus = null, onCensorTrack, onCensorClearTrack, framingHoldCount = 0, framingHoldSelected = false, onAddFramingHold }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRestoreOriginal?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void; censorCount?: number; censorDrawArmed?: boolean; onCensorDrawArmedChange?: (armed: boolean) => void; selectedCensorId?: string | null; selectedCensorSoftness?: number; onCensorSoftnessChange?: (censorId: string, softness: number) => void; selectedCensorFollows?: boolean; censorTrackBusy?: boolean; censorTrackStatus?: string | null; onCensorTrack?: (censorId: string) => void; onCensorClearTrack?: (censorId: string) => void; framingHoldCount?: number; framingHoldSelected?: boolean; onAddFramingHold?: () => Promise<void> | void }) {
   void recordingTemplateOverrides;
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
@@ -3633,96 +3457,164 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
     onCameraPresentationChange?.(applied.camera);
     onCameraFrameChange?.(applied.cameraFrame);
   };
-  if (activeTool === 'timeline') {
+  // ---- Studio inspector: one tab per job, matching the approved mockup. ----
+  const recordingThumbUrl = (() => {
+    const asset = project?.document.assets?.find((item) => item.type === 'recording');
+    const thumb = typeof asset?.thumbnailPath === 'string' ? asset.thumbnailPath : null;
+    return thumb && thumb.startsWith('/') ? `media://file/${encodeURIComponent(thumb)}` : null;
+  })();
+
+  // Screen crop (Story · 9:16 framing) lives under Frame → More.
+  const screenSource = safeCameraSourceSize(screenSourceSize);
+  const activeScreenCrop = normalizeCameraCrop(screenCrop, screenSource);
+  const screenCropZoom = cameraCropZoomPercent(activeScreenCrop, screenSource);
+  const screenCropPanX = cameraCropPanPercent(activeScreenCrop, 'x', screenSource);
+  const screenCropPanY = cameraCropPanPercent(activeScreenCrop, 'y', screenSource);
+  const screenCropControlsDisabled = disabled || !projectLoaded || !activeScreenCrop.enabled;
+  const screenCropFollows = activeScreenCrop.enabled && activeScreenCrop.followCursor === true;
+  // While the crop follows the cursor, X/Y only set where it rests when there
+  // is no cursor data, so they are locked to avoid looking like they do nothing.
+  const screenCropXDisabled = screenCropControlsDisabled || screenCropFollows || !hasCropPanRange(activeScreenCrop, 'x', screenSource);
+  const screenCropYDisabled = screenCropControlsDisabled || screenCropFollows || !hasCropPanRange(activeScreenCrop, 'y', screenSource);
+  // Zoom/aspect edits rebuild the crop; keep its cursor-follow setting.
+  const updateScreenCrop = (crop: RegionCrop) => onScreenCropChange?.(normalizeCameraCrop({ followCursor: activeScreenCrop.followCursor, ...crop }, screenSource));
+  const enableScreenCrop = (enabled: boolean) => {
+    const center = cropCenter(activeScreenCrop);
+    updateScreenCrop(makeCameraCrop(screenSource, {
+      enabled,
+      aspectRatio: activeScreenCrop.aspectRatio,
+      zoom: enabled && screenCropZoom <= 100 ? 1.5 : screenCropZoom / 100,
+      centerX: center.x,
+      centerY: center.y,
+    }));
+  };
+  const setScreenCropAspect = (nextAspect: CropAspectRatio) => {
+    const center = cropCenter(activeScreenCrop);
+    updateScreenCrop(makeCameraCrop(screenSource, {
+      enabled: activeScreenCrop.enabled,
+      aspectRatio: nextAspect,
+      zoom: screenCropZoom / 100,
+      centerX: center.x,
+      centerY: center.y,
+    }));
+  };
+  const setScreenCropZoom = (nextZoomPercent: number) => {
+    const center = cropCenter(activeScreenCrop);
+    updateScreenCrop(makeCameraCrop(screenSource, {
+      enabled: activeScreenCrop.enabled,
+      aspectRatio: activeScreenCrop.aspectRatio,
+      zoom: nextZoomPercent / 100,
+      centerX: center.x,
+      centerY: center.y,
+    }));
+  };
+  const resetScreenCrop = () => onScreenCropChange?.(defaultCameraCrop(screenSource));
+  const alignScreenFrame = (mode: FrameAlignmentMode) => {
+    const frame = screenFrame ?? defaultNormalizedScreenFrame(bg, aspectRatio, screenSource);
+    onScreenFrameChange?.(alignNormalizedFrame(frame, mode));
+  };
+  const alignCameraFrame = (mode: FrameAlignmentMode) => {
+    const frame = cameraFrame ?? defaultNormalizedCameraFrame(camera, aspectRatio);
+    onCameraFrameChange?.(alignNormalizedFrame(frame, mode));
+  };
+
+  if (activeTool === 'zoom') {
     return (
-      <aside className="setupBoard" aria-label="Timeline board">
-        <BoardHeader icon="timeline" title="Timeline" action={trimInfo?.isTrimmed ? 'Reset trim' : undefined} actionDisabled={disabled || !trimInfo?.isTrimmed} onAction={onResetTrim} />
+      <aside className="setupBoard studioPane" aria-label="Zoom board">
+        <PaneTitle title="Zoom" subtitle="Punch in on what you click" action={trimInfo?.isTrimmed ? 'Reset trim' : undefined} actionDisabled={disabled || !trimInfo?.isTrimmed} onAction={onResetTrim} />
         {project?.recording && fps && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
             {timelineWarning ? <p className="warning">{timelineWarning}</p> : null}
-            <InspectorSection id="original-recording" title="Recovery" description="Return this take to its untouched frame order and remove edits that can break continuity. Undo remains available after restoring.">
-              <InspectorActionRow>
-                <button type="button" className="secondary compact" disabled={disabled || !projectLoaded} onClick={onRestoreOriginal}>Restore original recording</button>
-              </InspectorActionRow>
-            </InspectorSection>
             <AutoZoomGenerationPanel project={project} onProjectChange={onProjectChange} />
             <CameraFollowPanel project={project} onProjectChange={onProjectChange} />
-            <InspectorSection id="censor" title="Censor" description="Hide part of the screen — a password, an email, a notification. Click Draw censor, then drag a box on the preview. It runs from the playhead to the end; trim it on the Censor lane.">
-              <div className="censorPanel" data-censor-panel="true">
-                <div className="timelineCompactRow"><span>Censored areas</span><strong>{censorCount}</strong></div>
-                <InspectorActionRow>
-                  <button
-                    type="button"
-                    className={censorDrawArmed ? 'compact' : 'secondary compact'}
-                    aria-pressed={censorDrawArmed}
-                    disabled={disabled}
-                    onClick={() => onCensorDrawArmedChange?.(!censorDrawArmed)}
-                  >
-                    {censorDrawArmed ? 'Cancel drawing' : 'Draw censor'}
-                  </button>
-                </InspectorActionRow>
-                {censorDrawArmed ? <p className="censorPanelHint">Drag a box on the preview. Escape cancels.</p> : null}
-                {/* One toggle rather than an action plus a permanently-present
-                    "stop" twin, matching the Draw censor button directly above:
-                    the panel already says start-and-cancel this way. */}
-                <InspectorActionRow>
-                  <button
-                    type="button"
-                    className="secondary compact"
-                    aria-pressed={selectedCensorFollows}
-                    disabled={disabled || !selectedCensorId || censorTrackBusy}
-                    onClick={() => {
-                      if (!selectedCensorId) return;
-                      if (selectedCensorFollows) onCensorClearTrack?.(selectedCensorId);
-                      else onCensorTrack?.(selectedCensorId);
-                    }}
-                  >
-                    {censorTrackBusy ? 'Following…' : selectedCensorFollows ? 'Stop following' : 'Follow content'}
-                  </button>
-                </InspectorActionRow>
-                {/* Always rendered, even when empty, so finishing a track does not
-                    shove the controls below it down the panel. */}
-                <p className="censorPanelHint" data-censor-track-status="true">
-                  {censorTrackStatus
-                    ?? (selectedCensorFollows
-                      ? 'This censor follows the content under it. Drag it to correct the whole path.'
-                      : ' ')}
-                </p>
-                {/* Kept present and disabled with nothing selected, rather than
-                    appearing and shifting the panel — DESIGN.md prefers stable layout. */}
-                <InspectorSlider
-                  label="Softness"
-                  value={Math.round(selectedCensorSoftness * 100)}
-                  min={0}
-                  max={100}
-                  step={5}
-                  disabled={disabled || !selectedCensorId}
-                  onChange={(value) => { if (selectedCensorId) onCensorSoftnessChange?.(selectedCensorId, value / 100); }}
-                />
-              </div>
-            </InspectorSection>
-            <InspectorSection id="cuts" title="Cuts" description="Drag a range on the screen lane to remove it from the shared timeline. Use Undo to restore the last cut.">
+            <InspectorSection id="cuts" title="Removed parts" description="Drag a range on the Screen lane to remove it. Restore any of them here.">
               <div className="cutRangePanel" data-cut-range-panel="true">
-                <div className="timelineCompactRow"><span>Restorable hidden ranges</span><strong>{cutRanges.length}</strong></div>
-                <InspectorActionRow>
-                  <button type="button" className="secondary compact" disabled={disabled || cutRanges.length === 0} onClick={onClearCutRanges}>Clear hidden ranges</button>
-                </InspectorActionRow>
+                <div className="timelineCompactRow"><span>Hidden ranges</span><strong>{cutRanges.length}</strong></div>
                 {cutRanges.length > 0 ? (
                   <ul className="cutRangeList">
                     {cutRanges.map((range) => (
                       <li key={range.id} className="cutRangeRow">
                         <span>{formatClock((range.startFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}–{formatClock((range.endFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}</span>
-                        <button type="button" className="secondary compact" disabled={disabled} onClick={() => onRemoveCutRange?.(range.id)}>Restore range</button>
+                        <button type="button" className="textButton" disabled={disabled} onClick={() => onRemoveCutRange?.(range.id)}>Restore</button>
                       </li>
                     ))}
                   </ul>
                 ) : null}
+                <InspectorActionRow>
+                  <button type="button" className="secondary compact" disabled={disabled || cutRanges.length === 0} onClick={onClearCutRanges}>Restore all hidden ranges</button>
+                </InspectorActionRow>
               </div>
             </InspectorSection>
+            <section className="inspectorSection studioRecovery" data-inspector-group="original-recording" aria-label="Recovery">
+              <button type="button" className="studioQuietLink" disabled={disabled || !projectLoaded} onClick={onRestoreOriginal}>
+                <PhosphorArrowCounterClockwise size={16} weight="regular" aria-hidden /> Restore original recording
+              </button>
+            </section>
           </div>
         ) : (
-          <EmptyState icon="timeline" title="No timeline yet" description="Record a take or open a project to edit zoom markers, trims, and cuts." />
+          <EmptyState icon="zoom" title="No recording yet" description="Record a take or open a project to add zooms." />
         )}
+      </aside>
+    );
+  }
+
+  if (activeTool === 'censor') {
+    const selectedCensorLabel = selectedCensorId ? 'Selected area' : 'No area selected';
+    return (
+      <aside className="setupBoard studioPane" aria-label="Censor board">
+        <PaneTitle title="Censor" subtitle="Hide passwords, emails, notifications" />
+        <InspectorSection id="censor" title="Hidden areas">
+          <div className="censorPanel" data-censor-panel="true">
+            <div className="timelineCompactRow"><span>Areas on the timeline</span><strong>{censorCount}</strong></div>
+            <InspectorActionRow>
+              <button
+                type="button"
+                className={censorDrawArmed ? 'compact studioArmed' : 'secondary compact'}
+                aria-pressed={censorDrawArmed}
+                disabled={disabled}
+                onClick={() => onCensorDrawArmedChange?.(!censorDrawArmed)}
+              >
+                <PhosphorEyeSlash size={16} weight="regular" aria-hidden /> {censorDrawArmed ? 'Cancel drawing' : 'Draw an area to hide'}
+              </button>
+            </InspectorActionRow>
+            {censorDrawArmed ? <p className="censorPanelHint">Drag a box on the preview. Escape cancels.</p> : null}
+          </div>
+        </InspectorSection>
+        {/* Always rendered — disabled until an area is picked — so the panel never jumps (DESIGN.md). */}
+        <InspectorSection id="censor-selected" title={selectedCensorLabel}>
+          <InspectorSlider
+            label="Softness"
+            unit="%"
+            value={Math.round(selectedCensorSoftness * 100)}
+            min={0}
+            max={100}
+            step={5}
+            disabled={disabled || !selectedCensorId}
+            onChange={(value) => { if (selectedCensorId) onCensorSoftnessChange?.(selectedCensorId, value / 100); }}
+          />
+          <InspectorActionRow>
+            {/* One toggle rather than an action plus a permanently-present "stop" twin. */}
+            <button
+              type="button"
+              className="secondary compact"
+              aria-pressed={selectedCensorFollows}
+              disabled={disabled || !selectedCensorId || censorTrackBusy}
+              onClick={() => {
+                if (!selectedCensorId) return;
+                if (selectedCensorFollows) onCensorClearTrack?.(selectedCensorId);
+                else onCensorTrack?.(selectedCensorId);
+              }}
+            >
+              {censorTrackBusy ? 'Following…' : selectedCensorFollows ? 'Stop following' : 'Follow content'}
+            </button>
+          </InspectorActionRow>
+          <p className="censorPanelHint" data-censor-track-status="true">
+            {censorTrackStatus
+              ?? (selectedCensorFollows
+                ? 'This area follows the content under it. Drag it to correct the whole path.'
+                : ' ')}
+          </p>
+        </InspectorSection>
       </aside>
     );
   }
@@ -3812,41 +3704,88 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
       }
     };
     const cameraPositionLabel = CAMERA_POSITION_OPTIONS.find((option) => option.value === camera.position)?.label ?? 'Position';
+    // 3×3 picker; the app places the bubble in the four corners or the center.
+    const positionCells: Array<CameraPosition | null> = ['corner-tl', null, 'corner-tr', null, 'center', null, 'corner-bl', null, 'corner-br'];
+    const shapeTiles: Array<{ id: CameraShape | 'hidden'; label: string }> = [
+      { id: 'circle', label: 'Circle' },
+      { id: 'rounded', label: 'Rounded' },
+      { id: 'square', label: 'Square' },
+      { id: 'hidden', label: 'Hidden' },
+    ];
     return (
-      <aside className="setupBoard" aria-label="Camera board">
-        <BoardHeader icon="camera" title="Camera" action="Reset" actionDisabled={disabled || !hasCamera} onAction={() => onCameraPresentationChange?.(DEFAULT_CAMERA_PRESENTATION)} />
+      <aside className="setupBoard studioPane" aria-label="Camera board">
+        <PaneTitle title="Camera" subtitle="Your face bubble" action="Reset" actionDisabled={disabled || !hasCamera} onAction={() => onCameraPresentationChange?.(DEFAULT_CAMERA_PRESENTATION)} />
         {hasCamera ? (
-          <InspectorSection id="camera" title="Webcam PiP">
-            <div className="cameraInspector" data-camera-pip-controls="true">
-              <div className="cameraInspectorPrimary">
-                <InspectorToggle label="Show camera" checked={camera.visible} disabled={disabled} onChange={(visible) => onCameraPresentationChange?.({ visible })} />
+          <div className="studioStack" data-camera-pip-controls="true">
+            <InspectorSection id="camera" title="Shape">
+              <div className="studioTiles" role="group" aria-label="Camera shape">
+                {shapeTiles.map((tile) => {
+                  const pressed = tile.id === 'hidden' ? !camera.visible : camera.visible && camera.shape === tile.id;
+                  return (
+                    <button
+                      key={tile.id}
+                      type="button"
+                      className="studioTile"
+                      aria-pressed={pressed}
+                      disabled={disabled}
+                      onClick={() => (tile.id === 'hidden' ? onCameraPresentationChange?.({ visible: false }) : onCameraPresentationChange?.({ shape: tile.id, visible: true }))}
+                    >
+                      {tile.id === 'hidden'
+                        ? <PhosphorEyeSlash size={22} weight="regular" aria-hidden />
+                        : <i className={`studioShape is-${tile.id}`} aria-hidden="true" />}
+                      <span>{tile.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-              <div className="cameraControlGroup" aria-label="Camera layout">
-                <div className="cameraControlGroupHeader">
-                  <span>Layout</span>
-                  <strong>{cameraPositionLabel}</strong>
+            </InspectorSection>
+            <InspectorSection id="camera-position" title="Position">
+              <div className="studioPosition">
+                <div className="studioPositionGrid" role="group" aria-label="Camera position">
+                  {positionCells.map((cell, index) => cell ? (
+                    <button
+                      key={cell}
+                      type="button"
+                      aria-label={CAMERA_POSITION_OPTIONS.find((option) => option.value === cell)?.label ?? cell}
+                      aria-pressed={camera.position === cell}
+                      disabled={disabled || !camera.visible}
+                      onClick={() => setCameraPosition(cell)}
+                    />
+                  ) : <span key={`empty-${index}`} aria-hidden="true" />)}
                 </div>
-                <InspectorSelect label="Position" value={camera.position} options={CAMERA_POSITION_OPTIONS} disabled={disabled || !camera.visible} onChange={setCameraPosition} />
-                <InspectorSelect label="Shape" value={camera.shape} options={CAMERA_SHAPE_OPTIONS} disabled={disabled || !camera.visible} onChange={(shape) => onCameraPresentationChange?.({ shape })} />
-                <InspectorSelect label="PiP aspect" value={frameAspect} options={CAMERA_FRAME_ASPECT_OPTIONS} disabled={disabled || !camera.visible || camera.shape === 'circle'} onChange={setFrameAspect} />
-                <InspectorSlider label="Size" value={camera.size} min={50} max={200} step={5} disabled={disabled || !camera.visible} onChange={setCameraSize} />
-                <InspectorSlider label="Roundness" value={camera.roundness} min={0} max={100} step={5} disabled={disabled || !camera.visible || camera.shape !== 'rounded'} onChange={(roundness) => onCameraPresentationChange?.({ roundness })} />
+                <p><strong>{cameraPositionLabel}</strong><span>Drag the bubble in the preview to fine-tune</span></p>
               </div>
-              <div className="cameraControlGroup" aria-label="Camera source crop">
-                <div className="cameraControlGroupHeader">
-                  <span>Source crop</span>
-                  <button type="button" className="textButton cameraCropReset" disabled={disabled || !camera.visible || !activeCrop.enabled} onClick={resetCrop}>Reset</button>
-                </div>
-                <InspectorToggle label="Manual crop" checked={activeCrop.enabled} disabled={disabled || !camera.visible} onChange={enableCrop} />
-                <InspectorSelect label="Aspect" value={activeCrop.aspectRatio} options={CAMERA_CROP_ASPECT_OPTIONS} disabled={cropControlsDisabled} onChange={setCropAspect} />
-                <InspectorSlider label="Zoom" value={cropZoom} min={100} max={400} step={5} disabled={cropControlsDisabled} onChange={setCropZoom} />
-                <InspectorSlider label="X position" value={cropPanX} min={0} max={100} step={1} disabled={cropXDisabled} onChange={(value) => updateCrop(setCameraCropPan(activeCrop, 'x', value, sourceSize))} />
-                <InspectorSlider label="Y position" value={cropPanY} min={0} max={100} step={1} disabled={cropYDisabled} onChange={(value) => updateCrop(setCameraCropPan(activeCrop, 'y', value, sourceSize))} />
-              </div>
+            </InspectorSection>
+            <div className="studioSliders">
+              <InspectorSlider label="Size" unit="%" value={camera.size} min={50} max={200} step={5} disabled={disabled || !camera.visible} onChange={setCameraSize} />
+              <InspectorSlider label="Roundness" unit="%" value={camera.roundness} min={0} max={100} step={5} disabled={disabled || !camera.visible || camera.shape !== 'rounded'} onChange={(roundness) => onCameraPresentationChange?.({ roundness })} />
             </div>
-          </InspectorSection>
+            <details className="studioMore">
+              <summary>More camera options</summary>
+              <div className="studioMoreBody">
+                <div className="cameraControlGroup" aria-label="Camera layout">
+                  <InspectorSelect label="PiP aspect" value={frameAspect} options={CAMERA_FRAME_ASPECT_OPTIONS} disabled={disabled || !camera.visible || camera.shape === 'circle'} onChange={setFrameAspect} />
+                </div>
+                <div className="cameraControlGroup" aria-label="Camera source crop">
+                  <div className="cameraControlGroupHeader">
+                    <span>Source crop</span>
+                    <button type="button" className="textButton cameraCropReset" disabled={disabled || !camera.visible || !activeCrop.enabled} onClick={resetCrop}>Reset</button>
+                  </div>
+                  <InspectorToggle label="Manual crop" checked={activeCrop.enabled} disabled={disabled || !camera.visible} onChange={enableCrop} />
+                  <InspectorSelect label="Aspect" value={activeCrop.aspectRatio} options={CAMERA_CROP_ASPECT_OPTIONS} disabled={cropControlsDisabled} onChange={setCropAspect} />
+                  <InspectorSlider label="Zoom" unit="%" value={cropZoom} min={100} max={400} step={5} disabled={cropControlsDisabled} onChange={setCropZoom} />
+                  <InspectorSlider label="X position" unit="%" value={cropPanX} min={0} max={100} step={1} disabled={cropXDisabled} onChange={(value) => updateCrop(setCameraCropPan(activeCrop, 'x', value, sourceSize))} />
+                  <InspectorSlider label="Y position" unit="%" value={cropPanY} min={0} max={100} step={1} disabled={cropYDisabled} onChange={(value) => updateCrop(setCameraCropPan(activeCrop, 'y', value, sourceSize))} />
+                </div>
+                <div className="alignmentInspectorGroup">
+                  <span>Align camera</span>
+                  <AlignmentButtonRow disabled={disabled || !projectLoaded || !hasCamera || !camera.visible} onAlign={alignCameraFrame} />
+                </div>
+              </div>
+            </details>
+          </div>
         ) : (
-          <EmptyState icon="camera" title="No webcam recorded" description="This take was captured without a camera. Start a new recording with the camera enabled to add a PiP overlay." />
+          <EmptyState icon="camera" title="No webcam recorded" description="This take was captured without a camera. Record again with the camera on to add a face bubble." />
         )}
       </aside>
     );
@@ -3854,149 +3793,232 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
 
   if (activeTool === 'cursor') {
     return (
-      <aside className="setupBoard cursorBoard" aria-label="Cursor board">
-        <BoardHeader icon="cursor" title="Cursor" action="Reset" actionDisabled={disabled || !projectLoaded} onAction={() => onCursorPresentationChange?.(DEFAULT_CURSOR_PRESENTATION)} />
+      <aside className="setupBoard studioPane cursorBoard" aria-label="Cursor board">
+        <PaneTitle title="Cursor" subtitle="How the mouse looks in the export" action="Reset" actionDisabled={disabled || !projectLoaded} onAction={() => onCursorPresentationChange?.(DEFAULT_CURSOR_PRESENTATION)} />
         {projectLoaded ? (
-          <div className="flatGroup" data-inspector-group="cursor" data-cursor-controls="true">
+          <div className="studioStack" data-inspector-group="cursor" data-cursor-controls="true">
             <CursorStylePicker value={cursor.style} disabled={disabled} onChange={(style) => onCursorPresentationChange?.({ style })} />
-            <div className="cursorSizeRow">
-              <CursorSizePreview sizePercent={cursor.sizePercent} />
-              <InspectorSlider label="Size" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
+            <div className="studioSliders">
+              <InspectorSlider label="Size" unit="%" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
             </div>
-            <div className="flatGroupDivider" aria-hidden="true" />
             <CursorClickEffectPicker value={cursor.clickEffect} disabled={disabled} onChange={(clickEffect) => onCursorPresentationChange?.({ clickEffect })} />
-            <InspectorToggle label="Play click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
+            <InspectorToggle label="Click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
           </div>
         ) : (
-          <EmptyState icon="cursor" title="No project loaded" description="Open a recording or start a new one to tweak cursor style and click effects." />
+          <EmptyState icon="cursor" title="No project loaded" description="Open a recording or start a new one to style the cursor." />
         )}
       </aside>
     );
   }
 
-  const screenSource = safeCameraSourceSize(screenSourceSize);
-  const activeScreenCrop = normalizeCameraCrop(screenCrop, screenSource);
-  const screenCropZoom = cameraCropZoomPercent(activeScreenCrop, screenSource);
-  const screenCropPanX = cameraCropPanPercent(activeScreenCrop, 'x', screenSource);
-  const screenCropPanY = cameraCropPanPercent(activeScreenCrop, 'y', screenSource);
-  const screenCropControlsDisabled = disabled || !projectLoaded || !activeScreenCrop.enabled;
-  const screenCropXDisabled = screenCropControlsDisabled || !hasCropPanRange(activeScreenCrop, 'x', screenSource);
-  const screenCropYDisabled = screenCropControlsDisabled || !hasCropPanRange(activeScreenCrop, 'y', screenSource);
-  const updateScreenCrop = (crop: RegionCrop) => onScreenCropChange?.(normalizeCameraCrop(crop, screenSource));
-  const enableScreenCrop = (enabled: boolean) => {
-    const center = cropCenter(activeScreenCrop);
-    updateScreenCrop(makeCameraCrop(screenSource, {
-      enabled,
-      aspectRatio: activeScreenCrop.aspectRatio,
-      zoom: enabled && screenCropZoom <= 100 ? 1.5 : screenCropZoom / 100,
-      centerX: center.x,
-      centerY: center.y,
-    }));
-  };
-  const setScreenCropAspect = (nextAspect: CropAspectRatio) => {
-    const center = cropCenter(activeScreenCrop);
-    updateScreenCrop(makeCameraCrop(screenSource, {
-      enabled: activeScreenCrop.enabled,
-      aspectRatio: nextAspect,
-      zoom: screenCropZoom / 100,
-      centerX: center.x,
-      centerY: center.y,
-    }));
-  };
-  const setScreenCropZoom = (nextZoomPercent: number) => {
-    const center = cropCenter(activeScreenCrop);
-    updateScreenCrop(makeCameraCrop(screenSource, {
-      enabled: activeScreenCrop.enabled,
-      aspectRatio: activeScreenCrop.aspectRatio,
-      zoom: nextZoomPercent / 100,
-      centerX: center.x,
-      centerY: center.y,
-    }));
-  };
-  const resetScreenCrop = () => onScreenCropChange?.(defaultCameraCrop(screenSource));
-  const alignScreenFrame = (mode: FrameAlignmentMode) => {
-    const frame = screenFrame ?? defaultNormalizedScreenFrame(bg, aspectRatio, screenSource);
-    onScreenFrameChange?.(alignNormalizedFrame(frame, mode));
-  };
-  const alignCameraFrame = (mode: FrameAlignmentMode) => {
-    const frame = cameraFrame ?? defaultNormalizedCameraFrame(camera, aspectRatio);
-    onCameraFrameChange?.(alignNormalizedFrame(frame, mode));
-  };
+  if (activeTool === 'frame') {
+    const sizeTiles: Array<{ id: ProjectAspectRatio; ratio: string; name: string; w: number; h: number }> = [
+      { id: '16:9', ratio: '16:9', name: 'Wide', w: 30, h: 17 },
+      { id: '9:16', ratio: '9:16', name: 'Story', w: 12, h: 21 },
+      { id: '1:1', ratio: '1:1', name: 'Square', w: 19, h: 19 },
+      { id: '4:5', ratio: '4:5', name: 'Feed', w: 17, h: 21 },
+      { id: '4:3', ratio: '4:3', name: 'Classic', w: 24, h: 18 },
+      { id: '3:4', ratio: '3:4', name: 'Tall', w: 15, h: 20 },
+      { id: 'auto', ratio: 'Auto', name: 'Native', w: 26, h: 16 },
+    ];
+    const shadowPercent = bg.bgShadowEnabled ? Math.round(bg.bgShadowOpacity * 100) : 0;
+    return (
+      <aside className="setupBoard studioPane" aria-label="Frame board">
+        <PaneTitle title="Frame" subtitle="Shape and size of the video" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgPadding: DEFAULT_RECORDING_BACKGROUND.bgPadding, bgCornerRadius: DEFAULT_RECORDING_BACKGROUND.bgCornerRadius, bgInset: DEFAULT_RECORDING_BACKGROUND.bgInset, bgInsetColor: DEFAULT_RECORDING_BACKGROUND.bgInsetColor, bgShadowEnabled: DEFAULT_RECORDING_BACKGROUND.bgShadowEnabled, bgShadowOpacity: DEFAULT_RECORDING_BACKGROUND.bgShadowOpacity })} />
+        <InspectorSection id="canvas-size" title="Size">
+          <div className="studioTiles" role="group" aria-label="Video size">
+            {sizeTiles.slice(0, 4).map((tile) => (
+              <button key={tile.id} type="button" className="studioTile" aria-pressed={aspectRatio === tile.id} disabled={disabled} onClick={() => onAspectRatioChange?.(tile.id)}>
+                <i className="studioRatio" style={{ width: tile.w, height: tile.h }} aria-hidden="true" />
+                <strong>{tile.ratio}</strong>
+                <span>{tile.name}</span>
+              </button>
+            ))}
+          </div>
+        </InspectorSection>
+        <div className="inspectorSection" data-inspector-group="screen-frame" aria-label="Frame look">
+          <div className="studioSliders">
+            <InspectorSlider label="Padding" unit=" px" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
+            <InspectorSlider label="Roundness" unit=" px" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
+            <div>
+              <InspectorSlider label="Shadow" unit="%" value={shadowPercent} min={0} max={80} step={5} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgShadowEnabled: value > 0, bgShadowOpacity: value / 100 })} />
+              <p className="rangeAnchors" aria-hidden="true"><span>Flat</span><span>Deep</span></p>
+            </div>
+          </div>
+        </div>
+        <InspectorSection id="templates" title="Layouts" description="One click sets size, background and camera together.">
+          <TemplatePresetGrid
+            disabled={disabled}
+            value={activeTemplatePreset}
+            onSelect={handleTemplatePresetSelect}
+            userTemplates={userTemplates}
+            appliedUserTemplateId={appliedUserTemplateId}
+            onApplyUserTemplate={onApplyUserTemplate}
+            onSaveUserTemplate={onSaveUserTemplate}
+            onRenameUserTemplate={onRenameUserTemplate}
+            onDeleteUserTemplate={onDeleteUserTemplate}
+            canSave={projectLoaded}
+          />
+        </InspectorSection>
+        <details className="studioMore">
+          <summary>More frame options</summary>
+          <div className="studioMoreBody">
+            <InspectorSection id="canvas-size-more" title="Other sizes">
+              <div className="studioTiles" role="group" aria-label="Other video sizes">
+                {sizeTiles.slice(4).map((tile) => (
+                  <button key={tile.id} type="button" className="studioTile" aria-pressed={aspectRatio === tile.id} disabled={disabled} onClick={() => onAspectRatioChange?.(tile.id)}>
+                    <i className="studioRatio" style={{ width: tile.w, height: tile.h }} aria-hidden="true" />
+                    <strong>{tile.ratio}</strong>
+                    <span>{tile.name}</span>
+                  </button>
+                ))}
+              </div>
+            </InspectorSection>
+            <InspectorSection id="screen-shadow" title="Shadow">
+              <InspectorToggle label="Enable shadow" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(checked) => onBackgroundChange?.({ bgShadowEnabled: checked })} />
+              <InspectorSlider label="Softness" unit=" px" value={bg.bgShadowBlur} min={0} max={140} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
+              {(() => {
+                const offsetX = bg.bgShadowOffsetX ?? 0;
+                const offsetY = bg.bgShadowOffsetY ?? DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY ?? 34;
+                const distance = Math.round(Math.hypot(offsetX, offsetY));
+                const angle = distance === 0 ? 0 : Math.round((Math.atan2(offsetX, offsetY) * 180) / Math.PI);
+                const setPolar = (nextDistance: number, nextAngle: number) => {
+                  const rad = (nextAngle * Math.PI) / 180;
+                  onBackgroundChange?.({
+                    bgShadowOffsetY: Math.round(nextDistance * Math.cos(rad)),
+                    bgShadowOffsetX: Math.round(nextDistance * Math.sin(rad)),
+                  });
+                };
+                return (
+                  <>
+                    <InspectorSlider label="Distance" unit=" px" value={distance} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => setPolar(value, angle)} />
+                    <InspectorSlider label="Angle" unit="°" value={angle} min={-90} max={90} step={1} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => setPolar(distance, value)} />
+                  </>
+                );
+              })()}
+            </InspectorSection>
+            <InspectorSection id="screen-outline" title="Outline">
+              <InspectorSlider label="Outline" unit=" px" value={bg.bgInset} min={0} max={16} step={1} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgInset: value })} />
+            </InspectorSection>
+            <InspectorSection id="screen-crop" title="Screen crop">
+              <div className="cameraCropHeader">
+                <InspectorToggle label="Manual screen crop" checked={activeScreenCrop.enabled} disabled={disabled || !projectLoaded} onChange={enableScreenCrop} />
+                <button type="button" className="textButton" disabled={disabled || !projectLoaded || !activeScreenCrop.enabled} onClick={resetScreenCrop}>Reset crop</button>
+              </div>
+              <InspectorSelect label="Crop aspect" value={activeScreenCrop.aspectRatio} options={CAMERA_CROP_ASPECT_OPTIONS} disabled={screenCropControlsDisabled} onChange={setScreenCropAspect} />
+              <InspectorSlider label="Crop zoom" unit="%" value={screenCropZoom} min={100} max={400} step={5} disabled={screenCropControlsDisabled} onChange={setScreenCropZoom} />
+              <InspectorSlider label="Crop X" unit="%" value={screenCropPanX} min={0} max={100} step={1} disabled={screenCropXDisabled} onChange={(value) => updateScreenCrop(setCameraCropPan(activeScreenCrop, 'x', value, screenSource))} />
+              <InspectorSlider label="Crop Y" unit="%" value={screenCropPanY} min={0} max={100} step={1} disabled={screenCropYDisabled} onChange={(value) => updateScreenCrop(setCameraCropPan(activeScreenCrop, 'y', value, screenSource))} />
+            </InspectorSection>
+            {/* Story · 9:16 shows a narrow slice of the screen; follow and holds keep it on the action. */}
+            <InspectorSection id="framing" title="Framing" description={screenCrop?.enabled ? 'The narrow view follows the mouse. Add a hold to keep it on one spot, then click the picture to aim it.' : 'Pick the Story size or crop the screen first; then the view can follow the mouse.'}>
+              <div className="censorPanel" data-framing-panel="true">
+                <InspectorToggle label="Follow mouse" checked={screenCropFollows} disabled={screenCropControlsDisabled} onChange={(checked) => updateScreenCrop({ ...activeScreenCrop, followCursor: checked })} />
+                <div className="timelineCompactRow"><span>Holds</span><strong>{framingHoldCount}</strong></div>
+                <InspectorActionRow>
+                  <button type="button" className="secondary compact" disabled={disabled || !screenCrop?.enabled || !onAddFramingHold} onClick={() => { void onAddFramingHold?.(); }}>Add hold at playhead</button>
+                </InspectorActionRow>
+                <p className="censorPanelHint" data-framing-status="true">
+                  {!screenCrop?.enabled
+                    ? ' '
+                    : framingHoldSelected
+                      ? 'Click the picture to aim this hold. Drag its ends on the Framing lane to retime it.'
+                      : 'Holds show on the Framing lane. Click one to aim it.'}
+                </p>
+              </div>
+            </InspectorSection>
+            <InspectorSection id="alignment" title="Alignment">
+              <div className="alignmentInspector" data-alignment-tools="true">
+                <div className="alignmentInspectorGroup">
+                  <span>Screen</span>
+                  <AlignmentButtonRow disabled={disabled || !projectLoaded} onAlign={alignScreenFrame} />
+                </div>
+              </div>
+            </InspectorSection>
+          </div>
+        </details>
+      </aside>
+    );
+  }
 
+  // Background: wallpapers (the bundled photos), their gradients, or a plain color.
+  const backgroundKind = bg.bgImage ? 'wallpaper' : bg.bgGradient ? 'gradient' : 'color';
+  const solidColors = ['#0b0b0f', '#f5f5f4', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#16a34a', '#facc15'];
+  const wallTile = (id: string, label: string, backgroundCss: string, pressed: boolean, onPick: () => void) => (
+    <button key={id} type="button" className="studioWall" aria-label={label} aria-pressed={pressed} disabled={disabled} style={{ background: backgroundCss }} onClick={onPick}>
+      <span className="studioWallMini" aria-hidden="true">{recordingThumbUrl ? <img src={recordingThumbUrl} alt="" /> : <i />}</span>
+      <span className="studioWallName">{label}</span>
+      <span className="studioWallTick" aria-hidden="true"><PhosphorCheck size={12} weight="bold" /></span>
+    </button>
+  );
   return (
-    <aside className="setupBoard" aria-label="Background board">
-      <BoardHeader icon="sparkle" title="Background" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.(DEFAULT_RECORDING_BACKGROUND)} />
-      <InspectorSection id="templates" title="Templates" description="One click sets aspect ratio, background, and camera together.">
-        <TemplatePresetGrid
-          disabled={disabled}
-          value={activeTemplatePreset}
-          onSelect={handleTemplatePresetSelect}
-          userTemplates={userTemplates}
-          appliedUserTemplateId={appliedUserTemplateId}
-          onApplyUserTemplate={onApplyUserTemplate}
-          onSaveUserTemplate={onSaveUserTemplate}
-          onRenameUserTemplate={onRenameUserTemplate}
-          onDeleteUserTemplate={onDeleteUserTemplate}
-          canSave={projectLoaded}
-        />
-      </InspectorSection>
-      <InspectorSection id="canvas-background" title="Canvas background">
-        <InspectorPresetGrid label="Background presets" disabled={disabled} value={activeBackgroundPreset} onSelect={(presetId) => onBackgroundChange?.(applyRecordingBackgroundPreset(bg, presetId))} />
-      </InspectorSection>
-      <InspectorSection id="screen-crop" title="Screen crop">
-        <div className="cameraCropHeader">
-          <InspectorToggle label="Manual screen crop" checked={activeScreenCrop.enabled} disabled={disabled || !projectLoaded} onChange={enableScreenCrop} />
-          <button type="button" className="secondary compact" disabled={disabled || !projectLoaded || !activeScreenCrop.enabled} onClick={resetScreenCrop}>Reset crop</button>
-        </div>
-        <InspectorSelect label="Crop aspect" value={activeScreenCrop.aspectRatio} options={CAMERA_CROP_ASPECT_OPTIONS} disabled={screenCropControlsDisabled} onChange={setScreenCropAspect} />
-        <InspectorSlider label="Crop zoom" value={screenCropZoom} min={100} max={400} step={5} disabled={screenCropControlsDisabled} onChange={setScreenCropZoom} />
-        <InspectorSlider label="Crop X" value={screenCropPanX} min={0} max={100} step={1} disabled={screenCropXDisabled} onChange={(value) => updateScreenCrop(setCameraCropPan(activeScreenCrop, 'x', value, screenSource))} />
-        <InspectorSlider label="Crop Y" value={screenCropPanY} min={0} max={100} step={1} disabled={screenCropYDisabled} onChange={(value) => updateScreenCrop(setCameraCropPan(activeScreenCrop, 'y', value, screenSource))} />
-      </InspectorSection>
-      <BoardHeader icon="frame" title="Frame" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgPadding: DEFAULT_RECORDING_BACKGROUND.bgPadding, bgCornerRadius: DEFAULT_RECORDING_BACKGROUND.bgCornerRadius, bgInset: DEFAULT_RECORDING_BACKGROUND.bgInset, bgInsetColor: DEFAULT_RECORDING_BACKGROUND.bgInsetColor })} />
-      <InspectorSection id="screen-frame" title="Frame">
-        <InspectorSlider label="Outline" value={bg.bgInset} min={0} max={16} step={1} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgInset: value })} />
-        <InspectorSlider label="Radius" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
-        <InspectorSlider label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
-      </InspectorSection>
-      <InspectorSection id="alignment" title="Alignment">
-        <div className="alignmentInspector" data-alignment-tools="true">
-          <div className="alignmentInspectorGroup">
-            <span>Screen</span>
-            <AlignmentButtonRow disabled={disabled || !projectLoaded} onAlign={alignScreenFrame} />
+    <aside className="setupBoard studioPane" aria-label="Background board">
+      <PaneTitle title="Background" subtitle="What sits behind your recording" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.(DEFAULT_RECORDING_BACKGROUND)} />
+      <BackgroundKindTabs value={backgroundKind} disabled={disabled} onChange={(kind) => {
+        if (kind === 'wallpaper') onBackgroundChange?.(applyRecordingBackgroundPreset(bg, activeBackgroundPreset ?? RECORDING_BACKGROUND_PRESETS[0]?.id ?? ''));
+        else if (kind === 'gradient') onBackgroundChange?.({ bgImage: null, bgGradient: RECORDING_BACKGROUND_PRESETS.find((preset) => preset.id === activeBackgroundPreset)?.style.bgGradient ?? RECORDING_BACKGROUND_PRESETS[0]?.style.bgGradient ?? null, bgColor: bg.bgColor });
+        else onBackgroundChange?.({ bgImage: null, bgGradient: null });
+      }} />
+      <InspectorSection id="canvas-background" title={backgroundKind === 'wallpaper' ? 'Wallpapers' : backgroundKind === 'gradient' ? 'Gradients' : 'Colors'}>
+        {backgroundKind === 'wallpaper' ? (
+          <div className="studioWalls" aria-label="Background presets">
+            {RECORDING_BACKGROUND_PRESETS.map((preset) => wallTile(
+              preset.id,
+              preset.label,
+              preset.style.bgImage ? `center / cover url(${preset.style.bgImage}), ${preset.style.bgGradient ?? preset.style.bgColor}` : (preset.style.bgGradient ?? preset.style.bgColor),
+              activeBackgroundPreset === preset.id,
+              () => onBackgroundChange?.(applyRecordingBackgroundPreset(bg, preset.id)),
+            ))}
           </div>
-          <div className="alignmentInspectorGroup">
-            <span>Camera</span>
-            <AlignmentButtonRow disabled={disabled || !projectLoaded || !hasCamera || !camera.visible} onAlign={alignCameraFrame} />
+        ) : backgroundKind === 'gradient' ? (
+          <div className="studioWalls" aria-label="Background gradients">
+            {RECORDING_BACKGROUND_PRESETS.filter((preset) => preset.style.bgGradient).map((preset) => wallTile(
+              `${preset.id}-gradient`,
+              preset.label,
+              preset.style.bgGradient ?? preset.style.bgColor,
+              !bg.bgImage && bg.bgGradient === preset.style.bgGradient,
+              () => onBackgroundChange?.({ bgImage: null, bgGradient: preset.style.bgGradient, bgColor: preset.style.bgColor }),
+            ))}
           </div>
-        </div>
-      </InspectorSection>
-      <BoardHeader icon="frame" title="Shadow" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgShadowEnabled: DEFAULT_RECORDING_BACKGROUND.bgShadowEnabled, bgShadowBlur: DEFAULT_RECORDING_BACKGROUND.bgShadowBlur, bgShadowOpacity: DEFAULT_RECORDING_BACKGROUND.bgShadowOpacity, bgShadowOffsetY: DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY, bgShadowOffsetX: DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetX })} />
-      <InspectorSection id="screen-shadow" title="Shadow">
-        <InspectorToggle label="Enable shadow" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(checked) => onBackgroundChange?.({ bgShadowEnabled: checked })} />
-        <InspectorSlider label="Strength" value={bg.bgShadowOpacity} min={0} max={0.8} step={0.05} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowOpacity: value })} />
-        <InspectorSlider label="Softness" value={bg.bgShadowBlur} min={0} max={140} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
-        {(() => {
-          const offsetX = bg.bgShadowOffsetX ?? 0;
-          const offsetY = bg.bgShadowOffsetY ?? DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY ?? 34;
-          const distance = Math.round(Math.hypot(offsetX, offsetY));
-          const angle = distance === 0 ? 0 : Math.round((Math.atan2(offsetX, offsetY) * 180) / Math.PI);
-          const setPolar = (nextDistance: number, nextAngle: number) => {
-            const rad = (nextAngle * Math.PI) / 180;
-            onBackgroundChange?.({
-              bgShadowOffsetY: Math.round(nextDistance * Math.cos(rad)),
-              bgShadowOffsetX: Math.round(nextDistance * Math.sin(rad)),
-            });
-          };
-          return (
-            <>
-              <InspectorSlider label="Distance" value={distance} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => setPolar(value, angle)} />
-              <InspectorSlider label="Angle" value={angle} min={-90} max={90} step={1} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => setPolar(distance, value)} />
-            </>
-          );
-        })()}
+        ) : (
+          <div className="studioSwatches" role="group" aria-label="Background colors">
+            {solidColors.map((color) => (
+              <button key={color} type="button" className="studioSwatch" aria-label={`Color ${color}`} aria-pressed={!bg.bgImage && !bg.bgGradient && bg.bgColor.toLowerCase() === color} disabled={disabled} style={{ '--swatch': color } as React.CSSProperties} onClick={() => onBackgroundChange?.({ bgImage: null, bgGradient: null, bgColor: color })} />
+            ))}
+            <label className="studioSwatch isPicker" title="Pick any color">
+              <input type="color" aria-label="Pick any color" value={/^#[0-9a-f]{6}$/i.test(bg.bgColor) ? bg.bgColor : '#000000'} disabled={disabled} onChange={(event) => onBackgroundChange?.({ bgImage: null, bgGradient: null, bgColor: event.currentTarget.value })} />
+            </label>
+          </div>
+        )}
       </InspectorSection>
     </aside>
+  );
+}
+
+function PaneTitle({ title, subtitle, action, actionDisabled = false, onAction }: { title: string; subtitle: string; action?: string; actionDisabled?: boolean; onAction?: () => void }) {
+  return (
+    <header className="paneTitle">
+      <div>
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
+      </div>
+      {action ? <button type="button" className="textButton" disabled={actionDisabled} onClick={onAction}>{action}</button> : null}
+    </header>
+  );
+}
+
+function BackgroundKindTabs({ value, disabled = false, onChange }: { value: 'wallpaper' | 'gradient' | 'color'; disabled?: boolean; onChange: (kind: 'wallpaper' | 'gradient' | 'color') => void }) {
+  const kinds: Array<{ id: 'wallpaper' | 'gradient' | 'color'; label: string }> = [
+    { id: 'wallpaper', label: 'Wallpaper' },
+    { id: 'gradient', label: 'Gradient' },
+    { id: 'color', label: 'Color' },
+  ];
+  return (
+    <div className="studioSeg" role="group" aria-label="Background type">
+      {kinds.map((kind) => (
+        <button key={kind.id} type="button" aria-pressed={value === kind.id} disabled={disabled} onClick={() => onChange(kind.id)}>{kind.label}</button>
+      ))}
+    </div>
   );
 }
 
@@ -4005,46 +4027,67 @@ function PostRecordingReview({ project, recording, exportProgress, exportScope, 
   const isFreshRecording = recording.state === 'saved' && recording.project?.path === project.path;
   const diagnosticsAvailable = recording.state === 'saved' && Boolean(recording.diagnosticsPath);
   const cameraWarning = recording.state === 'saved' ? recording.cameraError : getProjectCameraWarning(project);
+  const [exportFormat, setExportFormat] = React.useState<ExportMode>('styled');
+  const exportFormats: Array<{ mode: ExportMode; label: string; detail: string }> = [
+    { mode: 'styled', label: 'Styled', detail: 'Background, frame and zooms' },
+    { mode: 'raw', label: 'Raw', detail: 'Original pixels, fastest' },
+    ...(experimentalHeadlessExportUi ? [{ mode: 'experimental-headless' as ExportMode, label: 'Experimental', detail: 'Headless renderer' }] : []),
+  ];
+  const exportThumbUrl = (() => {
+    const thumb = getPrimaryRecordingAsset(project.document)?.thumbnailPath;
+    return typeof thumb === 'string' && thumb.startsWith('/') ? `media://file/${encodeURIComponent(thumb)}` : null;
+  })();
+  const exportDurationSec = project.recording ? project.recording.duration / (project.recording.fps || 30) : 0;
+  const exportFooterLabel = `MP4 · ${formatClock(exportDurationSec)}${exportScope === 'used-content' ? ' · used parts' : ''}`;
 
   return (
-    <section className="reviewWorkspace" data-ui-region="post-recording-review" aria-label="Post-recording review">
-      <div className="reviewStatusCard">
-        <p className="eyebrow">{isFreshRecording ? 'Saved take' : 'Project'}</p>
-        <h3>{isFreshRecording ? 'Saved and ready' : 'Ready'}</h3>
-        <p>{project.recording ? `${project.recording.width}x${project.recording.height} · ${project.recording.fps} fps` : 'No recording media linked.'}</p>
-      </div>
+    <section className="reviewWorkspace exportSheet" data-ui-region="post-recording-review" aria-label={isFreshRecording ? 'Export this take' : 'Export'}>
       {cameraWarning ? (
         <div className="reviewWarning" data-review-warning="camera">
           <strong>Screen recording preserved</strong>
           <span>Camera finalization failed, so this take was saved without webcam PiP: {cameraWarning}</span>
         </div>
       ) : null}
-      <div className="reviewActions" data-ui-region="post-recording-actions">
-        <button type="button" className="primaryAction" data-export-action="styled" onClick={() => onExportMode('styled')} disabled={!project.recording || Boolean(exportProgress)}>
-          <Icon name="export" /> Export styled
-        </button>
-        {experimentalHeadlessExportUi ? (
-          <button type="button" className="secondary" data-export-action="experimental-headless" onClick={() => onExportMode('experimental-headless')} disabled={!project.recording || Boolean(exportProgress)}>
-            <Icon name="settings" /> Export experimental
+      {/* Pick the look, then Export (approved Studio mockup). */}
+      <div className="exportFormats" data-ui-region="post-recording-actions" role="group" aria-label="Export format">
+        {exportFormats.map((option) => (
+          <button
+            key={option.mode}
+            type="button"
+            className={`exportFormat ${option.mode === 'styled' ? 'isStyled' : 'isRaw'}`}
+            data-export-format={option.mode}
+            aria-pressed={exportFormat === option.mode}
+            disabled={!project.recording || Boolean(exportProgress)}
+            onClick={() => setExportFormat(option.mode)}
+          >
+            <span className="exportFormatArt" aria-hidden="true">{exportThumbUrl ? <img src={exportThumbUrl} alt="" /> : <i />}</span>
+            <span className="exportFormatText"><strong>{option.label}</strong><small>{option.detail}</small></span>
           </button>
-        ) : null}
-        <button type="button" className="secondary" data-export-action="raw" onClick={() => onExportMode('raw')} disabled={!project.recording || Boolean(exportProgress)}>
-          <Icon name="display" /> Export raw
-        </button>
-        {exportProgress ? <button type="button" className="secondary danger" data-export-action="cancel" onClick={onCancelExport}><Icon name="stop" /> Cancel export</button> : null}
-        <button type="button" className="secondary" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}><Icon name="folder" /> Folder</button>
-        <button type="button" className="secondary" onClick={onOpenDiagnostics} disabled={!diagnosticsAvailable}><Icon name="settings" /> Diagnostics</button>
-        <button type="button" className="secondary" onClick={onOpenProject}><Icon name="folder" /> Project</button>
-        <button type="button" className="secondary" onClick={onRetake}><Icon name="record" /> New</button>
+        ))}
       </div>
       <div className="exportScopeControl" aria-label="Export range">
         <span>Range</span>
         <div className="exportScopeButtons" role="group" aria-label="Export range">
-          <button type="button" className={exportScope === 'timeline' ? 'active' : ''} onClick={() => onExportScopeChange('timeline')} disabled={Boolean(exportProgress)}>Timeline</button>
-          <button type="button" className={exportScope === 'used-content' ? 'active' : ''} onClick={() => onExportScopeChange('used-content')} disabled={Boolean(exportProgress)}>Used</button>
+          <button type="button" className={exportScope === 'timeline' ? 'active' : ''} aria-pressed={exportScope === 'timeline'} onClick={() => onExportScopeChange('timeline')} disabled={Boolean(exportProgress)}>Whole timeline</button>
+          <button type="button" className={exportScope === 'used-content' ? 'active' : ''} aria-pressed={exportScope === 'used-content'} onClick={() => onExportScopeChange('used-content')} disabled={Boolean(exportProgress)}>Used parts</button>
         </div>
       </div>
-      <p className="reviewSafetyCopy">New keeps this take.</p>
+      <div className="exportFooter">
+        <small>{exportFooterLabel}</small>
+        {exportProgress ? (
+          <button type="button" className="exportCancel" data-export-action="cancel" onClick={onCancelExport}><Icon name="stop" /> Cancel</button>
+        ) : (
+          <button type="button" className="exportGo" data-export-action="export" data-export-format={exportFormat} onClick={() => onExportMode(exportFormat)} disabled={!project.recording}>
+            <Icon name="export" /> Export
+          </button>
+        )}
+      </div>
+      <div className="exportLinks">
+        <button type="button" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}><Icon name="folder" /> Show folder</button>
+        <button type="button" onClick={onOpenProject}><Icon name="folder" /> Project file</button>
+        <button type="button" onClick={onOpenDiagnostics} disabled={!diagnosticsAvailable}><Icon name="settings" /> Diagnostics</button>
+        <button type="button" onClick={onRetake}><Icon name="record" /> New take</button>
+      </div>
     </section>
   );
 }
@@ -4127,6 +4170,7 @@ function ProjectPreview({
   // which reads as "this censor is already following" when it is not.
   const [censorTrack, setCensorTrack] = React.useState<{ censorId: string; message: string } | null>(null);
   const [selectedCensorId, setSelectedCensorId] = React.useState<string | null>(null);
+  const [selectedFramingId, setSelectedFramingId] = React.useState<string | null>(null);
   // Always the newest document, for handlers that await something slow before
   // writing. Following a censor takes tens of seconds, and the captured `project`
   // of the render that started it is stale by the time it finishes — writing that
@@ -4513,7 +4557,8 @@ function ProjectPreview({
           const templateCropAspect = 'screenCropAspect' in applied ? applied.screenCropAspect : undefined;
           const currentCrop = presentation.screenCrop as RegionCrop | undefined;
           if (templateCropAspect) {
-            nextPresentation.screenCrop = makeCameraCrop(screenSourceSize, { enabled: true, aspectRatio: templateCropAspect, zoom: 1 });
+            // The slice follows the cursor so the action stays in the narrow frame.
+            nextPresentation.screenCrop = { ...makeCameraCrop(screenSourceSize, { enabled: true, aspectRatio: templateCropAspect, zoom: 1 }), followCursor: true };
           } else if (currentCrop?.enabled && currentCrop.aspectRatio === '9:16') {
             nextPresentation.screenCrop = { ...currentCrop, enabled: false };
           }
@@ -4920,6 +4965,78 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+  // A framing range only means something while the screen is cropped.
+  const framingAvailable = Boolean(screenCrop?.enabled);
+  const selectedFramingRange = framingAvailable && selectedFramingId
+    ? listFramingRanges(project.document as unknown as ProjectDocument).find((range) => range.id === selectedFramingId) ?? null
+    : null;
+
+  function selectFramingRange(rangeId: string | null) {
+    setSelectedFramingId(rangeId);
+    if (!rangeId) return;
+    // One reticle at a time: aiming a framing range must not move a zoom's focus.
+    if (inspectorSelection.markerId) setInspectorSelection(DEFAULT_INSPECTOR_SELECTION);
+    setSelectedCensorId(null);
+  }
+
+  /** Where the cropped view sits at a source frame right now, as a starting aim. */
+  function framingFocalAt(sourceFrame: number) {
+    const document = project.document as unknown as ProjectDocument;
+    const { width, height } = screenSourceSize;
+    if (!screenCrop?.enabled || !(width > 0) || !(height > 0)) return { x: 0.5, y: 0.5 };
+    const fps = effectiveRecording?.fps && effectiveRecording.fps > 0 ? effectiveRecording.fps : 30;
+    const events = getCursorEvents(document);
+    const lookup = (frame: number) => {
+      const point = cursorAtTimeMs(events, (frame / fps) * 1000, fps);
+      return point ? { x: point.x / width, y: point.y / height } : null;
+    };
+    const crop = resolveFramedCrop(screenCrop, width, height, sourceFrame, fps, lookup, listFramingRanges(document));
+    return { x: (crop.x + crop.width / 2) / width, y: (crop.y + crop.height / 2) / height };
+  }
+
+  async function createFramingForRange(startFrame: number, endFrame: number) {
+    const before = listFramingRanges(project.document as unknown as ProjectDocument);
+    const nextDocument = addFramingRangeAt(project.document as unknown as ProjectDocument, {
+      startFrame,
+      endFrame,
+      // Start from what is on screen, so creating a range does not jump the view;
+      // the user then clicks the picture to aim it.
+      focalPoint: framingFocalAt(startFrame),
+    }) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    const created = listFramingRanges(nextDocument as unknown as ProjectDocument).find((range) => !before.some((existing) => existing.id === range.id));
+    if (created) selectFramingRange(created.id);
+    await persist(nextDocument);
+  }
+
+  /** Two-second hold starting at the playhead (the recording frame shown there). */
+  async function addFramingHoldAtPlayhead() {
+    const fps = effectiveRecording?.fps && effectiveRecording.fps > 0 ? effectiveRecording.fps : 30;
+    const clips = recordingEditModel.screenClips as unknown as Parameters<typeof timelineFrameToSourceFrame>[0];
+    const startFrame = timelineFrameToSourceFrame(clips, Math.round(currentTimeSec * fps), { clamp: true });
+    if (startFrame === null || startFrame === undefined) return;
+    await createFramingForRange(startFrame, startFrame + Math.round(fps * 2));
+  }
+
+  async function updateFramingRange(rangeId: string, startFrame: number, endFrame: number) {
+    const nextDocument = updateFramingRangeRange(project.document as unknown as ProjectDocument, rangeId, startFrame, endFrame) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
+  async function updateFramingFocal(rangeId: string, x: number, y: number) {
+    const nextDocument = updateFramingRangeFocalPoint(project.document as unknown as ProjectDocument, rangeId, { x, y }) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
+  async function removeFraming(rangeId: string) {
+    const nextDocument = removeFramingRange(project.document as unknown as ProjectDocument, rangeId) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    if (selectedFramingId === rangeId) setSelectedFramingId(null);
+    await persist(nextDocument);
+  }
+
   async function removeZoomMarkers(markerIds: string[]) {
     const nextDocument = removeMarkers(project.document as unknown as ProjectDocument, markerIds) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
@@ -5014,51 +5131,25 @@ function ProjectPreview({
 
   function focusInspectorContext(selection: InspectorSelection) {
     setInspectorSelection(selection);
-    // Timeline owns zoom marker, recording-clip, and cursor-event selections; camera lives on its own tab.
+    // Each selection opens the tab that edits it. Clip selections keep the current tab:
+    // clips are edited on the timeline itself.
     if (selection.group === 'camera') {
       onActiveToolChange('camera', { revealPanel: false });
-    } else if (selection.group === 'cursor' || selection.group === 'zoom' || selection.group === 'recording') {
-      onActiveToolChange('timeline', { revealPanel: false });
+    } else if (selection.group === 'zoom') {
+      onActiveToolChange('zoom', { revealPanel: false });
+    } else if (selection.group === 'cursor') {
+      onActiveToolChange('cursor', { revealPanel: false });
     }
   }
 
   return (
-    <section className={`projectEditor ${activeTool === 'timeline' ? 'timelineFocus' : ''} ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace" data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
+    <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace" data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
       <ToolRail active={activeTool} onSelect={onActiveToolChange} panelOpen={setupBoardOpen} onTogglePanel={onSetupBoardToggle} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRestoreOriginal={restoreOriginalRecording} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} selectedCensorId={selectedCensorId} selectedCensorSoftness={resolveCensorSoftness(listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId))} onCensorSoftnessChange={updateCensorSoftness} selectedCensorFollows={Boolean((listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId)?.keyframes?.length ?? 0) > 1)} censorTrackBusy={censorTrackBusy} censorTrackStatus={censorTrackStatus} onCensorTrack={trackCensor} onCensorClearTrack={clearCensorTrack} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRestoreOriginal={restoreOriginalRecording} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} selectedCensorId={selectedCensorId} selectedCensorSoftness={resolveCensorSoftness(listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId))} onCensorSoftnessChange={updateCensorSoftness} selectedCensorFollows={Boolean((listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId)?.keyframes?.length ?? 0) > 1)} censorTrackBusy={censorTrackBusy} censorTrackStatus={censorTrackStatus} onCensorTrack={trackCensor} onCensorClearTrack={clearCensorTrack} framingHoldCount={framingAvailable ? listFramingRanges(project.document as unknown as ProjectDocument).length : 0} framingHoldSelected={Boolean(selectedFramingRange)} onAddFramingHold={addFramingHoldAtPlayhead} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
-        <div className="projectHeader">
-          <div>
-            <p className="eyebrow">Preview</p>
-            <h2>{project.document.name}</h2>
-          </div>
-          {/* The censor tool lives in the header's spare cell rather than in a new
-              row: `.stageColumn` is a fixed three-row grid (header / preview /
-              timeline), and a fourth child silently steals the preview's row. */}
-          {project.mediaUrl ? (
-            <div className="previewToolStrip" data-ui-region="preview-tools">
-              <button
-                type="button"
-                className={`previewToolButton ${censorDrawArmed ? 'isArmed' : ''}`}
-                aria-pressed={censorDrawArmed}
-                disabled={!effectiveRecording}
-                title={censorDrawArmed ? 'Drag a box on the preview to hide it. Escape cancels.' : 'Hide part of the screen: draw a box on the preview'}
-                onClick={() => setCensorDrawArmed((armed) => !armed)}
-              >
-                <PhosphorEyeSlash size={14} weight="duotone" aria-hidden />
-                {censorDrawArmed ? 'Drawing censor' : 'Censor'}
-              </button>
-            </div>
-          ) : null}
-          {project.recording ? (
-            <p className="meta">
-              {recording.state === 'saved' ? <span className="savedChip">Saved</span> : null}
-              {effectiveRecording?.width ?? project.recording.width}x{effectiveRecording?.height ?? project.recording.height} · {effectiveRecording?.fps ?? project.recording.fps} fps · {effectiveRecording?.duration ?? project.recording.duration} frames
-            </p>
-          ) : null}
-        </div>
+        <h2 className="srOnly">{project.document.name}</h2>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} overlayLayersAbove={editorLayers.above} overlayLayersBelow={editorLayers.below} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} overlayLayersAbove={editorLayers.above} overlayLayersBelow={editorLayers.below} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it
@@ -5069,18 +5160,20 @@ function ProjectPreview({
             <button type="button" className="libraryOpenFile" onClick={onRetake}>Record a take</button>
           </section>
         )}
+      </div>
         <div className="timelineDock" aria-label="Timeline and review rail" data-ui-region="timeline-review-rail">
           <div className="timelineHeader">
-          <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
+          <p className="timelineHeaderTitle">Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} /> : null}
+           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} /> : null}
         </div>
-      </div>
-      <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
+      <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector" hidden={!inspectorOpen}>
         <div className="inspectorHeader">
-          <p className="eyebrow"><Icon name="export" /> Export</p>
-          <h2>Export</h2>
+          <h2>Export video</h2>
+          <button type="button" className="iconButton" onClick={onInspectorToggle} aria-label="Hide export panel" title="Hide export panel">
+            <PhosphorX size={16} weight="bold" aria-hidden />
+          </button>
         </div>
         <PostRecordingReview
           project={project}
@@ -5096,28 +5189,16 @@ function ProjectPreview({
           onOpenDiagnostics={() => onOpenPath(recording.state === 'saved' ? recording.diagnosticsPath : null)}
           onRetake={onRetake}
         />
-        <InspectorSection id="export" title="Export status">
+        <InspectorSection id="export" title="Summary">
           <ExportPresetDetails mode={exportMode} exportScope={exportScope} aspectRatio={aspectRatio} />
           <InspectorActionRow region="export-status-area">
             {exportProgress ? <ExportProgressMeter progress={exportProgress} /> : null}
             {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
             {exportResult?.fallback?.active ? <p className="inspectorNotice">Fallback: {exportResult.fallback.from} to {exportResult.fallback.to} ({exportResult.fallback.reason}).</p> : null}
-            {!exportProgress && !exportResult ? <p className="inspectorNotice">Choose Styled or Raw from the review actions above.</p> : null}
           </InspectorActionRow>
         </InspectorSection>
         {saveError ? <p className="error">{saveError}</p> : null}
       </aside>
-      <button
-        type="button"
-        className="inspectorRailToggle"
-        onClick={onInspectorToggle}
-        aria-pressed={inspectorOpen}
-        aria-label={inspectorOpen ? 'Hide export panel' : 'Show export panel'}
-        title={inspectorOpen ? 'Hide export panel' : 'Show export panel'}
-      >
-        {inspectorOpen ? <PhosphorCaretRight size={18} weight="bold" aria-hidden /> : <PhosphorCaretLeft size={18} weight="bold" aria-hidden />}
-        <span>{inspectorOpen ? 'Hide' : 'Show'}</span>
-      </button>
     </section>
   );
 }
@@ -5216,7 +5297,7 @@ function toTrimRelativeCutRanges(cutRanges: CutRange[], trimInfo: TrimInfo): Cut
   }));
 }
 
-function RangeField({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
+function RangeField({ label, value, min, max, step, unit = '', disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; unit?: string; disabled?: boolean; onChange: (value: number) => void }) {
   const [draftValue, setDraftValue] = React.useState(value);
   const isEditingRef = React.useRef(false);
   const rangeProgress = Math.max(0, Math.min(100, ((draftValue - min) / Math.max(1, max - min)) * 100));
@@ -5255,7 +5336,7 @@ function RangeField({ label, value, min, max, step, disabled, onChange }: { labe
           onWheelCapture={preventRangeWheelChange}
         />
       </span>
-      <output>{draftValue}</output>
+      <output>{draftValue}{unit}</output>
     </label>
   );
 }
@@ -5265,7 +5346,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange }: { project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void }) {
+function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove }: { project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -5282,6 +5363,8 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const [selectedZoomMarkerIds, setSelectedZoomMarkerIds] = React.useState<string[]>([]);
   const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
+  const [framingDragPreview, setFramingDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
+  const [framingSpanPreview, setFramingSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [cutDragPreview, setCutDragPreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [trimDragPreview, setTrimDragPreview] = React.useState<{ clipId: string; edge: 'head' | 'tail'; frame: number; deltaFrames: number } | null>(null);
   const [trimDragBaseline, setTrimDragBaseline] = React.useState<Array<{ id: string; left: number; width: number }>>([]);
@@ -5861,9 +5944,28 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
    * click-versus-drag gate, so a low-movement release does not drop a phantom censor.
    * The box lands centred and selected; you position it on the preview afterwards.
    */
+  // A click rather than a drag still creates something useful: a censor running
+  // from here to the end, matching what the Censor button does.
   function handleCensorLanePointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) return;
     if (!onCensorCreateRange) return;
+    handleRangeLanePointerDown(event, onCensorCreateRange, setCensorSpanPreview, (_start, maxFrame) => maxFrame);
+  }
+
+  // A click on the framing lane holds for two seconds from there — long enough to
+  // see, short enough that the view soon goes back to following the mouse.
+  function handleFramingLanePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (!onFramingCreateRange) return;
+    handleRangeLanePointerDown(event, onFramingCreateRange, setFramingSpanPreview, (start, maxFrame) => Math.min(maxFrame, start + Math.round(fps * 2)));
+  }
+
+  /** Drag across an empty range lane to create a source-frame range there. */
+  function handleRangeLanePointerDown(
+    event: React.PointerEvent<HTMLDivElement>,
+    onCreateRange: (startFrame: number, endFrame: number) => void,
+    setSpanPreview: (preview: { left: number; width: number } | null) => void,
+    clickEndFrame: (startFrame: number, maxFrame: number) => number,
+  ) {
+    if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .zoomEditorChip')) return;
     const track = event.currentTarget;
     const downFrame = sourceFrameFromClient(track, event.clientX);
@@ -5879,7 +5981,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       const currentX = Math.max(trackRect.left, Math.min(trackRect.right, clientX));
       const leftPx = Math.min(startX, currentX) - trackRect.left;
       const widthPx = Math.abs(currentX - startX);
-      setCensorSpanPreview({
+      setSpanPreview({
         left: trackRect.width > 0 ? (leftPx / trackRect.width) * 100 : 0,
         width: trackRect.width > 0 ? (widthPx / trackRect.width) * 100 : 0,
       });
@@ -5891,7 +5993,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       updatePreview(moveEvent.clientX);
     };
     const finish = (upEvent: PointerEvent | null) => {
-      setCensorSpanPreview(null);
+      setSpanPreview(null);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
@@ -5902,10 +6004,8 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       const maxFrame = Math.max(minFrame + 1, Math.min(sourceFrameDuration, model.trimEndFrame));
       const rawStart = Math.max(minFrame, Math.min(maxFrame, Math.min(downFrame, upFrame)));
       const rawEnd = Math.max(minFrame, Math.min(maxFrame, Math.max(downFrame, upFrame)));
-      // A click rather than a drag still creates something useful: a censor running
-      // from here to the end, matching what the Censor button does.
-      const endFrame = rawEnd - rawStart >= MIN_CENSOR_SPAN_FRAMES ? rawEnd : maxFrame;
-      onCensorCreateRange(rawStart, endFrame);
+      const endFrame = rawEnd - rawStart >= MIN_CENSOR_SPAN_FRAMES ? rawEnd : clickEndFrame(rawStart, maxFrame);
+      onCreateRange(rawStart, endFrame);
     };
     const up = (upEvent: PointerEvent) => finish(upEvent);
     const cancel = () => finish(null);
@@ -6303,8 +6403,12 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   }
 
   function censorRegionStyle(region: { id: string; left: number; width: number }) {
-    if (censorDragPreview?.id !== region.id) return { left: `${region.left}%`, width: `${region.width}%` };
-    const placement = frameRangeToPlacement(censorDragPreview.timelineStart, censorDragPreview.timelineEnd, fps, model.durationSec);
+    return rangeRegionStyle(region, censorDragPreview);
+  }
+
+  function rangeRegionStyle(region: { id: string; left: number; width: number }, dragPreview: { id: string; timelineStart: number; timelineEnd: number } | null) {
+    if (dragPreview?.id !== region.id) return { left: `${region.left}%`, width: `${region.width}%` };
+    const placement = frameRangeToPlacement(dragPreview.timelineStart, dragPreview.timelineEnd, fps, model.durationSec);
     return { left: `${placement.left}%`, width: `${placement.width}%` };
   }
 
@@ -6317,6 +6421,21 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
    */
   function beginCensorDrag(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
     if (!onCensorRangeChange) return;
+    beginRangeDrag(region, mode, event, onCensorRangeChange, setCensorDragPreview);
+  }
+
+  function beginFramingDrag(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
+    if (!onFramingRangeChange) return;
+    beginRangeDrag(region, mode, event, onFramingRangeChange, setFramingDragPreview);
+  }
+
+  function beginRangeDrag(
+    region: { id: string; startFrame?: number; endFrame?: number },
+    mode: 'move' | 'start' | 'end',
+    event: React.PointerEvent<HTMLElement>,
+    onRangeChange: (id: string, startFrame: number, endFrame: number) => void,
+    setDragPreview: (preview: { id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null) => void,
+  ) {
     if (!Number.isFinite(region.startFrame) || !Number.isFinite(region.endFrame)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -6342,14 +6461,14 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       const next = dragSourceRangeOnTimeline(laneClipsForMapping, initialRange, { mode, deltaFrames: frame - initialTimelineFrame, pointerFrame: frame, minSpan: MIN_CENSOR_SPAN_FRAMES });
       if (!next) return;
       latest = { id: region.id, ...next };
-      setCensorDragPreview(latest);
+      setDragPreview(latest);
     };
 
     const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
     const up = (upEvent: PointerEvent) => {
       update(upEvent.clientX);
-      setCensorDragPreview(null);
-      if (dragged) onCensorRangeChange(latest.id, latest.startFrame, latest.endFrame);
+      setDragPreview(null);
+      if (dragged) onRangeChange(latest.id, latest.startFrame, latest.endFrame);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
@@ -6360,13 +6479,27 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   }
 
   function handleCensorKeyboard(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.KeyboardEvent<HTMLElement>) {
-    if ((event.key === 'Delete' || event.key === 'Backspace') && mode === 'move' && onCensorRemove) {
+    handleRangeKeyboard(region, mode, event, onCensorRangeChange, onCensorRemove);
+  }
+
+  function handleFramingKeyboard(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.KeyboardEvent<HTMLElement>) {
+    handleRangeKeyboard(region, mode, event, onFramingRangeChange, onFramingRemove);
+  }
+
+  function handleRangeKeyboard(
+    region: { id: string; startFrame?: number; endFrame?: number },
+    mode: 'move' | 'start' | 'end',
+    event: React.KeyboardEvent<HTMLElement>,
+    onRangeChange: ((id: string, startFrame: number, endFrame: number) => void) | undefined,
+    onRemove: ((id: string) => void) | undefined,
+  ) {
+    if ((event.key === 'Delete' || event.key === 'Backspace') && mode === 'move' && onRemove) {
       event.preventDefault();
-      onCensorRemove(region.id);
+      onRemove(region.id);
       return;
     }
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    if (!onCensorRangeChange) return;
+    if (!onRangeChange) return;
     if (!Number.isFinite(region.startFrame) || !Number.isFinite(region.endFrame)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -6378,11 +6511,11 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const maxFrame = Math.max(minFrame + 1, Math.min(sourceFrameDuration, model.trimEndFrame));
     if (mode === 'move') {
       const startFrame = Math.max(minFrame, Math.min(maxFrame - span, initialStart + step));
-      onCensorRangeChange(region.id, startFrame, startFrame + span);
+      onRangeChange(region.id, startFrame, startFrame + span);
     } else if (mode === 'start') {
-      onCensorRangeChange(region.id, Math.max(minFrame, Math.min(initialEnd - MIN_CENSOR_SPAN_FRAMES, initialStart + step)), initialEnd);
+      onRangeChange(region.id, Math.max(minFrame, Math.min(initialEnd - MIN_CENSOR_SPAN_FRAMES, initialStart + step)), initialEnd);
     } else {
-      onCensorRangeChange(region.id, initialStart, Math.max(initialStart + MIN_CENSOR_SPAN_FRAMES, Math.min(maxFrame, initialEnd + step)));
+      onRangeChange(region.id, initialStart, Math.max(initialStart + MIN_CENSOR_SPAN_FRAMES, Math.min(maxFrame, initialEnd + step)));
     }
   }
 
@@ -6467,14 +6600,41 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       >
       <span className="visuallyHidden" data-ui-region="timeline-live-region" aria-live="polite">Timeline position {formatClock(model.currentTimeSec)}</span>
       <div className="timelineToolbar" data-ui-region="timeline-toolbar">
-        <button type="button" className="timelineToolButton" aria-label="Split at playhead" title="Split at the current playhead (S)" onClick={() => void onSplitAtPlayhead?.()}><PhosphorScissors size={16} weight="duotone" /></button>
-        {onRestoreOriginal ? <button type="button" className="timelineToolButton timelineRestoreButton" aria-label="Restore original recording" title="Restore the untouched recording state" onClick={() => void onRestoreOriginal()}><PhosphorArrowCounterClockwise size={16} weight="duotone" /></button> : null}
-        <button type="button" className={cutModeActive ? 'timelineToolButton active timelineRangeButton' : 'timelineToolButton timelineRangeButton'} aria-label="Range cut mode" aria-pressed={cutModeActive} title={cutModeActive ? 'Range cut mode active - drag a range to remove it. Press Escape to cancel.' : 'Range cut mode - drag a range to remove it.'} onClick={() => onCutModeToggle?.()}>Range</button>
-        <button type="button" className={rippleTrim ? 'timelineToolButton active timelineRippleButton' : 'timelineToolButton timelineRippleButton'} aria-label="Close gaps when trimming" aria-pressed={rippleTrim} title={rippleTrim ? 'Ripple on: trimming closes the gap and the rest slides over' : 'Ripple off: trimming leaves an empty space'} onClick={toggleRippleTrim}><PhosphorMagnet size={16} weight="duotone" /></button>
+        <button type="button" className="timelineToolButton" aria-label="Split at playhead" title="Split at the current playhead (S)" onClick={() => void onSplitAtPlayhead?.()}><PhosphorScissors size={17} weight="regular" /></button>
+        <button type="button" className="timelineToolButton" aria-label="Delete selected clip" title={selectedScreenClipId ? 'Delete the selected clip (Delete)' : 'Select a clip to delete it'} disabled={!selectedScreenClipId || cutModeActive} onClick={() => { if (selectedScreenClipId) deleteScreenClip(selectedScreenClipId); }}><PhosphorTrash size={17} weight="regular" /></button>
+        <button type="button" className={rippleTrim ? 'timelineToolButton active timelineRippleButton' : 'timelineToolButton timelineRippleButton'} aria-label="Close gaps when trimming" aria-pressed={rippleTrim} title={rippleTrim ? 'Ripple on: trimming closes the gap and the rest slides over' : 'Ripple off: trimming leaves an empty space'} onClick={toggleRippleTrim}><PhosphorMagnet size={17} weight="regular" /></button>
         <span className="timelineToolbarDivider" aria-hidden="true" />
-        <button type="button" className="timelineToolButton" aria-label="Zoom timeline out" title="Zoom timeline out (-)" disabled={!timelineZoomedIn} onClick={() => applyTimelineViewportZoom(-1)}><PhosphorMagnifyingGlassMinus size={16} weight="duotone" /></button>
-        <button type="button" className="timelineToolButton" aria-label="Zoom timeline in" title="Zoom timeline in (+)" disabled={timelineZoomInDisabled} onClick={() => applyTimelineViewportZoom(1)}><PhosphorMagnifyingGlassPlus size={16} weight="duotone" /></button>
-        <button type="button" className="timelineToolButton timelineFitButton" aria-label="Fit timeline" title="Fit timeline" disabled={!timelineZoomedIn} onClick={fitTimelineViewport}>Fit</button>
+        <button type="button" className={cutModeActive ? 'timelineToolButton active timelineRangeButton' : 'timelineToolButton timelineRangeButton'} aria-label="Range cut mode" aria-pressed={cutModeActive} title={cutModeActive ? 'Range cut mode active - drag a range to remove it. Press Escape to cancel.' : 'Range cut mode - drag a range to remove it.'} onClick={() => onCutModeToggle?.()}>Select range</button>
+        {onRestoreOriginal ? <button type="button" className="timelineToolButton timelineRestoreButton" aria-label="Restore original recording" title="Restore the untouched recording state" onClick={() => void onRestoreOriginal()}><PhosphorArrowCounterClockwise size={17} weight="regular" /></button> : null}
+        <span className="timelineToolbarSpacer" aria-hidden="true" />
+        <div className="timelineZoomGroup" role="group" aria-label="Timeline zoom">
+          <button type="button" className="timelineToolButton" aria-label="Zoom timeline out" title="Zoom timeline out (-)" disabled={!timelineZoomedIn} onClick={() => applyTimelineViewportZoom(-1)}><PhosphorMagnifyingGlassMinus size={17} weight="regular" /></button>
+          {(() => {
+            // Zoom as a percentage of "fit the whole timeline"; the slider drives the same
+            // pixels-per-frame state as the +/- buttons, centred on the playhead.
+            const fitPpf = resolvePixelsPerFrame(null, timelineViewWidthPx, timelineDurationFrames);
+            const zoomPercent = fitPpf > 0 ? Math.round((pixelsPerFrame / fitPpf) * 100) : 100;
+            const maxPercent = fitPpf > 0 ? Math.max(100, Math.floor((MAX_PIXELS_PER_FRAME / fitPpf) * 100)) : 100;
+            const setZoomPercent = (percent: number) => {
+              if (percent <= 100 || fitPpf <= 0) { fitTimelineViewport(); return; }
+              const nextPpf = Math.min(MAX_PIXELS_PER_FRAME, fitPpf * (percent / 100));
+              const playheadFrame = Math.max(0, Math.min(timelineDurationFrames, Math.round(model.currentTimeSec * fps)));
+              pendingScrollLeftRef.current = Math.max(0, playheadFrame * nextPpf - timelineViewWidthPx / 2);
+              setTimelineZoomPpf(nextPpf);
+            };
+            return (
+              <>
+                <span className="rangeControl timelineZoomSlider" style={{ '--range-progress': `${maxPercent > 100 ? ((zoomPercent - 100) / (maxPercent - 100)) * 100 : 0}%` } as React.CSSProperties}>
+                  <span className="rangeVisual" aria-hidden="true"><span className="rangeFill" /><span className="rangeThumb" /></span>
+                  <input type="range" aria-label="Timeline zoom level" min={100} max={maxPercent} step={5} value={Math.min(maxPercent, Math.max(100, zoomPercent))} disabled={maxPercent <= 100} onWheelCapture={preventRangeWheelChange} onChange={(event) => setZoomPercent(Number(event.currentTarget.value))} />
+                </span>
+                <output className="timelineZoomValue" aria-live="off">{zoomPercent}%</output>
+              </>
+            );
+          })()}
+          <button type="button" className="timelineToolButton" aria-label="Zoom timeline in" title="Zoom timeline in (+)" disabled={timelineZoomInDisabled} onClick={() => applyTimelineViewportZoom(1)}><PhosphorMagnifyingGlassPlus size={17} weight="regular" /></button>
+          <button type="button" className="timelineToolButton timelineFitButton" aria-label="Fit timeline" title="Fit timeline" disabled={!timelineZoomedIn} onClick={fitTimelineViewport}>Fit</button>
+        </div>
       </div>
       <div
         className={`timelineViewport${timelinePanning ? ' panning' : ''}`}
@@ -6525,7 +6685,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                 {index > 0 ? <span className="clipCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? 0)} aria-hidden="true" /> : null}
               {selectedScreenClipId === region.id && trimDragPreview?.clipId === region.id ? <span className="trimAvailabilityGuide" aria-hidden="true" /> : null}
               {selectedScreenClipId === region.id ? <button type="button" role="slider" className={`trimHandle trimHandleStart${(region.sourceIn ?? 0) > 0 ? ' hasHiddenFootage' : ''}`} title={(region.sourceIn ?? 0) > 0 ? `${formatClock((region.sourceIn ?? 0) / fps)} of earlier footage is hidden. Drag left to bring it back.` : 'Drag right to trim the start'} data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} /> : null}
-              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}><Icon name="frame" /> Clip</button>
+              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}>Screen <span className="clipDuration">{Math.max(0, ((region.timelineOut ?? 0) - (region.timelineIn ?? 0)) / fps).toFixed(1)}s</span></button>
               {selectedScreenClipId === region.id ? <button type="button" role="slider" className={`trimHandle trimHandleEnd${(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? ' hasHiddenFootage' : ''}`} title={(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? `${formatClock((sourceFrameDuration - (region.sourceOut ?? sourceFrameDuration)) / fps)} of later footage is hidden. Drag right to bring it back.` : 'Drag left to trim the end'} data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} /> : null}
               </div>
           ))}
@@ -6551,7 +6711,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                  <span className="audioSilenceGuide" aria-hidden="true" />
                   <span className="audioRegionLabel">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
                 </button>; })
-             : <p>No audio track.</p>}
+             : <p className="srOnly">No audio track.</p>}
             </TimelineLane>
             <TimelineLane label="Zoom" className="zoomLane" aria-label="Zoom markers" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
           {zoomSelectionPreview ? <div className="zoomSelectionMarquee" style={{ left: `${zoomSelectionPreview.left}%`, width: `${zoomSelectionPreview.width}%` }} aria-hidden="true" /> : null}
@@ -6665,7 +6825,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                   </div>
                 );
               })
-            : <p>No censored areas.</p>}
+            : <p className="srOnly">No censored areas.</p>}
           {(() => {
             const selected = selectedCensorId ? model.lanes.censor.find((region) => region.id === selectedCensorId) : null;
             if (!selected || !onCensorModeToggle) return null;
@@ -6681,15 +6841,57 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             );
           })()}
             </TimelineLane>
+            {framingAvailable ? (
+            <TimelineLane label="Framing" className="framingLane" aria-label="Framing ranges" onTrackPointerDown={onFramingCreateRange ? handleFramingLanePointerDown : handleTimelineSeekPointerDown} trackTitle={onFramingCreateRange ? 'Drag to hold the view on one spot for this span' : 'Click or drag to seek'}>
+          {framingSpanPreview ? <div className="framingSpanPreview" style={{ left: `${framingSpanPreview.left}%`, width: `${framingSpanPreview.width}%` }} aria-hidden="true" /> : null}
+          {model.lanes.framing.length > 0
+            ? model.lanes.framing.map((region) => {
+                const label = region.label ?? 'Hold framing';
+                const selected = selectedFramingId === region.id;
+                const startSec = ((region.startFrame ?? 0) - model.trimStartFrame) / fps;
+                const endSec = ((region.endFrame ?? 0) - model.trimStartFrame) / fps;
+                return (
+                  <div
+                    key={region.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${label}, ${formatClock(startSec)} to ${formatClock(endSec)}. Arrow keys retime. Delete to remove.`}
+                    className={`timelineRegion framingRegion ${selected ? 'selectedRegion' : ''}`}
+                    data-framing-id={region.id}
+                    title={`${label} · ${formatClock(startSec)}–${formatClock(endSec)}${selected ? ' · click the picture to aim' : ''}`}
+                    style={rangeRegionStyle(region, framingDragPreview)}
+                    onClick={(event) => { event.stopPropagation(); onSelectFraming?.(selected ? null : region.id); }}
+                    onKeyDown={(event) => handleFramingKeyboard(region, 'move', event)}
+                    onPointerDown={(event) => beginFramingDrag(region, 'move', event)}
+                  >
+                    <span className="censorClipLabel">Hold</span>
+                    <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? MIN_CENSOR_SPAN_FRAMES) - MIN_CENSOR_SPAN_FRAMES))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleFramingKeyboard(region, 'start', event)} onPointerDown={(event) => beginFramingDrag(region, 'start', event)} />
+                    <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + MIN_CENSOR_SPAN_FRAMES)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? MIN_CENSOR_SPAN_FRAMES)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleFramingKeyboard(region, 'end', event)} onPointerDown={(event) => beginFramingDrag(region, 'end', event)} />
+                    {onFramingRemove ? (
+                      <button
+                        type="button"
+                        className="zoomRegionDelete censorRegionDelete"
+                        aria-label={`Delete ${label}`}
+                        title="Delete this hold"
+                        onClick={(event) => { event.stopPropagation(); onFramingRemove(region.id); }}
+                        onPointerDown={(event) => { event.stopPropagation(); }}
+                      >×</button>
+                    ) : null}
+                  </div>
+                );
+              })
+            : <p>Follows the mouse. Drag here to hold the view on one spot.</p>}
+            </TimelineLane>
+            ) : null}
             <TimelineLane label="Clicks" className="clickLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
           {model.lanes.clicks.length > 0
             ? model.lanes.clicks.map((event) => <button key={event.id} type="button" className="clickMarker" style={{ left: `${event.left}%` }} onClick={() => onSelectInspectorContext({ group: 'cursor', label: 'Click event', detail: 'Click telemetry selected from the timeline.' })} />)
-            : <p>No click events yet.</p>}
+            : <p className="srOnly">No click events yet.</p>}
             </TimelineLane>
             <TimelineLane label="Camera" className="cameraLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
           {model.lanes.camera.length > 0
             ? model.lanes.camera.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'camera', label: 'Camera track', detail: 'Camera presence selected from the timeline.' })}>Camera</button>)
-            : <p>No camera track.</p>}
+            : <p className="srOnly">No camera track.</p>}
             </TimelineLane>
           </div>
         </div>
@@ -6698,10 +6900,20 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   );
 }
 
+const TIMELINE_LANE_ICONS: Record<string, PhosphorIconType> = {
+  screen: PhosphorFilmStrip,
+  audio: PhosphorWaveform,
+  zoom: PhosphorMagnifyingGlassPlus,
+  censor: PhosphorEyeSlash,
+  clicks: PhosphorCursorClick,
+  camera: PhosphorVideoCamera,
+  framing: PhosphorFrameCorners,
+};
+
 function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackPointerDown, onTrackPointerDownCapture, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; onTrackPointerDownCapture?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {
   return (
     <div className={`timelineLane ${className}`} data-timeline-lane={label.toLowerCase()} aria-label={ariaLabel}>
-      <span className="laneLabel">{label}</span>
+      <span className="laneLabel">{(() => { const LaneIcon = TIMELINE_LANE_ICONS[label.toLowerCase()]; return LaneIcon ? <LaneIcon size={15} weight="regular" aria-hidden /> : null; })()}{label}</span>
       <div className={`laneTrack ${trackClassName ?? ''}`} onDoubleClick={onTrackDoubleClick} onPointerDown={onTrackPointerDown} onPointerDownCapture={onTrackPointerDownCapture} title={trackTitle}>{children}</div>
     </div>
   );
@@ -6868,29 +7080,19 @@ function CameraFollowPanel({
 }
 
 function ExportPresetDetails({ mode, exportScope, aspectRatio }: { mode: ExportMode; exportScope: ExportScope; aspectRatio?: ProjectAspectRatio }) {
-  const rangeLabel = exportScope === 'used-content' ? 'used content only' : 'full timeline';
-  if (mode === 'raw') {
-    return <p className="exportPreset">Raw export keeps source pixels unchanged when the {rangeLabel} can be stream-copied.</p>;
-  }
-  if (mode === 'experimental-headless') {
-    return (
-      <div className="exportPresetDetails">
-        <p className="exportPreset">
-          Experimental headless export: {rangeLabel}, shared composition plan, FFmpeg styled fallback while the renderer is behind the parity gate.
-        </p>
-        <span className="exportPresetChip" data-active-aspect-ratio={aspectRatio ?? 'auto'}>Experimental</span>
-      </div>
-    );
-  }
-
+  // A short key/value summary of what the last-used export produces; no prose in the pop-over.
+  const rangeLabel = exportScope === 'used-content' ? 'Used parts' : 'Whole timeline';
   const activeRatio = aspectRatio ?? 'auto';
+  const look = mode === 'raw' ? 'Raw' : mode === 'experimental-headless' ? 'Experimental' : 'Styled';
   return (
-    <div className="exportPresetDetails">
-      <p className="exportPreset">
-        Styled preset: {rangeLabel}, selected aspect ratio, full-screen fit, pastel background, rounded screen, soft shadow.
-      </p>
-      <span className="exportPresetChip" data-active-aspect-ratio={activeRatio}>{PROJECT_ASPECT_RATIO_LABELS[activeRatio]}</span>
-    </div>
+    <dl className="exportPresetDetails exportSummary" data-export-summary={mode}>
+      <dt>Look</dt>
+      <dd>{look}</dd>
+      <dt>Size</dt>
+      <dd>{mode === 'raw' ? 'Original' : <span className="exportPresetChip" data-active-aspect-ratio={activeRatio}>{PROJECT_ASPECT_RATIO_LABELS[activeRatio]}</span>}</dd>
+      <dt>Range</dt>
+      <dd>{rangeLabel}</dd>
+    </dl>
   );
 }
 

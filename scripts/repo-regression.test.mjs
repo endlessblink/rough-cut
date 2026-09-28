@@ -852,12 +852,12 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
 test('GPU-C experimental export UI stays feature-flagged and fallback-labeled', () => {
   const rendererSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/main.tsx'), 'utf8');
   assert.match(rendererSource, /experimentalHeadlessExportUi = searchParams\.get\('experimentalHeadlessExportUi'\) === '1'/);
-  assert.match(rendererSource, /experimentalHeadlessExportUi \? \(/);
-  assert.match(rendererSource, /data-export-action="experimental-headless"/);
-  assert.match(rendererSource, /onExportMode\('experimental-headless'\)/);
-  assert.match(rendererSource, /Experimental headless export/);
+  assert.match(rendererSource, /experimentalHeadlessExportUi \? \[/);
+  assert.match(rendererSource, /mode: 'experimental-headless' as ExportMode/);
+  assert.match(rendererSource, /onExportMode\(exportFormat\)/);
+  assert.match(rendererSource, /label: 'Experimental', detail: 'Headless renderer'/);
   assert.match(rendererSource, /exportResult\?\.fallback\?\.active/);
-  assert.match(desktopMainSource, /hasExperimentalHeadlessExportAction = Boolean\(document\.querySelector\('\[data-export-action="experimental-headless"\]'\)\)/);
+  assert.match(desktopMainSource, /hasExperimentalHeadlessExportAction = Boolean\(document\.querySelector\('\[data-export-format="experimental-headless"\]'\)\)/);
   assert.match(desktopMainSource, /hasExperimentalHeadlessExportAction,/);
   assert.match(smokeUiSource, /expectsExperimentalHeadlessExportAction = process\.env\.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI === '1' \|\| process\.env\.VITE_ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI === '1'/);
   assert.match(smokeUiSource, /expectsExperimentalHeadlessExportAction && !report\.hasExperimentalHeadlessExportAction/);

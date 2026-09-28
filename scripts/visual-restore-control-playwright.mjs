@@ -36,7 +36,7 @@ try {
   await recordingTab.waitFor({ state: 'attached', timeout: 30000 });
   await recordingTab.evaluate((button) => button.click());
   await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 30000 });
-  const timelineTool = page.locator('nav[aria-label="Editor tools"] button[aria-label="Timeline"]');
+  const timelineTool = page.locator('nav[aria-label="Editor tools"] button[aria-label="Zoom"]');
   await timelineTool.waitFor({ state: 'visible', timeout: 30000 });
   await timelineTool.evaluate((button) => button.click());
   const templateId = process.env.ROUGH_CUT_RESTORE_CONTROL_TEMPLATE_ID;

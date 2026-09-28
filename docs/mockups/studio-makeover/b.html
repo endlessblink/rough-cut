@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Option B · Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+:root {
+  --bg: #1a1a1d; --well: #131315; --panel: #212124; --head: #28282c; --raise: #2e2e33; --field: #161618;
+  --line: #0d0d0f; --line-2: #34343a; --text: #d9d9de; --bright: #f2f2f4; --muted: #9a9aa3; --subtle: #6e6e78;
+  --accent: #e8a13a; --accent-soft: rgb(232 161 58 / 0.14); --blue: #4f8cff;
+  --tl-bg: #19191c; --tl-line: #0d0d0f; --tl-screen: #2b4a78; --tl-screen-line: #4a74b8; --tl-screen-sel: #e8a13a;
+  --tl-audio: #1f4a44; --tl-audio-line: #3a8a7f; --tl-zoom: #4f8cff;
+}
+body { background: var(--line); color: var(--text); font-size: var(--text-sm); }
+.app { height: 100vh; display: grid; grid-template-rows: 34px minmax(0, 1fr) 40px; gap: 1px; background: var(--line); }
+.top { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-3); background: var(--panel); }
+.top .proj { font-weight: var(--weight-semibold); color: var(--bright); font-size: var(--text-sm); }
+.top .saved { color: var(--subtle); font-size: var(--text-xs); }
+.top .sp { flex: 1; }
+.btn { white-space: nowrap; display: inline-flex; align-items: center; gap: var(--space-1-5); height: 24px; padding: 0 var(--space-2-5); border-radius: 3px; border: 1px solid var(--line-2); background: var(--raise); color: var(--text); font-size: var(--text-xs); font-weight: var(--weight-medium); cursor: pointer; }
+.btn:hover { background: #38383e; color: var(--bright); }
+.btn.icon { width: 24px; padding: 0; justify-content: center; border-color: transparent; background: none; color: var(--muted); }
+.btn.icon:hover { background: var(--raise); }
+.btn.go { background: var(--accent); border-color: var(--accent); color: #1a1205; font-weight: var(--weight-semibold); }
+.btn.go:hover { background: #f0ae4b; color: #1a1205; }
+.btn .rd { width: 8px; height: 8px; border-radius: 50%; background: var(--record); }
+
+/* Edit page */
+.edit { grid-template-columns: 300px minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr) 250px; gap: 1px; background: var(--line); min-height: 0; }
+.pane { background: var(--panel); display: grid; grid-template-rows: 28px minmax(0, 1fr); min-height: 0; }
+.paneHead { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-2) 0 var(--space-3); background: var(--head); color: var(--bright); font-size: var(--text-xs); font-weight: var(--weight-semibold); border-bottom: 1px solid var(--line); }
+.paneHead .tabs { display: flex; height: 100%; }
+.paneHead .tabs button { height: 100%; padding: 0 var(--space-3); border: 0; background: none; color: var(--subtle); font-size: var(--text-xs); font-weight: var(--weight-semibold); cursor: pointer; border-bottom: 2px solid transparent; }
+.paneHead .tabs button[aria-pressed="true"] { color: var(--bright); border-bottom-color: var(--accent); }
+.scroll { overflow: auto; min-height: 0; }
+.sec { border-bottom: 1px solid var(--line); }
+.secHead { display: flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 var(--space-2) 0 var(--space-2); background: #252528; color: var(--bright); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.secHead .tw { color: var(--subtle); }
+.secHead .sp { flex: 1; }
+.tog { width: 26px; height: 14px; border-radius: 7px; background: #45454c; position: relative; }
+.tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: #bdbdc4; }
+.tog.on { background: var(--accent); }
+.tog.on::after { left: 14px; background: #fff; }
+.params { padding: var(--space-2) var(--space-3) var(--space-3); display: grid; grid-template-columns: 96px 1fr; gap: 6px var(--space-3); align-items: center; }
+.params label { color: var(--muted); font-size: var(--text-xs); text-align: right; }
+.ctl { display: flex; align-items: center; gap: var(--space-2); }
+.fld { height: 22px; min-width: 52px; padding: 0 6px; border-radius: 3px; background: var(--field); border: 1px solid var(--line-2); color: var(--bright); font-size: var(--text-xs); font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; justify-content: flex-end; cursor: ew-resize; }
+.fld:hover { border-color: var(--accent); }
+.sl { position: relative; flex: 1; height: 3px; background: #3a3a40; border-radius: 2px; }
+.sl b { position: absolute; inset: 0 auto 0 0; background: var(--muted); border-radius: 2px; }
+.sl i { position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--bright); }
+.dd { height: 22px; flex: 1; padding: 0 6px; border-radius: 3px; background: var(--field); border: 1px solid var(--line-2); color: var(--bright); font-size: var(--text-xs); display: flex; align-items: center; justify-content: space-between; }
+.params .sld { --sld-fill: #d4d4da; }
+.params .sld .sldFill { box-shadow: none; }
+.params .sldField { border-radius: 3px; min-width: 56px; }
+.xy { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 6px; align-items: center; color: var(--subtle); font-size: var(--text-2xs); }
+.sw { display: flex; gap: 4px; }
+.sw span { width: 22px; height: 22px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1); }
+.sw span.on { box-shadow: 0 0 0 1px var(--line), 0 0 0 2px var(--accent); }
+
+.viewer { background: var(--panel); display: grid; grid-template-rows: 28px minmax(0, 1fr) 36px; min-height: 0; }
+.vHead { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-3); background: var(--head); border-bottom: 1px solid var(--line); font-size: var(--text-xs); }
+.vHead b { color: var(--bright); }
+.vHead .sp { flex: 1; }
+.vHead .tc { font-size: var(--text-md); color: var(--accent); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.pic { display: grid; place-items: center; background: #0a0a0b; padding: var(--space-4); min-height: 0; }
+.frame { position: relative; height: 100%; max-width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+  background: radial-gradient(120% 90% at 15% 10%, #6d28d9, transparent 55%), radial-gradient(90% 80% at 90% 100%, #db2777, transparent 60%), linear-gradient(135deg, #1e1b4b, #1d4ed8); }
+.frame .screen { position: absolute; inset: 8%; border-radius: 10px; overflow: hidden; box-shadow: 0 16px 40px rgb(0 0 0 / 0.5); }
+.frame .screen img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.frame .cam { position: absolute; left: 10.5%; bottom: 11%; width: 20%; aspect-ratio: 1; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 3px #fff; }
+.frame .cam img { width: 124%; height: 124%; margin: -12%; object-fit: cover; }
+.frame .safe { position: absolute; inset: 5%; border: 1px dashed rgb(255 255 255 / 0.18); pointer-events: none; }
+.trans { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 var(--space-3); background: var(--panel); border-top: 1px solid var(--line); }
+.trans .mid { display: flex; gap: 2px; }
+.trans .mid .btn.icon { width: 30px; height: 26px; color: var(--text); }
+.trans .mid .btn.icon.pl { background: var(--raise); }
+.trans .right { justify-self: end; display: flex; gap: var(--space-2); align-items: center; color: var(--subtle); font-size: var(--text-xs); }
+
+.queue { padding: var(--space-2); display: grid; gap: var(--space-2); }
+.job { display: grid; grid-template-columns: 64px 1fr; gap: var(--space-2); padding: var(--space-2); border-radius: 3px; background: var(--field); border: 1px solid var(--line-2); }
+.job img { width: 64px; aspect-ratio: 16/9; object-fit: cover; border-radius: 2px; display: block; }
+.job b { color: var(--bright); font-size: var(--text-xs); display: block; }
+.job small { color: var(--subtle); font-size: var(--text-2xs); }
+.prog { height: 3px; border-radius: 2px; background: #3a3a40; margin-top: 6px; overflow: hidden; }
+.prog b { display: block; height: 100%; background: #34d399; }
+.deliverFoot { padding: var(--space-3); border-top: 1px solid var(--line); display: grid; gap: var(--space-2); background: var(--panel); }
+.deliverFoot .btn.go { height: 30px; justify-content: center; font-size: var(--text-sm); }
+.delivery { display: grid; grid-template-rows: 28px minmax(0, 1fr) auto; }
+
+.timeline { grid-column: 1 / 4; }
+
+/* Page bar (Resolve style) */
+.pages { display: flex; align-items: center; justify-content: center; gap: var(--space-1); background: var(--panel); }
+.pages button { display: flex; align-items: center; gap: var(--space-1-5); height: 30px; padding: 0 var(--space-4); border: 0; border-radius: 3px; background: none; color: var(--subtle); font-size: var(--text-xs); font-weight: var(--weight-semibold); cursor: pointer; }
+.pages button:hover { color: var(--text); }
+.pages button[data-active] { color: var(--accent); background: var(--accent-soft); }
+
+/* Projects: media manager */
+.projects { grid-template-columns: 220px minmax(0, 1fr) 340px; gap: 1px; background: var(--line); min-height: 0; }
+.tree { background: var(--panel); padding: var(--space-2) 0; }
+.tree h5 { margin: var(--space-3) var(--space-3) var(--space-1); color: var(--subtle); font-size: var(--text-2xs); font-weight: var(--weight-semibold); }
+.tree button { display: flex; align-items: center; gap: var(--space-2); width: 100%; height: 26px; padding: 0 var(--space-3); border: 0; background: none; color: var(--text); font-size: var(--text-xs); cursor: pointer; text-align: left; }
+.tree button span { margin-left: auto; color: var(--subtle); font-variant-numeric: tabular-nums; }
+.tree button[aria-pressed="true"] { background: var(--raise); color: var(--bright); box-shadow: inset 2px 0 0 var(--accent); }
+.tableWrap { background: var(--bg); display: grid; grid-template-rows: 36px minmax(0, 1fr); min-height: 0; }
+.tbar { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); background: var(--panel); border-bottom: 1px solid var(--line); }
+.tbar .find { display: flex; align-items: center; gap: var(--space-2); height: 24px; width: 260px; padding: 0 var(--space-2); background: var(--field); border: 1px solid var(--line-2); border-radius: 3px; color: var(--subtle); font-size: var(--text-xs); }
+.tbar .sp { flex: 1; }
+table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
+thead th { position: sticky; top: 0; z-index: 1; height: 26px; padding: 0 var(--space-3); background: var(--head); color: var(--muted); font-weight: var(--weight-semibold); text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+thead th.r, td.r { text-align: right; }
+tbody tr { cursor: pointer; }
+tbody tr:nth-child(even) { background: rgb(255 255 255 / 0.015); }
+tbody tr:hover { background: rgb(255 255 255 / 0.04); }
+tbody tr.sel { background: rgb(232 161 58 / 0.12); box-shadow: inset 2px 0 0 var(--accent); }
+td { height: 52px; padding: 0 var(--space-3); border-bottom: 1px solid rgb(0 0 0 / 0.35); color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+td .tn { width: 72px; aspect-ratio: 16/9; border-radius: 2px; object-fit: cover; display: block; background: var(--raise); }
+td .tn.none { display: grid; place-items: center; color: var(--subtle); }
+td b { color: var(--bright); font-weight: var(--weight-medium); }
+.detail { background: var(--panel); display: grid; grid-template-rows: 28px auto 1fr auto; min-height: 0; }
+.detail .big { margin: var(--space-3); aspect-ratio: 16/9; overflow: hidden; border-radius: 3px; background: #000; }
+.detail .big img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.kv { padding: 0 var(--space-3); display: grid; grid-template-columns: 96px 1fr; gap: 7px var(--space-3); align-content: start; font-size: var(--text-xs); }
+.kv dt { color: var(--muted); text-align: right; }
+.kv dd { margin: 0; color: var(--bright); font-variant-numeric: tabular-nums; }
+.detail .acts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); padding: var(--space-3); border-top: 1px solid var(--line); }
+.detail .acts .btn { height: 28px; justify-content: center; }
+.detail .acts .btn.go { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <span class="proj">Sun 19 Jul · 18:07</span><span class="saved">Saved</span>
+    <span class="sp"></span>
+    <button class="btn icon" title="Undo" data-i="undo" data-ic="sm"></button>
+    <button class="btn icon" title="Redo" data-i="redo" data-ic="sm"></button>
+    <button class="btn"><span class="rd"></span>Record</button>
+  </header>
+
+  <main class="view edit" data-view="edit">
+    <aside class="pane">
+      <div class="paneHead"><div class="tabs" data-choice><button aria-pressed="true">Inspector</button><button>Effects</button></div><button class="btn icon" data-i="more" data-ic="sm"></button></div>
+      <div class="scroll">
+        <div class="sec">
+          <div class="secHead"><span class="tw" data-i="chev" data-ic="xs"></span>Frame<span class="sp"></span></div>
+          <div class="params">
+            <label>Size</label><div class="ctl"><div class="dd">1920×1080 · 16:9 <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+            <label>Padding</label><div data-slider data-compact data-min="0" data-max="25" data-step="0.5" data-value="9" data-unit=" %"></div>
+            <label>Corner radius</label><div data-slider data-compact data-min="0" data-max="32" data-value="12" data-unit=" px"></div>
+            <label>Shadow</label><div data-slider data-compact data-min="0" data-max="100" data-value="62" data-unit=" %"></div>
+            <label>Background</label><div class="ctl sw"><span class="on" style="background:linear-gradient(135deg,#6d28d9,#1d4ed8 55%,#db2777)"></span><span style="background:linear-gradient(135deg,#fdba74,#f472b6)"></span><span style="background:linear-gradient(135deg,#0f766e,#22d3ee)"></span><span style="background:#0b0b0f"></span><span style="background:#f5f5f4"></span></div>
+          </div>
+        </div>
+        <div class="sec">
+          <div class="secHead"><span class="tw" data-i="chev" data-ic="xs"></span>Camera<span class="sp"></span><button data-switch aria-checked="true" aria-label="Enabled"></button></div>
+          <div class="params">
+            <label>Shape</label><div class="ctl"><div class="dd">Circle <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+            <label>Position</label><div class="xy"><span>X</span><span class="fld">10.5</span><span>Y</span><span class="fld">71.0</span></div>
+            <label>Size</label><div data-slider data-compact data-min="5" data-max="50" data-value="20" data-unit=" %"></div>
+            <label>Follow smoothing</label><div data-slider data-compact data-min="0" data-max="1" data-step="0.05" data-value="0.6"></div>
+          </div>
+        </div>
+        <div class="sec">
+          <div class="secHead"><span class="tw" data-i="chev" data-ic="xs"></span>Zoom<span class="sp"></span><button data-switch aria-checked="true" aria-label="Enabled"></button></div>
+          <div class="params">
+            <label>Markers</label><div class="ctl"><span class="fld" style="justify-content:flex-start">1</span><button class="btn" data-i="sparkle" data-ic="xs" title="Suggest zooms from your clicks">Suggest</button></div>
+            <label>Default depth</label><div data-slider data-compact data-min="1" data-max="4" data-step="0.1" data-value="1.8" data-unit="×"></div>
+            <label>Ease</label><div class="ctl"><div class="dd">Smooth <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+          </div>
+        </div>
+        <div class="sec">
+          <div class="secHead"><span class="tw" data-i="chevr" data-ic="xs"></span>Censor<span class="sp"></span><button data-switch aria-label="Enabled"></button></div>
+        </div>
+        <div class="sec">
+          <div class="secHead"><span class="tw" data-i="chevr" data-ic="xs"></span>Cursor<span class="sp"></span><button data-switch aria-checked="true" aria-label="Enabled"></button></div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="viewer">
+      <div class="vHead"><b>Timeline · Sun 19 Jul · 18:07</b><span style="color:var(--subtle)">Fit</span><span class="sp"></span><span class="tc">00:00:05:12</span></div>
+      <div class="pic"><div class="frame"><div class="screen"><img src="screen.jpg" alt=""></div><div class="cam"><img src="camera.jpg" alt=""></div><div class="safe"></div></div></div>
+      <div class="trans">
+        <div style="color:var(--subtle);font-size:var(--text-xs)" class="num">1920×1080 · 30 fps</div>
+        <div class="mid">
+          <button class="btn icon" data-i="skipb" data-ic="sm"></button>
+          <button class="btn icon pl" data-i="play" data-ic="sm"></button>
+          <button class="btn icon" data-i="skipf" data-ic="sm"></button>
+        </div>
+        <div class="right num">Duration 00:00:15:15</div>
+      </div>
+    </section>
+
+    <aside class="pane delivery">
+      <div class="paneHead">Deliver<button class="btn icon" data-i="more" data-ic="sm"></button></div>
+      <div class="scroll">
+        <div class="sec">
+          <div class="secHead"><span class="tw" data-i="chev" data-ic="xs"></span>Render settings</div>
+          <div class="params">
+            <label>Look</label><div class="ctl"><div class="dd">Styled <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+            <label>Format</label><div class="ctl"><div class="dd">MP4 · H.264 <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+            <label>Resolution</label><div class="ctl"><div class="dd">1920×1080 <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+            <label>Frame rate</label><div class="ctl"><div class="dd">30 <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+            <label>Quality</label><div data-slider data-compact data-min="0" data-max="100" data-step="5" data-value="80" data-unit=" %"></div>
+            <label>Range</label><div class="ctl"><div class="dd">Entire timeline <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+            <label>Save to</label><div class="ctl"><div class="dd">…/Rough Cut MVP/exports <span data-i="chev" data-ic="xs" class="car"></span></div></div>
+          </div>
+        </div>
+        <div class="sec">
+          <div class="secHead"><span class="tw" data-i="chev" data-ic="xs"></span>Render queue<span class="sp"></span><span style="color:var(--subtle);font-weight:400">1 job</span></div>
+          <div class="queue">
+            <div class="job"><img src="screen.jpg" alt=""><div><b>19 Jul 18-07 styled.mp4</b><small>Finished · 11.8 MB · 0:14</small><div class="prog"><b style="width:100%"></b></div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="deliverFoot">
+        <button class="btn go" data-i="export" data-ic="sm">Render now</button>
+        <div style="display:flex;gap:var(--space-2)"><button class="btn" style="flex:1;justify-content:center">Add to queue</button><button class="btn" style="flex:1;justify-content:center" data-i="folder" data-ic="xs">Show folder</button></div>
+      </div>
+    </aside>
+
+    <section class="timeline" data-timeline></section>
+  </main>
+
+  <main class="view projects" data-view="projects">
+    <nav class="tree" data-choice>
+      <h5>Library</h5>
+      <button aria-pressed="true" data-i="film" data-ic="sm">All recordings<span>19</span></button>
+      <button data-i="camera" data-ic="sm">With camera<span>11</span></button>
+      <button data-i="clock" data-ic="sm">Recent<span>5</span></button>
+      <button data-i="star" data-ic="sm">Starred<span>2</span></button>
+      <h5>Output</h5>
+      <button data-i="export" data-ic="sm">Exports<span>4</span></button>
+      <button data-i="layers" data-ic="sm">Templates<span>3</span></button>
+    </nav>
+    <section class="tableWrap">
+      <div class="tbar">
+        <div class="find" data-i="search" data-ic="xs">Find recordings</div>
+        <span class="sp"></span>
+        <button class="btn icon" data-i="list" data-ic="sm" style="color:var(--accent)"></button>
+        <button class="btn icon" data-i="grid" data-ic="sm"></button>
+        <button class="btn" data-i="plus" data-ic="xs">Import</button>
+      </div>
+      <div class="scroll">
+        <table><thead><tr><th style="width:96px"></th><th>Name</th><th class="r">Duration</th><th>Camera</th><th>Resolution</th><th class="r">Size</th><th>Modified</th></tr></thead><tbody id="rows"></tbody></table>
+      </div>
+    </section>
+    <aside class="detail">
+      <div class="paneHead">Sun 19 Jul · 18:07</div>
+      <div class="big"><img src="p6.jpg" alt=""></div>
+      <dl class="kv">
+        <dt>Duration</dt><dd>00:00:15:15</dd><dt>Resolution</dt><dd>1920×1080 · 30 fps</dd><dt>Camera</dt><dd>Lenovo FHD Webcam</dd><dt>Microphone</dt><dd>Samson Q2U</dd>
+        <dt>Edits</dt><dd>1 cut · 1 zoom</dd><dt>Size on disk</dt><dd>41 MB</dd><dt>Exports</dt><dd>1 · 11.8 MB</dd><dt>Created</dt><dd>19 Jul 2026, 18:07</dd>
+      </dl>
+      <div class="acts"><button class="btn go" data-go="edit">Open</button><button class="btn" data-i="export" data-ic="xs">Export</button><button class="btn" data-i="folder" data-ic="xs">Show folder</button></div>
+    </aside>
+  </main>
+
+  <nav class="pages">
+    <button data-go="projects" data-i="folder" data-ic="sm">Projects</button>
+    <button data-i="record" data-ic="sm">Record</button>
+    <button data-go="edit" data-i="film" data-ic="sm">Recording edit</button>
+    <button data-i="sliders" data-ic="sm">Editor</button>
+    <button data-i="sparkle" data-ic="sm">AI</button>
+  </nav>
+</div>
+<script src="icons.js"></script>
+<script src="shared.js"></script>
+<script>
+document.getElementById('rows').innerHTML = PROJECTS.map((p, i) => `
+  <tr class="${i === 6 ? 'sel' : ''}">
+    <td>${p.blank ? `<div class="tn none">${icon('film', 'sm')}</div>` : `<img class="tn" src="${p.src}" alt="">`}</td>
+    <td><b>${p.name}</b></td><td class="r">${p.dur}</td><td>${p.cam ? 'Yes' : '—'}</td><td>1920×1080</td><td class="r">${p.size}</td><td>${p.when}</td>
+  </tr>`).join('');
+</script>
+</body>
+</html>

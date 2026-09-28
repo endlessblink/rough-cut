@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Option C · Calm</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+:root {
+  --bg: #08080a; --island: #111114; --island-2: #17171b; --hover: #1e1e23; --line: rgb(255 255 255 / 0.06); --line-2: rgb(255 255 255 / 0.1);
+  --text: #ededf0; --muted: #a0a0aa; --subtle: #6c6c77; --accent: #7c8cff; --accent-soft: rgb(124 140 255 / 0.14);
+  --tl-bg: transparent; --tl-line: rgb(255 255 255 / 0.06); --tl-screen: #262c52; --tl-screen-line: #4b57a8; --tl-screen-sel: #a5b0ff;
+  --tl-audio: #1b2a2b; --tl-audio-line: #2f6a66; --tl-wave: #7dd3c8; --tl-zoom: #7c8cff;
+}
+body { background: var(--bg); color: var(--text); font-size: var(--text-md); }
+.app { height: 100vh; display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 8px; padding: 8px; }
+.island { background: var(--island); border-radius: 14px; box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 0 0 1px var(--line); min-height: 0; }
+
+/* Left rail */
+.rail { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; }
+.logo { width: 30px; height: 30px; border-radius: 9px; background: conic-gradient(from 200deg, #7c8cff, #c084fc, #f472b6, #7c8cff); margin-bottom: 10px; position: relative; }
+.logo::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: var(--island); }
+.rail button { position: relative; width: 40px; height: 40px; border-radius: 10px; border: 0; background: none; color: var(--subtle); display: grid; place-items: center; cursor: pointer; }
+.rail button:hover { background: var(--hover); color: var(--text); }
+.rail button[data-active] { background: var(--island-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-2); }
+.rail button[data-tip]:hover::after { content: attr(data-tip); position: absolute; left: 48px; top: 50%; transform: translateY(-50%); padding: 4px 8px; border-radius: 6px; background: #26262c; color: var(--text); font-size: var(--text-xs); white-space: nowrap; z-index: 5; }
+.rail .sp { flex: 1; }
+.rail .rec { width: 40px; height: 40px; border-radius: 50%; background: rgb(244 63 94 / 0.12); color: var(--record); }
+.rail .rec:hover { background: rgb(244 63 94 / 0.2); color: #fb7185; }
+
+/* Edit */
+.edit { grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: minmax(0, 1fr) 236px; gap: 8px; min-height: 0; }
+.stage { display: grid; grid-template-rows: 48px minmax(0, 1fr) 52px; }
+.sHead { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-3) 0 var(--space-4); }
+.sHead h1 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.sHead .crumb { color: var(--subtle); font-size: var(--text-sm); }
+.sHead .sp { flex: 1; }
+.cmdk { display: flex; align-items: center; gap: var(--space-2); height: 30px; width: 260px; padding: 0 var(--space-2-5); border-radius: 8px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); color: var(--subtle); font-size: var(--text-sm); }
+.cmdk kbd { margin-left: auto; font: inherit; font-size: var(--text-2xs); color: var(--muted); padding: 1px 5px; border-radius: 4px; background: var(--island-2); }
+.b { white-space: nowrap; display: inline-flex; align-items: center; gap: var(--space-1-5); height: 30px; padding: 0 var(--space-3); border-radius: 8px; border: 0; background: var(--island-2); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer; box-shadow: inset 0 0 0 1px var(--line); }
+.b:hover { background: var(--hover); }
+.b.ghost { background: none; box-shadow: none; color: var(--muted); width: 30px; padding: 0; justify-content: center; }
+.b.ghost:hover { background: var(--hover); color: var(--text); }
+.b.primary { background: var(--text); color: #0b0b0e; box-shadow: none; font-weight: var(--weight-semibold); }
+.b.primary:hover { background: #fff; }
+.pic { display: grid; place-items: center; padding: var(--space-2) var(--space-8); min-height: 0; }
+.frame { position: relative; height: 100%; max-width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden;
+  background: radial-gradient(120% 90% at 15% 10%, #6d28d9, transparent 55%), radial-gradient(90% 80% at 90% 100%, #db2777, transparent 60%), linear-gradient(135deg, #1e1b4b, #1d4ed8);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 0.7); }
+.frame .screen { position: absolute; inset: 8%; border-radius: 10px; overflow: hidden; box-shadow: 0 16px 40px rgb(0 0 0 / 0.5); }
+.frame .screen img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.frame .cam { position: absolute; left: 10.5%; bottom: 11%; width: 20%; aspect-ratio: 1; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 3px #fff; }
+.frame .cam img { width: 124%; height: 124%; margin: -12%; object-fit: cover; }
+.frame .sel { position: absolute; inset: 8%; border-radius: 10px; box-shadow: 0 0 0 2px var(--accent); pointer-events: none; }
+.frame .sel::after { content: "Screen · clip 2"; position: absolute; top: -26px; left: 0; padding: 3px 8px; border-radius: 6px; background: var(--accent); color: #0b0b1a; font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.trans { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 var(--space-4); }
+.trans .mid { display: flex; align-items: center; gap: var(--space-3); }
+.play { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--text); color: #000; display: grid; place-items: center; cursor: pointer; }
+.play svg { width: 13px; height: 13px; margin-left: 2px; }
+.tc { font-variant-numeric: tabular-nums; font-weight: var(--weight-medium); }
+.tc span { color: var(--subtle); }
+.trans .r { justify-self: end; color: var(--subtle); font-size: var(--text-xs); display: flex; gap: var(--space-3); }
+
+/* Contextual inspector */
+.insp { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.iHead { padding: var(--space-4) var(--space-4) var(--space-3); border-bottom: 1px solid var(--line); }
+.iHead small { color: var(--accent); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.iHead h2 { margin: 2px 0 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.iHead p { margin: 2px 0 0; color: var(--subtle); font-size: var(--text-sm); }
+.iBody { overflow: auto; padding: var(--space-2) var(--space-2); }
+.prop { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 38px; padding: 0 var(--space-2); border-radius: 8px; font-size: var(--text-sm); cursor: pointer; }
+.prop:hover { background: var(--hover); }
+.prop span { color: var(--muted); display: flex; align-items: center; gap: var(--space-2); }
+.prop b { font-weight: var(--weight-medium); display: flex; align-items: center; gap: var(--space-1); font-variant-numeric: tabular-nums; }
+.prop b svg { color: var(--subtle); }
+.hr { height: 1px; background: var(--line); margin: var(--space-2) var(--space-2); }
+.label { padding: var(--space-3) var(--space-2) var(--space-1); color: var(--subtle); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.sw { display: inline-block; width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg, #6d28d9, #1d4ed8 55%, #db2777); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.15); }
+.prop.sp { display: block; padding: 10px 8px 12px; cursor: default; }
+.prop.sp:hover { background: none; }
+.iFoot { padding: var(--space-3); border-top: 1px solid var(--line); display: flex; gap: var(--space-2); }
+.iFoot .b { flex: 1; justify-content: center; }
+.timeline { grid-column: 1 / 3; border-radius: 14px; overflow: hidden; background: var(--island); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 0 0 1px var(--line); }
+
+/* Projects */
+.projects { grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.projects .island { overflow: auto; }
+.pWrap { padding: var(--space-12) 64px; }
+.ask { display: flex; align-items: center; gap: var(--space-3); height: 52px; max-width: 720px; margin: 0 auto var(--space-12); padding: 0 var(--space-4); border-radius: 14px; background: var(--island-2); box-shadow: inset 0 0 0 1px var(--line-2), 0 20px 50px rgb(0 0 0 / 0.4); color: var(--subtle); font-size: var(--text-lg); }
+.ask kbd { margin-left: auto; font: inherit; font-size: var(--text-xs); color: var(--muted); padding: 2px 6px; border-radius: 5px; background: var(--hover); }
+.sect { display: flex; align-items: baseline; justify-content: space-between; margin: 0 0 var(--space-4); }
+.sect h3 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.sect h3 span { color: var(--subtle); font-weight: var(--weight-regular); margin-left: var(--space-2); }
+.sect .tabs { display: flex; gap: var(--space-4); font-size: var(--text-sm); color: var(--subtle); }
+.sect .tabs b { color: var(--text); font-weight: var(--weight-medium); }
+.g { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-6) var(--space-4); margin-bottom: var(--space-12); }
+.tile { cursor: pointer; }
+.tile .t { position: relative; aspect-ratio: 16/10; border-radius: 12px; overflow: hidden; background: var(--island-2); box-shadow: 0 0 0 1px var(--line); }
+.tile .t img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 400ms var(--ease-out); }
+.tile:hover .t img { transform: scale(1.03); }
+.tile .t .d { position: absolute; top: 8px; right: 8px; padding: 2px 7px; border-radius: 6px; background: rgb(0 0 0 / 0.6); backdrop-filter: blur(6px); font-size: var(--text-xs); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.tile .t .none { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: var(--space-2); color: var(--subtle); font-size: var(--text-xs); }
+.tile .n { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2-5) 2px 0; }
+.tile .n b { font-weight: var(--weight-medium); font-size: var(--text-sm); }
+.tile .n small { color: var(--subtle); font-size: var(--text-xs); display: flex; align-items: center; gap: var(--space-1); }
+.newTile .t { display: grid; place-content: center; justify-items: center; gap: var(--space-2); background: transparent; box-shadow: inset 0 0 0 1px var(--line-2); color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.newTile .t span.r { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgb(244 63 94 / 0.12); color: var(--record); }
+.newTile:hover .t { box-shadow: inset 0 0 0 1px rgb(244 63 94 / 0.5); color: var(--text); }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="island rail">
+    <div class="logo" aria-hidden="true"></div>
+    <button data-go="projects" data-tip="Projects" data-i="grid"></button>
+    <button data-go="edit" data-tip="Recording edit" data-i="film"></button>
+    <button data-tip="Editor" data-i="sliders"></button>
+    <button data-tip="AI" data-i="sparkle"></button>
+    <span class="sp"></span>
+    <button class="rec" data-tip="Record" data-i="record"></button>
+  </nav>
+
+  <main class="view edit" data-view="edit">
+    <section class="island stage">
+      <div class="sHead">
+        <h1>Sun 19 Jul · 18:07</h1><span class="crumb">Saved</span>
+        <span class="sp"></span>
+        <div class="cmdk" data-i="search" data-ic="sm">Search actions<kbd>Ctrl K</kbd></div>
+        <button class="b ghost" title="Undo" data-i="undo"></button>
+        <button class="b ghost" title="Redo" data-i="redo"></button>
+        <button class="b primary" data-i="export" data-ic="sm">Export</button>
+      </div>
+      <div class="pic"><div class="frame"><div class="screen"><img src="screen.jpg" alt=""></div><div class="cam"><img src="camera.jpg" alt=""></div><div class="sel"></div></div></div>
+      <div class="trans">
+        <span></span>
+        <div class="mid">
+          <button class="b ghost" data-i="skipb"></button>
+          <button class="play" title="Play (Space)" data-i="play"></button>
+          <button class="b ghost" data-i="skipf"></button>
+          <span class="tc">0:05.12 <span>/ 0:15.15</span></span>
+        </div>
+        <div class="r num"><span>16:9</span><span>1080p</span><span>30 fps</span></div>
+      </div>
+    </section>
+
+    <aside class="island insp">
+      <div class="iHead"><small>Selected</small><h2>Screen · clip 2</h2><p class="num">0:04.10 → 0:15.15 · 11.2 s</p></div>
+      <div class="iBody">
+        <div class="label">This clip</div>
+        <div class="prop"><span>Speed</span><b>1×<span data-i="chev" data-ic="xs" class="car"></span></b></div>
+        <div class="prop"><span>Volume</span><b>100%</b></div>
+        <div class="prop"><span>Zooms inside</span><b>1</b></div>
+        <div class="prop"><span>Hide cursor</span><button data-switch aria-label="Hide cursor"></button></div>
+        <div class="hr"></div>
+        <div class="label">Whole video</div>
+        <div class="prop"><span>Background</span><b><i class="sw"></i>Dusk gradient</b></div>
+        <div class="prop sp"><div data-slider data-label="Padding" data-min="0" data-max="25" data-value="9" data-unit="%"></div></div>
+        <div class="prop sp"><div data-slider data-label="Corners" data-min="0" data-max="32" data-value="12" data-unit=" px"></div></div>
+        <div class="prop"><span>Camera</span><b>Circle · bottom left</b></div>
+        <div class="prop"><span>Camera follows cursor</span><button data-switch aria-checked="true" aria-label="Camera follows cursor"></button></div>
+        <div class="prop"><span>Censor</span><b>None</b></div>
+      </div>
+      <div class="iFoot"><button class="b" data-i="scissors" data-ic="sm">Split</button><button class="b" data-i="zin" data-ic="sm">Add zoom</button><button class="b ghost" data-i="trash"></button></div>
+    </aside>
+
+    <section class="timeline" data-timeline></section>
+  </main>
+
+  <main class="view projects" data-view="projects">
+    <div class="island">
+      <div class="pWrap">
+        <div class="ask" data-i="search">Search recordings, or type a command<kbd>Ctrl K</kbd></div>
+        <div class="sect"><h3>This week<span>5</span></h3><div class="tabs"><b>All</b><span>With camera</span><span>Exported</span></div></div>
+        <div class="g" id="week"></div>
+        <div class="sect"><h3>Earlier<span>14</span></h3></div>
+        <div class="g" id="earlier"></div>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="icons.js"></script>
+<script src="shared.js"></script>
+<script>
+const tile = (p) => `
+  <article class="tile" tabindex="0">
+    <div class="t">${p.blank ? `<div class="none">${icon('film')}No preview yet</div>` : `<img src="${p.src}" alt="">`}<span class="d">${p.dur}</span></div>
+    <div class="n"><b>${p.name}</b><small>${p.cam ? icon('camera', 'xs') : ''}${p.when}</small></div>
+  </article>`;
+document.getElementById('week').innerHTML = `<article class="tile newTile" tabindex="0"><div class="t"><span class="r">${icon('record')}</span>New recording</div></article>` + PROJECTS.slice(0, 5).map(tile).join('');
+document.getElementById('earlier').innerHTML = PROJECTS.slice(5).map(tile).join('');
+</script>
+</body>
+</html>

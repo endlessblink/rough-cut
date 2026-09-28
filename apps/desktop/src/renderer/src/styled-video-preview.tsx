@@ -448,6 +448,8 @@ export function StyledVideoPreview({
   onResolvedLayoutChange,
   selectedZoomFocal = null,
   onZoomFocalChange,
+  selectedFramingFocal = null,
+  onFramingFocalChange,
   censorDrawArmed = false,
   onCensorDraw,
   selectedCensor = null,
@@ -488,6 +490,12 @@ export function StyledVideoPreview({
   onResolvedLayoutChange?: (layout: ResolvedPreviewLayout) => void;
   selectedZoomFocal?: { id: string; x: number; y: number } | null;
   onZoomFocalChange?: (markerId: string, x: number, y: number) => void;
+  /**
+   * Selected framing range's held spot, normalized in the FULL source recording
+   * (not the cropped picture, which moves). Aimed with the same reticle as a zoom.
+   */
+  selectedFramingFocal?: { id: string; x: number; y: number } | null;
+  onFramingFocalChange?: (rangeId: string, x: number, y: number) => void;
   /** Censor tool is armed: the next drag on the preview draws a censor rectangle. */
   censorDrawArmed?: boolean;
   onCensorDraw?: (rect: { x: number; y: number; w: number; h: number }) => void;
@@ -606,6 +614,39 @@ export function StyledVideoPreview({
   // so the latest values are read through refs instead.
   const selectedZoomFocalRef = React.useRef(selectedZoomFocal);
   selectedZoomFocalRef.current = selectedZoomFocal;
+  const selectedFramingFocalRef = React.useRef(selectedFramingFocal);
+  selectedFramingFocalRef.current = selectedFramingFocal && onFramingFocalChange ? selectedFramingFocal : null;
+  // Source rect of the recording drawn this frame (the crop, when one is on).
+  const screenSourceViewportRef = React.useRef<{ x: number; y: number; w: number; h: number; sourceWidth: number; sourceHeight: number } | null>(null);
+  // The reticle is edited in the drawn picture's own 0–1 space. A zoom focal is
+  // stored that way; a framing focal is stored in full-source space because the
+  // crop itself moves, so it goes through the viewport drawn this frame.
+  const viewFocal = (): { id: string; x: number; y: number } | null => {
+    const zoomFocal = selectedZoomFocalRef.current;
+    if (zoomFocal) return zoomFocal;
+    const framing = selectedFramingFocalRef.current;
+    const viewport = screenSourceViewportRef.current;
+    if (!framing || !viewport) return framing;
+    return {
+      id: framing.id,
+      x: (framing.x * viewport.sourceWidth - viewport.x) / viewport.w,
+      y: (framing.y * viewport.sourceHeight - viewport.y) / viewport.h,
+    };
+  };
+  const activeFocalChange = selectedZoomFocal ? onZoomFocalChange : selectedFramingFocal ? onFramingFocalChange : undefined;
+  const commitFocal = (id: string, x: number, y: number) => {
+    if (selectedZoomFocalRef.current) {
+      onZoomFocalChange?.(id, x, y);
+      return;
+    }
+    const viewport = screenSourceViewportRef.current;
+    if (!viewport) return;
+    onFramingFocalChange?.(
+      id,
+      (viewport.x + x * viewport.w) / viewport.sourceWidth,
+      (viewport.y + y * viewport.h) / viewport.sourceHeight,
+    );
+  };
   const onCurrentTimeChangeRef = React.useRef(onCurrentTimeChange);
   onCurrentTimeChangeRef.current = onCurrentTimeChange;
   const onPlayingChangeRef = React.useRef(onPlayingChange);
@@ -668,7 +709,7 @@ export function StyledVideoPreview({
   React.useEffect(() => {
     if (timeMode === 'timeline' && isPlaying) return;
     previewInteractionDirtyRef.current = true;
-  }, [alignmentGridVisible, isPlaying, selectedZoomFocal?.id, selectedZoomFocal?.x, selectedZoomFocal?.y, timeMode]);
+  }, [alignmentGridVisible, isPlaying, selectedZoomFocal?.id, selectedZoomFocal?.x, selectedZoomFocal?.y, selectedFramingFocal?.id, selectedFramingFocal?.x, selectedFramingFocal?.y, timeMode]);
 
   React.useEffect(() => {
     if (typeof PerformanceObserver === 'undefined') return undefined;
@@ -2010,6 +2051,7 @@ export function StyledVideoPreview({
         ? { x: dragScreenRect.x * canvasWidth, y: dragScreenRect.y * canvasHeight, w: dragScreenRect.w * canvasWidth, h: dragScreenRect.h * canvasHeight }
         : resolveScreenFrame(frame.screenFrame, defaultScreenX, defaultScreenY, defaultScreenWidth, defaultScreenHeight, canvasWidth, canvasHeight);
       const screenSource = resolveScreenSourceViewport(sourceWidth, sourceHeight, frame.screenCrop);
+      screenSourceViewportRef.current = { ...screenSource, sourceWidth, sourceHeight };
       const screenDrawScale = Math.min(resolvedScreenFrame.w / screenSource.w, resolvedScreenFrame.h / screenSource.h);
       const screenWidth = snapPlaybackCoord(screenSource.w * screenDrawScale);
       const screenHeight = snapPlaybackCoord(screenSource.h * screenDrawScale);
@@ -2075,7 +2117,7 @@ export function StyledVideoPreview({
         drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAboveRef.current, renderFrame, editorLayerMediaRef.current, 'above', markOverlayLayerDirty, activeTimelinePlayback);
         // Keep the focus target visible/draggable even over a timeline gap,
         // anchored to the last-known screen rect.
-        const gapFocal = selectedZoomFocalRef.current;
+        const gapFocal = viewFocal();
         const gapRect = screenRectRef.current;
         if (!activeTimelinePlayback && gapFocal && gapRect) {
           const live = focalDragRef.current ?? { x: gapFocal.x, y: gapFocal.y };
@@ -2497,7 +2539,7 @@ export function StyledVideoPreview({
       // recording's frame.
       drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAboveRef.current, renderFrame, editorLayerMediaRef.current, 'above', markOverlayLayerDirty, activeTimelinePlayback);
       publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
-      const focalSelection = selectedZoomFocalRef.current;
+      const focalSelection = viewFocal();
       const focalScreenRect = screenRectRef.current;
       if (!activeTimelinePlayback && focalSelection && focalScreenRect && !parityCapture) {
         const live = focalDragRef.current ?? { x: focalSelection.x, y: focalSelection.y };
@@ -2762,7 +2804,7 @@ export function StyledVideoPreview({
         onPointerMove={(event) => {
           if (timeMode === 'timeline' && isPlaying) return;
           const canvas = canvasRef.current;
-          if (!canvas || (!onCameraFrameChange && !onScreenFrameChange && !onZoomFocalChange)) return;
+          if (!canvas || (!onCameraFrameChange && !onScreenFrameChange && !activeFocalChange)) return;
           const rect = canvas.getBoundingClientRect();
           const xCanvas = ((event.clientX - rect.left) * canvas.width) / rect.width;
           const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
@@ -2821,7 +2863,7 @@ export function StyledVideoPreview({
             return;
           }
           const screenRect = screenRectRef.current;
-          const overFocal = isPointNearFocalTarget(xCanvas, yCanvas, screenRect, selectedZoomFocal, onZoomFocalChange, canvas.width, canvas.height);
+          const overFocal = isPointNearFocalTarget(xCanvas, yCanvas, screenRect, viewFocal(), activeFocalChange, canvas.width, canvas.height);
           if (overFocal) {
             event.currentTarget.style.cursor = 'grab';
             return;
@@ -2832,7 +2874,7 @@ export function StyledVideoPreview({
           const cameraHandle = onCameraFrameChange && cameraRect ? resizeHandleAtPoint(xCanvas, yCanvas, cameraRect) : null;
           const screenHandle = onScreenFrameChange && screenRect ? resizeHandleAtPoint(xCanvas, yCanvas, screenRect) : null;
           // With a zoom selected, the screen body sets the focus point → crosshair.
-          const overScreenForFocal = !!onZoomFocalChange && !!selectedZoomFocal && !!screenRect && !overCamera && !cameraHandle && !screenHandle
+          const overScreenForFocal = !!activeFocalChange && !!screenRect && !overCamera && !cameraHandle && !screenHandle
             && xCanvas >= screenRect.x && xCanvas <= screenRect.x + screenRect.w && yCanvas >= screenRect.y && yCanvas <= screenRect.y + screenRect.h;
           const censorRectNow = selectedCensor && onCensorRectChange ? censorHandleRectRef.current : null;
           const censorHandleNow = censorRectNow ? resizeHandleAtPoint(xCanvas, yCanvas, censorRectNow) : null;
@@ -2911,13 +2953,14 @@ export function StyledVideoPreview({
               return;
             }
           }
-          if (!onCameraFrameChange && !onScreenFrameChange && !onZoomFocalChange) return;
+          if (!onCameraFrameChange && !onScreenFrameChange && !activeFocalChange) return;
           // Focus target wins over screen/camera drag since it sits inside them.
-          if (isPointNearFocalTarget(xCanvas, yCanvas, screenRectRef.current, selectedZoomFocal, onZoomFocalChange, canvas.width, canvas.height) && selectedZoomFocal) {
+          const pressedFocal = viewFocal();
+          if (pressedFocal && isPointNearFocalTarget(xCanvas, yCanvas, screenRectRef.current, pressedFocal, activeFocalChange, canvas.width, canvas.height)) {
             event.preventDefault();
             event.currentTarget.setPointerCapture(event.pointerId);
             focalDragOriginRef.current = { pointerId: event.pointerId };
-            focalDragRef.current = { x: selectedZoomFocal.x, y: selectedZoomFocal.y };
+            focalDragRef.current = { x: pressedFocal.x, y: pressedFocal.y };
             setIsDraggingFocal(true);
             previewInteractionDirtyRef.current = true;
             event.currentTarget.style.cursor = 'grabbing';
@@ -2987,7 +3030,7 @@ export function StyledVideoPreview({
           // While a zoom is selected, the whole video is a focus surface: a
           // click places the focus where you click, then a drag fine-tunes it.
           // This dominates screen-body move so clicks can't be hijacked.
-          if (selectedZoomFocal && onZoomFocalChange && insideScreen && screenRect && screenRect.w > 0 && screenRect.h > 0) {
+          if (activeFocalChange && insideScreen && screenRect && screenRect.w > 0 && screenRect.h > 0) {
             event.preventDefault();
             event.currentTarget.setPointerCapture(event.pointerId);
             focalDragOriginRef.current = { pointerId: event.pointerId };
@@ -3071,13 +3114,13 @@ export function StyledVideoPreview({
           const focalOrigin = focalDragOriginRef.current;
           if (focalOrigin && focalOrigin.pointerId === event.pointerId) {
             const drag = focalDragRef.current;
-            const focal = selectedZoomFocal;
+            const focal = selectedZoomFocal ?? selectedFramingFocal;
             focalDragOriginRef.current = null;
             focalDragRef.current = null;
             setIsDraggingFocal(false);
             event.currentTarget.style.cursor = '';
             try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-            if (drag && focal) onZoomFocalChange?.(focal.id, drag.x, drag.y);
+            if (drag && focal) commitFocal(focal.id, drag.x, drag.y);
             return;
           }
           const origin = cameraDragOriginRef.current;
@@ -3194,14 +3237,21 @@ export function StyledVideoPreview({
             <span className="visuallyHidden">{isPlaying ? 'Pause' : 'Play'}</span>
           </button>
           <span className="timecode">
-            {formatClock(currentTime)} / {formatClock(displayDuration)}
+            {formatClock(currentTime)} <span className="timecodeTotal">/ {formatClock(displayDuration)}</span>
           </span>
+          <span className="transportDivider" aria-hidden="true" />
+          <span className="transportChip" title="Video size — change it on the Frame tab">{aspectRatio === 'auto' ? 'Native' : aspectRatio}</span>
           {cursorOffscreen ? (
             <span className="cursorOffscreenHint" title={`Cursor is ${Math.round(cursorOffscreen.distance)}px outside the captured screen`}>
               Cursor off-screen {offscreenArrow(cursorOffscreen.side)}
             </span>
           ) : null}
-          <span className="transportHint"><kbd>Space</kbd> play/pause</span>
+          {selectedZoomFocal && onZoomFocalChange && !isPlaying ? (
+            <span className="transportHint" data-testid="zoom-aim-hint">Click or drag on the picture to aim this zoom</span>
+          ) : null}
+          {!selectedZoomFocal && selectedFramingFocal && onFramingFocalChange && !isPlaying ? (
+            <span className="transportHint" data-testid="framing-aim-hint">Click the picture to aim this hold</span>
+          ) : null}
         </div>
       ) : null}
       {error ? <p className="error">Video failed to load: {error}</p> : null}
@@ -3713,11 +3763,13 @@ function drawEditorFrameControls(
   presentation?: Partial<CameraPresentation>,
 ) {
   if (!rect) return;
-  const handleSize = Math.max(14, Math.min(26, Math.min(rect.w, rect.h) * 0.12));
+  // A quiet selection: thin solid outline in the object's color, small white round
+  // handles ringed in that color (Figma / Screen Studio style). Hit areas are separate.
+  const handleRadius = Math.max(5, Math.min(8, Math.min(rect.w, rect.h) * 0.035));
   ctx.save();
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2;
   ctx.strokeStyle = color;
-  ctx.setLineDash([12, 8]);
+  ctx.globalAlpha = 0.9;
   if (presentation?.shape === 'circle') {
     ctx.beginPath();
     ctx.arc(rect.x + rect.w / 2, rect.y + rect.h / 2, Math.min(rect.w, rect.h) / 2, 0, Math.PI * 2);
@@ -3725,14 +3777,17 @@ function drawEditorFrameControls(
   } else {
     ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
   }
-  ctx.setLineDash([]);
-  ctx.fillStyle = color;
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.78)';
-  ctx.lineWidth = 4;
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 1;
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
   const handles = presentation?.shape === 'circle' ? circleFrameHandles(rect) : frameResizeHandles(rect);
   for (const handle of handles) {
     ctx.beginPath();
-    ctx.roundRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize, 5);
+    ctx.arc(handle.x, handle.y, handleRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }
@@ -3788,10 +3843,12 @@ function resolveScreenSourceViewport(sourceWidth: number, sourceHeight: number, 
     return { x: 0, y: 0, w: Math.max(1, sourceWidth || 1), h: Math.max(1, sourceHeight || 1) };
   }
   if (crop?.enabled !== true) return { x: 0, y: 0, w: sourceWidth, h: sourceHeight };
-  const x = Math.max(0, Math.min(sourceWidth - 1, Math.round(crop.x)));
-  const y = Math.max(0, Math.min(sourceHeight - 1, Math.round(crop.y)));
-  const w = Math.max(1, Math.min(sourceWidth - x, Math.round(crop.width)));
-  const h = Math.max(1, Math.min(sourceHeight - y, Math.round(crop.height)));
+  const w = Math.max(1, Math.min(sourceWidth, Math.round(crop.width)));
+  const h = Math.max(1, Math.min(sourceHeight, Math.round(crop.height)));
+  // Position stays sub-pixel: a following crop (Story · 9:16) pans in fractions
+  // of a pixel, and rounding here would turn a smooth glide into steps.
+  const x = Math.max(0, Math.min(sourceWidth - w, crop.x));
+  const y = Math.max(0, Math.min(sourceHeight - h, crop.y));
   return { x, y, w, h };
 }
 

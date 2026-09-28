@@ -393,15 +393,43 @@ export function migrate(doc: unknown): ProjectDocument {
   }
 
   if (version === CURRENT_SCHEMA_VERSION) {
-    return validateProject(canonicalizeProjectDocument(doc as ProjectDocument));
+    return validateProject(canonicalizeProjectDocument(repairLegacyAssets(record) as unknown as ProjectDocument));
   }
 
   const chain = getMigrationChain(version);
-  let current = { ...record };
+  let current = repairLegacyAssets(record);
 
   for (const migration of chain) {
     current = migration.migrate(current);
   }
 
   return validateProject(canonicalizeProjectDocument(current as unknown as ProjectDocument));
+}
+
+// Older builds saved "no thumbnail yet" as null and a switched-off crop as a
+// bare `{ enabled: false }`. The schema only allows those fields to be absent
+// or complete, which made the projects impossible to open.
+function repairLegacyAssets(record: Record<string, unknown>): Record<string, unknown> {
+  const assets = record['assets'];
+  if (!Array.isArray(assets)) return { ...record };
+  return { ...record, assets: assets.map(repairLegacyAsset) };
+}
+
+function repairLegacyAsset(asset: unknown): unknown {
+  if (typeof asset !== 'object' || asset === null) return asset;
+  const { thumbnailPath, presentation, ...rest } = asset as Record<string, unknown>;
+  const repaired: Record<string, unknown> = { ...rest };
+  if (thumbnailPath !== null && thumbnailPath !== undefined) repaired['thumbnailPath'] = thumbnailPath;
+  if (presentation !== undefined) repaired['presentation'] = repairLegacyPresentation(presentation);
+  return repaired;
+}
+
+function repairLegacyPresentation(presentation: unknown): unknown {
+  if (typeof presentation !== 'object' || presentation === null) return presentation;
+  const repaired = { ...(presentation as Record<string, unknown>) };
+  for (const key of ['screenCrop', 'cameraCrop']) {
+    const crop = repaired[key] as Record<string, unknown> | undefined;
+    if (crop && crop['enabled'] === false && typeof crop['width'] !== 'number') delete repaired[key];
+  }
+  return repaired;
 }

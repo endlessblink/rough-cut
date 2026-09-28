@@ -115,7 +115,7 @@ test('recording editor supports exact point cuts by click and keyboard', () => {
   assert.match(source, /onSplitAtPlayhead=\{splitAtPlayhead\}/);
   assert.match(source, /aria-label="Range cut mode"[\s\S]+onCutModeToggle/);
   const rangeToolbar = source.match(/aria-label="Range cut mode"[\s\S]{0,500}/)?.[0] ?? '';
-  assert.match(rangeToolbar, />Range<\/button>/);
+  assert.match(rangeToolbar, />Select range<\/button>/);
   assert.doesNotMatch(rangeToolbar, /PhosphorScissors/);
   assert.match(styles, /\.timelineRangeButton\s*\{[\s\S]+min-width:\s*3\.25rem[\s\S]+width:\s*auto/);
 });
@@ -194,7 +194,8 @@ test('recording editor makes clip selection and ripple deletion unmistakable', (
   assert.match(source, /event\.key === 'Delete' \|\| event\.key === 'Backspace'[\s\S]+deleteScreenClip\(selectedScreenClipId\)/);
   assert.match(source, /className="clipBody"[\s\S]+onKeyDown=\{\(event\) => \{ if \(\(event\.key === 'Delete' \|\| event\.key === 'Backspace'\)/);
   assert.match(styles, /\.clipBar\.selectedClip\s*\{[\s\S]+box-shadow:/);
-  assert.match(styles, /\.projectEditor\.setupClosed\s*\{[\s\S]+grid-template-columns:\s*4rem 0 minmax\(0, 1fr\) 21rem/);
+  // Studio layout: stage | settings panel | tool strip; hiding the panel gives its width to the stage.
+  assert.match(styles, /\.projectEditor\.setupClosed,\s*\.projectEditor\.setupClosed\.inspectorClosed\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\) 0 var\(--studio-rail-w\)/);
   assert.doesNotMatch(styles, /\.projectEditor\.timelineFocus > \.setupBoard/);
   assert.doesNotMatch(styles, /\.projectEditor\.timelineFocus > \.inspector/);
   assert.match(styles, /\.playhead\s*\{[\s\S]+width: 3px/);
@@ -213,21 +214,23 @@ test('recording editor makes the left panel state explicit', () => {
   assert.match(styles, /\.toolPanelToggle\[aria-pressed="true"\]/);
 });
 
-test('recording editor makes the right export panel state explicit', () => {
+test('export is a pop-over opened from the top bar, not a column that squeezes the stage', () => {
   assert.match(source, /data-inspector-state=\{inspectorOpen \? 'expanded' : 'collapsed'\}/);
-  assert.match(source, /className="inspectorRailToggle"/);
+  assert.match(source, /data-ui-region="export-popover-toggle"/);
   assert.match(source, /aria-label=\{inspectorOpen \? 'Hide export panel' : 'Show export panel'\}/);
   assert.match(source, /title=\{inspectorOpen \? 'Hide export panel' : 'Show export panel'\}/);
-  assert.match(styles, /\.projectEditor\.inspectorClosed\s*\{[\s\S]+minmax\(0, 0\)/);
-  assert.match(styles, /\.inspectorRailToggle\s*\{[\s\S]+position:\s*absolute[\s\S]+right:\s*0/);
-  assert.match(styles, /\.inspectorRailToggle\[aria-pressed="true"\]/);
+  // Stays mounted while closed so export actions and status keep their state.
+  assert.match(source, /data-ui-region="right-inspector" hidden=\{!inspectorOpen\}/);
+  assert.match(styles, /\.projectEditor > \.inspector\s*\{[\s\S]+position:\s*absolute/);
+  assert.match(styles, /\.projectEditor > \.inspector\[hidden\]\s*\{\s*display:\s*none/);
+  assert.doesNotMatch(source, /className="inspectorRailToggle"/);
 });
 
 test('selecting on the timeline never reopens side panels the user hid', () => {
   // 2026-09-26: with both panels hidden, clicking the playhead or a clip
   // re-opened the left panel. Only an explicit tool pick may reveal it.
   assert.match(source, /onActiveToolChange\('camera', \{ revealPanel: false \}\)/);
-  assert.match(source, /onActiveToolChange\('timeline', \{ revealPanel: false \}\)/);
+  assert.match(source, /onActiveToolChange\('zoom', \{ revealPanel: false \}\)/);
   assert.match(source, /if \(options\?\.revealPanel !== false\) setSetupBoardOpen\(true\);/);
   // Re-clicking the view tab you are already on keeps your panel layout.
   assert.match(source, /if \(nextView === 'editor' && activeAppView !== 'editor'\) \{\n\s+setSetupBoardOpen\(true\);/);

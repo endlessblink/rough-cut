@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { probeVideoStreamStartOffsets } from './media-probe.mjs';
-import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
+import { buildScreenCropTrack, createCropPanSendcmdLayer, createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import {
   resolveCensorBlurSpacing,
@@ -506,16 +506,51 @@ export async function exportStyledProjectToMp4({
       });
     },
   });
+  const exportTotalFrames = recording.timelineDurationFrames ?? recording.duration;
+  // Story · 9:16: the screen crop follows the cursor and/or holds framing
+  // ranges. Resolved per exported frame with the preview's own math.
+  const screenCropTrack = buildScreenCropTrack({
+    screenCrop: recording.presentation?.screenCrop,
+    framingRanges: recording.presentation?.framingRanges,
+    sourceCursorEvents: recording.sourceCursorEvents ?? recording.cursorEvents,
+    sourceWidth: recording.width,
+    sourceHeight: recording.height,
+    fps: recording.fps,
+    totalFrames: exportTotalFrames,
+    segments: recording.sourceTimingSegments ?? [{
+      timelineIn: 0,
+      timelineOut: exportTotalFrames,
+      sourceIn: recording.sourceIn ?? 0,
+      sourceOut: (recording.sourceIn ?? 0) + exportTotalFrames,
+    }],
+  });
   const zoomLayer = await createZoomSendcmdLayer({
     markers: Array.isArray(recording.zoomMarkers) ? recording.zoomMarkers : [],
     cursorEvents: recording.cursorEvents,
     sourceWidth: recording.width,
     sourceHeight: recording.height,
     fps: recording.fps,
-    totalFrames: recording.timelineDurationFrames ?? recording.duration,
+    totalFrames: exportTotalFrames,
     // Zoom works inside the screen crop, as in the preview.
     viewport: resolveManualCropRect(recording.presentation?.screenCrop, recording.width, recording.height),
+    viewportAt: screenCropTrack ? (frame) => screenCropTrack[Math.min(frame, screenCropTrack.length - 1)] : null,
   });
+  // Without a zoom the moving crop drives the crop filter on its own.
+  const cropPanLayer = screenCropTrack && !zoomLayer
+    ? await createCropPanSendcmdLayer(screenCropTrack, recording.fps, {
+        sourceWidth: recording.width,
+        sourceHeight: recording.height,
+        renderSize: resolveStyledScreenRenderSize({
+          width: canvas.width,
+          height: canvas.height,
+          screenPadding: presentationStyle.screenPadding,
+          screenFrame: recording.presentation?.screenFrame ?? null,
+          screenCrop: recording.presentation?.screenCrop ?? null,
+          sourceWidth: recording.width,
+          sourceHeight: recording.height,
+        }),
+      })
+    : null;
   const includeTimelineAudio = Array.isArray(recording.timelineSegments)
     && recording.timelineSegments.length > 0
     && await sourceHasAudioStream(recording.filePath, signal);
@@ -555,6 +590,8 @@ export async function exportStyledProjectToMp4({
       timelineAudioSegments: includeTimelineAudio ? recording.timelineSegments ?? [] : [],
       zoomCropFilter: zoomLayer?.filterFragment ?? null,
       zoomSendcmdPath: zoomLayer?.path ?? null,
+      screenCropPanFilter: cropPanLayer?.filterFragment ?? null,
+      screenCropPanSendcmdPath: cropPanLayer?.path ?? null,
       sourceStabilizationTransform: sourceStabilization,
       cameraStabilizationTransform: cameraStabilization,
       cameraInputPath: recording.camera?.filePath ?? null,
@@ -641,6 +678,7 @@ export async function exportStyledProjectToMp4({
   } finally {
     if (cursorLayer) await cursorLayer.cleanup();
     if (zoomLayer) await zoomLayer.cleanup();
+    if (cropPanLayer) await cropPanLayer.cleanup();
   }
   const exported = await stat(outputPath);
   onProgress({ phase: 'complete', progress: 1 });
@@ -767,6 +805,10 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
     timelineDurationFrames,
     timelineSegments,
     cursorEvents: mapCursorEventsToTimeline(recording.cursorEvents, timingSegments),
+    // A moving screen crop is resolved in recording frames, like the preview,
+    // so it keeps the unmapped cursor and the timeline→recording mapping.
+    sourceCursorEvents: recording.cursorEvents,
+    sourceTimingSegments: timingSegments,
     camera: recording.camera && cameraClips[0]
       ? { ...recording.camera, sourceInFrames: cameraClips[0].sourceIn, timelineSegments: cameraTimelineSegments }
       : recording.camera,
@@ -1347,6 +1389,8 @@ export function buildStyledExportArgs({
   censorRegions = [],
   zoomCropFilter = null,
   zoomSendcmdPath = null,
+  screenCropPanFilter = null,
+  screenCropPanSendcmdPath = null,
   sourceStabilizationTransform = null,
   cameraStabilizationTransform = null,
   cameraInputPath = null,
@@ -1427,7 +1471,11 @@ export function buildStyledExportArgs({
     // The zoom window already lies inside the screen crop, so a second fixed
     // crop here would reach outside the zoomed frame (ffmpeg crashed on that).
     ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},${screenScaleStep}`
-    : `${screenManualCropStep ?? `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2`},${screenScaleStep}`;
+    // A crop that moves (follows the cursor / holds framing ranges): same size
+    // as the manual crop, its x/y driven per frame.
+    : screenManualCropStep && screenCropPanFilter && screenCropPanSendcmdPath
+      ? `${screenCropPanFilter},sendcmd=f=${escapeFilterPath(screenCropPanSendcmdPath)},${screenScaleStep}`
+      : `${screenManualCropStep ??`crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2`},${screenScaleStep}`;
   const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
@@ -1809,6 +1857,21 @@ function resolveScreenOverlayFrame(canvasWidth, canvasHeight, defaultWidth, defa
     h: defaultHeight,
     custom: false,
   };
+}
+
+/**
+ * Size the (cropped) screen is drawn at in the styled export — the same maths
+ * `buildStyledExportArgs` uses, so a moving crop can be cut at that size.
+ */
+export function resolveStyledScreenRenderSize({ width, height, screenPadding = 0, screenFrame = null, screenCrop = null, sourceWidth, sourceHeight }) {
+  const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
+  const maxVideoWidth = Math.round(width - safePadding * 2);
+  const maxVideoHeight = Math.round(height - safePadding * 2);
+  const frame = resolveScreenOverlayFrame(width, height, maxVideoWidth, maxVideoHeight, screenFrame);
+  const cropped = buildCameraManualCropStep(screenCrop, sourceWidth, sourceHeight);
+  const layoutWidth = cropped && Number.isFinite(screenCrop?.width) && screenCrop.width > 0 ? screenCrop.width : sourceWidth;
+  const layoutHeight = cropped && Number.isFinite(screenCrop?.height) && screenCrop.height > 0 ? screenCrop.height : sourceHeight;
+  return resolveContainedSize(layoutWidth, layoutHeight, frame.w, frame.h);
 }
 
 function resolveContainedSize(sourceWidth, sourceHeight, maxWidth, maxHeight) {

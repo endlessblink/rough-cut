@@ -50,9 +50,11 @@ try {
     const video = document.querySelector('video');
     return video && video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0;
   });
-  await page.waitForSelector('[data-export-action="styled"]', { timeout: 10000 });
+  await page.locator('[data-ui-region="export-popover-toggle"][aria-pressed="false"]').click().catch(() => {});
+  await page.waitForSelector('[data-export-format="styled"]', { timeout: 10000 });
   await captureElectronPage(app, page, appBeforePath);
-  await page.locator('[data-export-action="styled"]').click();
+  await page.locator('[data-export-format="styled"]').click();
+  await page.locator('[data-export-action="export"]').click();
   await page.waitForFunction(() => document.body.textContent?.includes('Exported to:'), null, { timeout: 180000 });
   await captureElectronPage(app, page, appAfterPath).catch(async (err) => {
     await writeFile(appAfterPath, `after-export screenshot unavailable: ${err.message}\n`, 'utf8');

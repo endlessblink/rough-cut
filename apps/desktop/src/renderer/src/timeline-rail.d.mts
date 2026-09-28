@@ -21,6 +21,7 @@ export type TimelineRegion = {
   kind?: string;
   label?: string;
   strength?: number;
+  focalPoint?: { x: number; y: number };
 };
 
 export type TimelineEventMarker = {
@@ -42,6 +43,7 @@ export type TimelineModel = {
     screen: readonly TimelineRegion[];
     zoom: readonly TimelineRegion[];
     censor: readonly TimelineRegion[];
+    framing: readonly TimelineRegion[];
     clicks: readonly TimelineEventMarker[];
     camera: readonly TimelineRegion[];
     audio: readonly TimelineRegion[];

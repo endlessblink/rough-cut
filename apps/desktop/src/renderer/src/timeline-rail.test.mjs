@@ -18,6 +18,7 @@ import {
   timeToPercent,
 } from './timeline-rail.mjs';
 import { addCensorRegionAt } from './censor-markers.mjs';
+import { addFramingRangeAt } from './framing-ranges.mjs';
 
 /** Minimal recording project with one full-length screen clip. */
 function recordingDocument(duration = 300) {
@@ -366,6 +367,27 @@ test('censor lane places regions through the screen clips like zoom markers do',
   assert.equal(model.lanes.censor[0].startFrame, 30);
   assert.equal(model.lanes.censor[0].endFrame, 90);
   assert.ok(model.lanes.censor[0].width > 0);
+});
+
+test('framing lane places holds through the screen clips and carries the aim', () => {
+  const document = addFramingRangeAt(recordingDocument(), {
+    startFrame: 60,
+    endFrame: 120,
+    focalPoint: { x: 0.8, y: 0.4 },
+  });
+
+  const model = buildTimelineModel({
+    document,
+    recording: { duration: 300, fps: 30 },
+    currentTimeSec: 0,
+  });
+
+  assert.equal(model.lanes.framing.length, 1);
+  assert.equal(model.lanes.framing[0].id, 'framing-60');
+  assert.equal(model.lanes.framing[0].startFrame, 60);
+  assert.equal(model.lanes.framing[0].endFrame, 120);
+  assert.deepEqual(model.lanes.framing[0].focalPoint, { x: 0.8, y: 0.4 });
+  assert.ok(model.lanes.framing[0].width > 0);
 });
 
 test('censor lane exposes the mode so the chip can show solid vs pixelated', () => {

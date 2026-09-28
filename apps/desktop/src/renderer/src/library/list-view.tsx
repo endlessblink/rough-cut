@@ -1,5 +1,6 @@
 import type { LibraryView, LibraryViewProps, ProjectSummary } from './types';
 import { formatDuration, formatRelativeTime } from './format';
+import { formatProjectName } from './project-name.mjs';
 import { CardCheckbox } from './checkbox-chip';
 
 function ListView({ summaries, selection, onCardClick, onToggleSelected, onCardContextMenu }: LibraryViewProps) {
@@ -65,7 +66,7 @@ function ListRow({ summary, selected, onCardClick, onToggleSelected, onCardConte
           <span className="galleryRowThumbPlaceholder" />
         )}
       </span>
-      <span className="galleryRowName" title={summary.name}>{summary.name}</span>
+      <span className="galleryRowName" title={summary.name}>{formatProjectName(summary.name)}</span>
       <span className="galleryRowRes">{summary.resolutionLabel ?? '—'}</span>
       <span className="galleryRowDuration">{formatDuration(summary.durationMs)}</span>
       <span className="galleryRowCam">{summary.hasCamera ? 'Cam' : '—'}</span>

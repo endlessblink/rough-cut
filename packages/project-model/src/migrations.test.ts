@@ -848,4 +848,36 @@ describe('migrations', () => {
     expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.exportSettings.keepClickSounds).toBe(false);
   });
+
+  it('opens legacy documents that saved a missing thumbnail as null', () => {
+    const project = createProject();
+    const asset = createAsset('recording', '/tmp/legacy.webm', { duration: 30 });
+    const legacy = {
+      ...project,
+      version: 10,
+      assets: [{ ...asset, thumbnailPath: null }],
+    };
+
+    const result = migrate(legacy);
+    expect(result.assets[0]).not.toHaveProperty('thumbnailPath');
+
+    const current = { ...project, assets: [{ ...asset, thumbnailPath: null }] };
+    expect(migrate(current).assets[0]).not.toHaveProperty('thumbnailPath');
+  });
+
+  it('opens legacy documents that saved a switched-off crop without geometry', () => {
+    const project = createProject();
+    const asset = createAsset('recording', '/tmp/legacy.webm', {
+      duration: 30,
+      presentation: createDefaultRecordingPresentation(),
+    });
+    const legacy = {
+      ...project,
+      version: 8,
+      assets: [{ ...asset, presentation: { ...asset.presentation, screenCrop: { enabled: false } } }],
+    };
+
+    const result = migrate(legacy);
+    expect(result.assets[0]?.presentation).not.toHaveProperty('screenCrop');
+  });
 });
