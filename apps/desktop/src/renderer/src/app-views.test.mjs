@@ -14,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 //   1. A view id is removed from the AppViewId union but a render branch
 //      in main.tsx still references it — typecheck catches the union
 //      mismatch, but a missed branch in main.tsx remains.
-//   2. APP_VIEWS gets reordered (e.g. someone drops NLE before Recording
+//   2. APP_VIEWS gets reordered (e.g. someone drops AI before Recording
 //      or between Projects and Recording edit) and the bottom strip no longer matches the
 //      product spec.
 //   3. The URL ?view= allowlist in main.tsx falls out of sync with the
@@ -55,7 +55,7 @@ function extractAppViewEntries(source) {
   return entries;
 }
 
-test('AppViewId union and APP_VIEWS registry agree on the five shipped views', async () => {
+test('AppViewId union and APP_VIEWS registry agree on the four shipped views', async () => {
   const source = await readSource('app-views.ts');
   const ids = extractAppViewIds(source);
   const entries = extractAppViewEntries(source);
@@ -64,7 +64,6 @@ test('AppViewId union and APP_VIEWS registry agree on the five shipped views', a
     { id: 'recording', label: 'Recording', iconName: 'record' },
     { id: 'projects', label: 'Projects', iconName: 'folder' },
     { id: 'editor', label: 'Recording edit', iconName: 'timeline' },
-    { id: 'nle', label: 'Editor', iconName: 'sliders' },
     { id: 'ai', label: 'AI', iconName: 'sparkle' },
   ];
 

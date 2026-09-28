@@ -33,12 +33,10 @@ test('visual proof gate recognizes renderer behavior and presentation files', ()
   assert.equal(isUiPath('apps/desktop/src/renderer/src/editor.tsx'), true);
   assert.equal(isUiPath('apps/desktop/src/renderer/src/styles.css'), true);
   assert.equal(isUiPath('apps/desktop/src/renderer/src/model.mjs'), true);
-  assert.equal(isUiPath('vendor/freecut/src/main.tsx'), true);
 });
 
 test('visual proof gate ignores backend, generated, and documentation files', () => {
-  assert.equal(isUiPath('apps/desktop/src/main/freecut-host.mjs'), true);
-  assert.equal(isUiPath('apps/desktop/src/main/freecut-window.mjs'), true);
+  assert.equal(isUiPath('apps/desktop/src/main/export-service.mjs'), false);
   assert.equal(isUiPath('apps/desktop/src/main/index.mjs'), true);
   assert.equal(isUiPath('apps/desktop/dist/renderer/index.js'), false);
   assert.equal(isUiPath('DESIGN.md'), false);
@@ -124,19 +122,8 @@ function reviewArtifact(overrides = {}) {
       interactionReportPath: runtimeScreenshotPaths.after,
       interactionReportSha256: sha256(runtimeScreenshotPaths.after),
     },
-    sharedEditor: {
-      projectIdentity: 'shared-rough-cut-project',
-      timelineSource: 'live-shared-timeline',
-      programMediaRole: 'compositor-preview-only',
-      programMediaIds: [],
-      roundTrip: 'verified',
-    },
     runtimeEvidence: {
       projectId: 'project-123456',
-      eventSource: 'rough-cut-host-sync',
-      observed: true,
-      freecutMarker: { version: 'vendored-freecut-1', embedded: true, buildHash: 'build-hash' },
-      editorSurface: { ready: true, projectId: 'project-123456' },
       before: { projectId: 'project-123456', screenshotPath: runtimeScreenshotPaths.before, screenshotSha256: sha256(runtimeScreenshotPaths.before), timelineFingerprint: 'before' },
       change: { projectId: 'project-123456', screenshotPath: runtimeScreenshotPaths.change, screenshotSha256: sha256(runtimeScreenshotPaths.change), timelineFingerprint: 'change' },
       after: { projectId: 'project-123456', screenshotPath: runtimeScreenshotPaths.after, screenshotSha256: sha256(runtimeScreenshotPaths.after), timelineFingerprint: 'after' },
@@ -242,47 +229,3 @@ test('visual proof rejects a pinned dock entry that still launches development',
   writeFileSync(testPinnedEntryPath, 'Exec=env ROUGH_CUT_DOCK_LAUNCH=1 /tmp/dist/rough-cut-mvp-linux-x64/dock-launch.sh\n');
 });
 
-test('FreeCut visual proof rejects flattened program-media editing', () => {
-  const review = reviewArtifact({ sharedEditor: {
-    projectIdentity: 'shared-rough-cut-project',
-    timelineSource: 'live-shared-timeline',
-    programMediaRole: 'editable-timeline-media',
-    programMediaIds: ['asset__program'],
-    roundTrip: 'unverified',
-  } });
-  assert.match(
-    validateReviewArtifact(review, ['apps/desktop/src/renderer/src/freecut-editor-surface.tsx']),
-    /program media is still being treated as editable timeline media/i,
-  );
-  const duplicateFreecut = reviewArtifact({ sharedEditor: {
-    projectIdentity: 'shared-rough-cut-project',
-    timelineSource: 'live-shared-timeline',
-    programMediaRole: 'compositor-preview-only',
-    programMediaIds: ['asset__program'],
-    roundTrip: 'verified',
-  } });
-  assert.match(
-    validateReviewArtifact(duplicateFreecut, ['apps/desktop/src/renderer/src/freecut-editor-surface.tsx']),
-    /synthetic program media remains/i,
-  );
-});
-
-test('FreeCut proof accepts the shared source bridge after synthetic timeline media is removed', () => {
-  assert.equal(
-    validateReviewArtifact(
-      reviewArtifact(),
-      ['apps/desktop/src/renderer/src/freecut-editor-surface.tsx'],
-      { root: resolve(import.meta.dirname, '..') },
-    ),
-    null,
-  );
-});
-
-test('FreeCut proof rejects a review without observed runtime before/change/after evidence', () => {
-  const review = reviewArtifact();
-  delete review.runtimeEvidence;
-  assert.match(
-    validateReviewArtifact(review, ['apps/desktop/src/renderer/src/freecut-editor-surface.tsx']),
-    /machine-linked runtime evidence/i,
-  );
-});

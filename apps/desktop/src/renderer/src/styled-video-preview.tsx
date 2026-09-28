@@ -456,22 +456,8 @@ export function StyledVideoPreview({
   onCensorRectChange,
   mediaUrlOverride,
   cameraMediaUrlOverride,
-  overlayLayersAbove = [],
-  overlayLayersBelow = [],
-  recordingAbsent = false,
 }: {
   project: StyledPreviewProject;
-  /** Editor layers on tracks above the recording. */
-  overlayLayersAbove?: EditorOverlayLayer[];
-  /** Editor layers on tracks below the recording. */
-  overlayLayersBelow?: EditorOverlayLayer[];
-  /**
-   * True where the recording clip does not reach: before it starts, after it
-   * ends, or inside a hole cut out of it. The recording occupies a range like
-   * any other clip, and outside that range the timeline is empty and must render
-   * empty — layers on other tracks still draw.
-   */
-  recordingAbsent?: boolean;
   seekTimeSec?: number;
   trimStartSec?: number;
   trimEndSec?: number;
@@ -548,15 +534,6 @@ export function StyledVideoPreview({
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const webglCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const screenLayerRendererRef = React.useRef<ScreenLayerRenderer | null>(null);
-  // Decode surfaces for Editor video layers, kept across frames so playback
-  // does not re-create an element (and re-buffer) on every draw.
-  const editorLayerMediaRef = React.useRef<Map<string, HTMLVideoElement>>(new Map());
-  // The draw loop is a long-lived closure that is not restarted when layers
-  // change, so it must read them through a ref or it would keep drawing the
-  // stack that existed when the loop started.
-  const overlayLayersAboveRef = React.useRef<EditorOverlayLayer[]>(overlayLayersAbove);
-  const overlayLayersBelowRef = React.useRef<EditorOverlayLayer[]>(overlayLayersBelow);
-  const recordingAbsentRef = React.useRef(recordingAbsent);
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
@@ -1293,26 +1270,6 @@ export function StyledVideoPreview({
   // Same reasoning as cutRangesKey: the split arrays are rebuilt on every render,
   // so identity says nothing. Compare content, and hand the loop the new stack
   // through refs rather than restarting it.
-  // An overlay layer's decoder finishing a frame is not a timeline event, so
-  // nothing else would repaint a parked playhead with the picture that just
-  // became available.
-  const markOverlayLayerDirty = React.useCallback(() => {
-    previewInteractionDirtyRef.current = true;
-  }, []);
-
-  const overlayLayersKey = JSON.stringify([overlayLayersAbove, overlayLayersBelow, recordingAbsent]);
-  React.useEffect(() => {
-    overlayLayersAboveRef.current = overlayLayersAbove;
-    overlayLayersBelowRef.current = overlayLayersBelow;
-    recordingAbsentRef.current = recordingAbsent;
-    // A layer added, moved between tracks or removed in the Editor has to show
-    // immediately, including while the playhead is parked — without this the
-    // paused frame is considered already drawn and the change appears only
-    // after the next seek or playback.
-    previewInteractionDirtyRef.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, see above
-  }, [overlayLayersKey]);
-
   React.useEffect(() => {
     const initialVideo = videoRef.current;
     const canvas = canvasRef.current;
@@ -2091,16 +2048,10 @@ export function StyledVideoPreview({
       if (!activeTimelinePlayback && editablePreview && alignmentGridVisibleRef.current && !parityCapture) {
         drawAlignmentGrid(ctx, canvasWidth, canvasHeight);
       }
-      // Layers on tracks BELOW the recording. Track order is z-order, and the
-      // recording is just another clip on a track — it is not automatically
-      // on top of or underneath anything.
-      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersBelowRef.current, renderFrame, editorLayerMediaRef.current, 'below', markOverlayLayerDirty, activeTimelinePlayback);
       markDrawPhase('background');
-      // Empty timeline position: either this view's own resolver found no clip,
-      // or the Editor placed the recording somewhere that does not cover the
-      // playhead. Either way there is no recording to draw here — the frame is
-      // empty and only the other tracks have anything to say.
-      if ((timeMode === 'timeline' && !screenLayer) || recordingAbsentRef.current) {
+      // Empty timeline position: no clip covers the playhead, so there is no
+      // recording to draw here and the frame is empty.
+      if (timeMode === 'timeline' && !screenLayer) {
         publishCursorOffscreenStatus(null);
         // Black, not the styled backdrop. The background is part of how the
         // recording is presented; where the recording does not reach there is no
@@ -2110,11 +2061,6 @@ export function StyledVideoPreview({
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
         ctx.restore();
-        // Both groups draw over the empty frame — a clip in a gap is visible
-        // whichever track it is on — and the black fill above just erased the
-        // below pass, so it is repeated here. Order between them still holds.
-        drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersBelowRef.current, renderFrame, editorLayerMediaRef.current, 'below', markOverlayLayerDirty, activeTimelinePlayback);
-        drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAboveRef.current, renderFrame, editorLayerMediaRef.current, 'above', markOverlayLayerDirty, activeTimelinePlayback);
         // Keep the focus target visible/draggable even over a timeline gap,
         // anchored to the last-known screen rect.
         const gapFocal = viewFocal();
@@ -2329,11 +2275,6 @@ export function StyledVideoPreview({
             offsetY,
           });
         }
-        // The accelerated compositor draws the entire recording — screen, cursor
-        // and camera PiP — in one call, and this branch returns before the
-        // Canvas2D path below. Without this the layers a user added in the
-        // Editor disappear the moment playback goes accelerated.
-        drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAboveRef.current, renderFrame, editorLayerMediaRef.current, 'above', markOverlayLayerDirty, activeTimelinePlayback);
         markDrawPhase('accelerated-frame');
         publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
         markDrawPhase('layout-publish-overlays');
@@ -2531,13 +2472,6 @@ export function StyledVideoPreview({
         if (!activeTimelinePlayback && onCameraFrameChange && !parityCapture) drawEditorFrameControls(ctx, cameraFrameForDraw, '#f59e0b', frame.cameraPresentation);
       }
       markDrawPhase('camera-pip');
-      // Layers on tracks ABOVE the recording, drawn once the WHOLE recording
-      // composite is down — screen, cursor and camera PiP alike. The recording
-      // is a clip on a track like any other, so nothing belonging to it may
-      // survive on top of a track above it. Outside the zoom/screen transform on
-      // purpose: these sit on the program, like titles, not inside the
-      // recording's frame.
-      drawEditorOverlayLayers(ctx, canvasWidth, canvasHeight, overlayLayersAboveRef.current, renderFrame, editorLayerMediaRef.current, 'above', markOverlayLayerDirty, activeTimelinePlayback);
       publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
       const focalSelection = viewFocal();
       const focalScreenRect = screenRectRef.current;
@@ -3549,175 +3483,6 @@ function alignRectInCanvas(
     x: Math.max(0, Math.min(canvasWidth - rect.w, next.x)),
     y: Math.max(0, Math.min(canvasHeight - rect.h, next.y)),
   };
-}
-
-/**
- * A layer the advanced Editor added to the shared timeline. Only the fields this
- * compositor needs to draw it; the Editor owns the rest.
- */
-export type EditorOverlayLayer = {
-  id?: string;
-  type?: string;
-  from?: number;
-  durationInFrames?: number;
-  mediaId?: string;
-  src?: string;
-  text?: string;
-  sourceStart?: number;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-};
-
-/**
- * Decode surfaces for Editor video layers, keyed by source url.
- *
- * These follow the same rule as the recording's own decode surfaces: the element
- * NEVER owns the clock. It is seeked from canonical timeline time and drawn; a
- * stalled decode must not be able to stop or slow the compositor, which is why
- * every draw is guarded on readyState rather than awaited.
- */
-/**
- * The last frame each overlay layer successfully decoded.
- *
- * A seek drops a video element back to readyState 1 for a moment. Skipping the
- * layer during that window makes it vanish and lets whatever is under it — the
- * recording — show through, which reads as the layer being on the wrong track.
- * A clip on a higher track covers the one below it on every frame, so hold the
- * last decoded picture until the next one arrives.
- */
-const overlayLayerFrameCache = new WeakMap<HTMLVideoElement, HTMLCanvasElement>();
-
-function cacheOverlayFrame(video: HTMLVideoElement): HTMLCanvasElement | null {
-  const width = video.videoWidth;
-  const height = video.videoHeight;
-  if (!width || !height) return null;
-  let cache = overlayLayerFrameCache.get(video);
-  if (!cache || cache.width !== width || cache.height !== height) {
-    cache = document.createElement('canvas');
-    cache.width = width;
-    cache.height = height;
-    overlayLayerFrameCache.set(video, cache);
-  }
-  const cacheCtx = cache.getContext('2d');
-  if (!cacheCtx) return null;
-  cacheCtx.drawImage(video, 0, 0, width, height);
-  return cache;
-}
-
-function acquireOverlayVideo(
-  pool: Map<string, HTMLVideoElement>,
-  src: string,
-  onDecoded?: () => void,
-): HTMLVideoElement {
-  const existing = pool.get(src);
-  if (existing) return existing;
-  const video = document.createElement('video');
-  video.src = src;
-  video.muted = true;
-  video.playsInline = true;
-  video.preload = 'auto';
-  // A paused preview draws only when something marks it dirty, so a frame that
-  // finishes decoding after the draw would otherwise never be shown.
-  if (onDecoded) {
-    for (const event of ['loadeddata', 'seeked', 'canplay'] as const) {
-      video.addEventListener(event, onDecoded);
-    }
-  }
-  pool.set(src, video);
-  return video;
-}
-
-function drawEditorOverlayLayers(
-  ctx: CanvasRenderingContext2D,
-  canvasWidth: number,
-  canvasHeight: number,
-  layers: EditorOverlayLayer[],
-  timelineFrame: number,
-  pool: Map<string, HTMLVideoElement>,
-  pass: 'above' | 'below' = 'above',
-  onDecoded?: () => void,
-  playing = false,
-) {
-  // Why a layer did or did not land on the canvas is invisible from a
-  // screenshot: an unresolved source and a correctly hidden layer look the
-  // same. Publish the reason so a check can read it instead of guessing.
-  const diag = ((window as unknown as Record<string, unknown>).__roughCutOverlayDiag ??= {}) as Record<string, unknown>;
-  const report: Record<string, unknown>[] = [];
-  diag[pass] = { frame: timelineFrame, count: layers.length, layers: report };
-  if (!layers.length) return;
-  for (const layer of layers) {
-    const from = Number(layer.from ?? 0);
-    const duration = Number(layer.durationInFrames ?? 0);
-    // Half-open interval, matching the timeline convention used everywhere else.
-    if (duration > 0 && (timelineFrame < from || timelineFrame >= from + duration)) {
-      report.push({ id: layer.id, type: layer.type, drawn: false, reason: 'not-under-playhead', from, duration });
-      continue;
-    }
-
-    // Editor coordinates are in composition pixels; the canvas may be a
-    // different size, so scale rather than assuming they match.
-    const scaleX = canvasWidth / 1920;
-    const scaleY = canvasHeight / 1080;
-    const x = Number(layer.x ?? 0) * scaleX;
-    const y = Number(layer.y ?? 0) * scaleY;
-    const w = layer.width ? Number(layer.width) * scaleX : canvasWidth;
-    const h = layer.height ? Number(layer.height) * scaleY : canvasHeight;
-
-    if (layer.type === 'video' && layer.src) {
-      const video = acquireOverlayVideo(pool, layer.src, onDecoded);
-      const sourceStart = Number(layer.sourceStart ?? 0);
-      const wantedSec = Math.max(0, (timelineFrame - from + sourceStart) / 30);
-      // While the timeline runs, let the layer's own decoder run with it and
-      // only correct real drift. Seeking it once per drawn frame — which is what
-      // this used to do — makes every frame wait on a fresh decode and drags the
-      // whole preview down. Paused, a seek is exactly right.
-      const drift = Math.abs(video.currentTime - wantedSec);
-      const hasDuration = Number.isFinite(video.duration);
-      if (playing) {
-        if (video.paused) { void video.play().catch(() => undefined); }
-        if (hasDuration && drift > 0.35) {
-          try { video.currentTime = wantedSec; } catch { /* seek before metadata */ }
-        }
-      } else {
-        if (!video.paused) video.pause();
-        if (hasDuration && drift > 0.12) {
-          try { video.currentTime = wantedSec; } catch { /* seek before metadata */ }
-        }
-      }
-      const ready = video.readyState >= 2;
-      // Fresh frame when there is one, last decoded frame while a seek is in
-      // flight. Never nothing — a covering layer must keep covering.
-      const cached = ready ? cacheOverlayFrame(video) : overlayLayerFrameCache.get(video) ?? null;
-      if (ready) ctx.drawImage(video, x, y, w, h);
-      else if (cached) ctx.drawImage(cached, x, y, w, h);
-      report.push({
-        id: layer.id,
-        mediaId: layer.mediaId ?? null,
-        type: 'video',
-        drawn: ready || Boolean(cached),
-        reason: ready ? 'drawn' : cached ? 'held-last-frame' : 'source-not-decodable',
-        src: layer.src,
-        readyState: video.readyState,
-        networkState: video.networkState,
-        error: video.error?.code ?? null,
-        rect: { x, y, w, h },
-      });
-      continue;
-    }
-    if (layer.type === 'text' && layer.text) {
-      ctx.save();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `${Math.round(48 * scaleY)}px sans-serif`;
-      ctx.textBaseline = 'top';
-      ctx.fillText(layer.text, x || canvasWidth * 0.1, y || canvasHeight * 0.1);
-      ctx.restore();
-      report.push({ id: layer.id, type: 'text', drawn: true, reason: 'drawn' });
-      continue;
-    }
-    report.push({ id: layer.id, type: layer.type, drawn: false, reason: 'unsupported-layer-type' });
-  }
 }
 
 function drawAlignmentGrid(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number) {

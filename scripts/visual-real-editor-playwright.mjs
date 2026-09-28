@@ -34,8 +34,7 @@ const { _electron: electron } = loadPlaywright();
       ROUGH_CUT_DOCK_LAUNCH: '1',
     ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: projectPath,
-    ROUGH_CUT_STARTUP_VIEW: 'nle',
-    ROUGH_CUT_UI_SMOKE_FREECUT_ONLY: '1',
+    ROUGH_CUT_STARTUP_VIEW: 'editor',
     ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH: '1920',
     ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT: process.env.ROUGH_CUT_REAL_EDITOR_WINDOW_HEIGHT || '1500',
   },
@@ -45,18 +44,9 @@ let report;
 try {
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
-  const editorTab = page.locator('[data-ui-region="app-view-tabstrip"] button[title="Editor"]');
-  await editorTab.waitFor({ state: 'visible', timeout: 30000 });
-  await editorTab.click({ force: true, position: { x: 2, y: 2 } });
-  await page.waitForFunction(() => {
-    const slot = document.querySelector('[data-ui-region="persistent-editor-slot"]');
-    return slot instanceof HTMLElement && !slot.hidden;
-  }, null, { timeout: 30000 });
-  await page.waitForSelector('[data-ui-region="freecut-editor-surface"]', { timeout: 30000 });
-  await page.waitForFunction(() => document.querySelector('[data-freecut-ready="true"]') !== null, null, { timeout: 60000 });
-  // Readiness is the host's handshake, not the Editor's own project load — it
-  // still has a migration/"Upgrading project…" pass in front of the viewer, and
-  // capturing through that photographs a blank stage.
+  await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 30000 });
+  await page.waitForSelector('[data-ui-region="central-stage"] canvas.styledPreviewCanvas', { timeout: 30000 });
+  // Let the first decoded frame land before photographing the stage.
   await page.waitForTimeout(Number(process.env.ROUGH_CUT_REAL_EDITOR_SETTLE_MS || 1500));
 
   const geometry = await page.evaluate(() => {
@@ -66,12 +56,14 @@ try {
       const rect = element.getBoundingClientRect();
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     };
+    const tabs = Array.from(document.querySelectorAll('[data-ui-region="app-view-tabstrip"] button'))
+      .map((button) => button.textContent?.trim() ?? '');
     return {
-      surface: box('[data-ui-region="freecut-editor-surface"]'),
-      frame: box('iframe[data-freecut-embed="vendored"]'),
-      overlay: box('.freecutProgramOverlay'),
-      ready: document.querySelector('[data-freecut-ready="true"]') !== null,
-      editorChrome: Boolean(document.querySelector('iframe[data-freecut-embed="vendored"]')),
+      stage: box('[data-ui-region="central-stage"]'),
+      frame: box('[data-ui-region="central-stage"] canvas.styledPreviewCanvas'),
+      timeline: box('[data-ui-region="timeline-review-rail"]'),
+      tabs,
+      activeView: document.querySelector('[data-active-app-view]')?.getAttribute('data-active-app-view') ?? null,
     };
   });
   // Capture the complete desktop after raising the matched packaged app. The full
@@ -96,33 +88,34 @@ try {
   const desktopCapture = spawnSync('import', ['-window', 'root', screenshotPath], { encoding: 'utf8' });
   if (desktopCapture.status !== 0) throw new Error(`Full desktop capture failed: ${desktopCapture.stderr || desktopCapture.stdout}`);
 
-  const frame = geometry.frame;
-  const overlay = geometry.overlay;
-  const nonZeroGeometry = [geometry.surface, frame].every((rect) => rect && rect.width > 10 && rect.height > 10);
-  const overlayInsideFrame = overlay === null;
+  const { stage, frame, timeline } = geometry;
+  const nonZeroGeometry = [stage, frame, timeline].every((rect) => rect && rect.width > 10 && rect.height > 10);
+  const frameInsideStage = Boolean(stage && frame
+    && frame.x >= stage.x - 1 && frame.y >= stage.y - 1
+    && frame.x + frame.width <= stage.x + stage.width + 1
+    && frame.y + frame.height <= stage.y + stage.height + 1);
+  const onRecordingEdit = geometry.activeView === 'editor';
   const screenshotSha256 = createHash('sha256').update(readFileSync(screenshotPath)).digest('hex');
-  // The frame is a property of the project, so the Editor's viewer must be the
-  // shape the project was cut to — not the recording's own shape. Without this
-  // the surface geometry looks perfectly healthy while a vertical project is
-  // shown letterboxed inside a wide viewer.
+  // The frame is a property of the project, so the viewer must be the shape the
+  // project was cut to — not the recording's own shape.
   const expectedAspect = process.env.ROUGH_CUT_REAL_EDITOR_EXPECT_ASPECT
     ? (() => {
       const [w, h] = process.env.ROUGH_CUT_REAL_EDITOR_EXPECT_ASPECT.split(':').map(Number);
       return w > 0 && h > 0 ? w / h : null;
     })()
     : null;
-  const overlayAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
+  const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
   const aspectMatches = expectedAspect === null
     ? true
-    : Boolean(overlayAspect && Math.abs(overlayAspect - expectedAspect) / expectedAspect < 0.02);
+    : Boolean(frameAspect && Math.abs(frameAspect - expectedAspect) / expectedAspect < 0.02);
   report = {
-    ok: geometry.ready && geometry.editorChrome && nonZeroGeometry && overlayInsideFrame && aspectMatches,
+    ok: onRecordingEdit && nonZeroGeometry && frameInsideStage && aspectMatches,
     projectPath,
     screenshotPath,
     screenshotSha256,
     geometry,
-    aspect: { expected: expectedAspect, actual: overlayAspect },
-    checks: { ready: geometry.ready, editorChrome: geometry.editorChrome, nonZeroGeometry, overlayInsideFrame, aspectMatches },
+    aspect: { expected: expectedAspect, actual: frameAspect },
+    checks: { onRecordingEdit, nonZeroGeometry, frameInsideStage, aspectMatches },
   };
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));

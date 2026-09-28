@@ -1,12 +1,11 @@
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const root = process.cwd();
-const require = createRequire(import.meta.url);
-const sharp = require(join(root, 'vendor', 'freecut', 'node_modules', 'sharp'));
 const projectPath = resolve(process.argv[2] || process.env.ROUGH_CUT_REAL_PROJECT_PATH || '');
 if (!projectPath || !existsSync(projectPath)) throw new Error('Usage: node scripts/recording-editor-interactions-playwright.mjs <real-project.roughcut>');
 
@@ -208,7 +207,7 @@ try {
     };
   }));
   const readPaintedBoundaryEvidence = async (imagePath, lanes) => {
-    const { data, info } = await sharp(imagePath).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { data, info } = readRgba(imagePath);
     const score = (track, x) => {
       if (!track) return 0;
       const scale = lanes.devicePixelRatio || 1;
@@ -1240,4 +1239,15 @@ async function restoreOriginalRecording(page) {
 
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+// Raw RGBA pixels of a screenshot, via ImageMagick (already required for the
+// desktop captures).
+function readRgba(imagePath) {
+  const size = spawnSync('identify', ['-format', '%w %h', imagePath], { encoding: 'utf8' });
+  if (size.status !== 0) throw new Error(`identify failed: ${size.stderr}`);
+  const [width, height] = size.stdout.trim().split(' ').map(Number);
+  const raw = spawnSync('convert', [imagePath, '-depth', '8', 'rgba:-'], { maxBuffer: width * height * 4 + 1024 });
+  if (raw.status !== 0) throw new Error(`convert failed: ${raw.stderr}`);
+  return { data: raw.stdout, info: { width, height, channels: 4 } };
 }

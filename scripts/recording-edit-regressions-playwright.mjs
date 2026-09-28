@@ -56,7 +56,6 @@ function writeFixture(path) {
     }));
   }
   if (document.composition) document.composition.duration = 600;
-  delete document.freecutTimeline;
   document.timeline.markers = [];
   writeFileSync(path, JSON.stringify(raw));
 }

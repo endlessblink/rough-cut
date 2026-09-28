@@ -1,17 +1,12 @@
-import { access, cp, lstat, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { cp, lstat, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-
-const execFileAsync = promisify(execFile);
 
 const root = process.cwd();
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appRoot = join(artifactRoot, 'resources', 'app');
 const scopedPackageRoot = join(appRoot, 'node_modules', '@rough-cut');
 const workspacePackages = ['project-model', 'timeline-engine', 'effect-registry', 'frame-resolver'];
-const freecutDist = await ensureFreecutDist();
 
 await rm(artifactRoot, { recursive: true, force: true });
 await mkdir(appRoot, { recursive: true });
@@ -22,7 +17,6 @@ await cp(join(root, 'apps/desktop/src/main'), join(appRoot, 'apps/desktop/src/ma
 await cp(join(root, 'apps/desktop/src/preload'), join(appRoot, 'apps/desktop/src/preload'), { recursive: true });
 await cp(join(root, 'apps/desktop/src/shared'), join(appRoot, 'apps/desktop/src/shared'), { recursive: true });
 await cp(join(root, 'apps/desktop/dist/renderer'), join(appRoot, 'apps/desktop/dist/renderer'), { recursive: true });
-await cp(freecutDist, join(appRoot, 'freecut'), { recursive: true });
 await mkdir(scopedPackageRoot, { recursive: true });
 for (const packageName of workspacePackages) {
   await cpWorkspacePackage(packageName);
@@ -105,67 +99,4 @@ async function configureSandboxHelper() {
   }
 
   await lstat(packagedHelper);
-}
-
-/**
- * Newest mtime under a directory, or 0 if it cannot be read.
- *
- * Used to answer "is the built editor older than its source?". Without this the
- * packager happily shipped a dist built before the edit being tested, so the app
- * ran code that no longer existed in the tree — every conclusion drawn from that
- * run was about the wrong build.
- */
-async function newestMtime(dir) {
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-  let newest = 0;
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      newest = Math.max(newest, await newestMtime(full));
-      continue;
-    }
-    const info = await stat(full).catch(() => null);
-    if (info) newest = Math.max(newest, info.mtimeMs);
-  }
-  return newest;
-}
-
-async function ensureFreecutDist() {
-  if (process.env.ROUGH_CUT_FREECUT_DIST) return process.env.ROUGH_CUT_FREECUT_DIST;
-  const sourceRoot = join(root, 'vendor', 'freecut');
-  const distRoot = join(sourceRoot, 'dist');
-  try {
-    // A dist older than the source it was built from is stale, however valid it
-    // looks. Check this first: the marker checks below only prove the build is
-    // *a* correct build, not a current one.
-    const [sourceMtime, distMtime] = await Promise.all([
-      newestMtime(join(sourceRoot, 'src')),
-      newestMtime(distRoot),
-    ]);
-    if (sourceMtime > distMtime) {
-      console.log('[package] vendored editor source is newer than its build; rebuilding');
-      throw new Error('FreeCut dist is older than its source');
-    }
-    const indexHtml = await readFile(join(distRoot, 'index.html'), 'utf8');
-    const entryMatch = indexHtml.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/);
-    if (!entryMatch) throw new Error('FreeCut entry script is missing');
-    const entryPath = join(distRoot, entryMatch[1].replace(/^\//, ''));
-    const entrySource = await readFile(entryPath, 'utf8');
-    const mainMatch = entrySource.match(/import\([`"']\.\/(main-[A-Za-z0-9_-]+\.js)[`"']\)/);
-    const mainSource = mainMatch
-      ? await readFile(join(distRoot, 'assets', mainMatch[1]), 'utf8')
-      : entrySource;
-    if (!mainSource.includes('freecut-boot') || !mainSource.includes('vendored-freecut-1')) {
-      throw new Error('FreeCut entry script is stale');
-    }
-    return distRoot;
-  } catch {
-    // Remove stale hashed chunks before rebuilding so index.html and its entry
-    // module cannot come from different builds.
-    await rm(distRoot, { recursive: true, force: true });
-    await execFileAsync('npm', ['ci', '--ignore-scripts'], { cwd: sourceRoot, stdio: 'inherit' });
-    await execFileAsync('npm', ['run', 'build'], { cwd: sourceRoot, stdio: 'inherit' });
-    await access(join(distRoot, 'index.html'));
-    return distRoot;
-  }
 }

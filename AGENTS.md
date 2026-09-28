@@ -32,7 +32,7 @@ This rule exists because shipping CSS changes without a design pass produced vis
 
 ## Visual proof — FAIL-CLOSED HARD RULE
 
-Any change to the Rough Cut renderer or the vendored FreeCut editor is incomplete until the exact packaged, dock-launched app has been visually reviewed after the final source change. The review must use a fresh screenshot and the complete checklist: `dock=pass shell=pass layout=pass media=pass playback=pass effects=pass timeline=pass no-blank=pass no-overlap=pass scope=pass`.
+Any change to the Rough Cut renderer is incomplete until the exact packaged, dock-launched app has been visually reviewed after the final source change. The review must use a fresh screenshot and the complete checklist: `dock=pass shell=pass layout=pass media=pass playback=pass effects=pass timeline=pass no-blank=pass no-overlap=pass scope=pass`.
 
 The required sequence is `pnpm package:linux`, launch the packaged app from the dock, capture the live editor state, have a disposable visual reviewer inspect that screenshot, then run `pnpm visual-proof:record -- <screenshot-path> "<checklist findings>"` followed by `pnpm visual-proof:verify`. Before the final completion claim, run `pnpm visual-proof:arm`; this arms the Stop hook for the final review without blocking ordinary progress messages. Run `pnpm visual-proof:disarm` when continuing implementation. Do not claim completion when the verifier blocks, when any checklist item is missing, when the screenshot is stale, or when the packaged app does not match the reviewed source.
 
@@ -40,13 +40,13 @@ The Stop hook is part of the project contract and must remain installed with `pn
 
 ## Real visual verification — NON-NEGOTIABLE
 
-Before reporting any renderer, timeline, compositor, or FreeCut change as working, run an end-to-end visual check against the exact freshly packaged app and a real project with real media. The check must capture the actual Editor surface, not only a synthetic smoke fixture, and an independent visual reviewer must inspect the screenshot for the complete Editor layout, viewer bounds, media, playback state, effects, timeline, overlap, and cross-view identity. Synthetic smoke, typecheck, tests, DOM payloads, logs, and extracted frames are supporting evidence only; none can substitute for the real screenshot. If the real packaged app cannot be launched or the screenshot cannot be reviewed, the task remains unverified and must not be handed back to the user as working.
+Before reporting any renderer, timeline, or compositor change as working, run an end-to-end visual check against the exact freshly packaged app and a real project with real media (`pnpm visual:real-editor <project.roughcut>`). The check must capture the actual Recording edit surface, not only a synthetic smoke fixture, and an independent visual reviewer must inspect the screenshot for the complete Recording edit layout, viewer bounds, media, playback state, effects, timeline, and overlap. Synthetic smoke, typecheck, tests, DOM payloads, logs, and extracted frames are supporting evidence only; none can substitute for the real screenshot. If the real packaged app cannot be launched or the screenshot cannot be reviewed, the task remains unverified and must not be handed back to the user as working.
 
-The end-to-end check must fail closed on stale package identity, missing real-project media, missing FreeCut readiness, viewer geometry extending outside the viewer, hidden Editor chrome, blank/overlapping UI, or a screenshot that is not newer than the final source and package. The agent owns this verification; do not hand the user a launch instruction as a substitute for doing it.
+The end-to-end check must fail closed on stale package identity, missing real-project media, viewer geometry extending outside the viewer, hidden Recording edit chrome, blank/overlapping UI, or a screenshot that is not newer than the final source and package. The agent owns this verification; do not hand the user a launch instruction as a substitute for doing it.
 
 ## User visual confirmation boundary — HARD RULE
 
-For renderer, timeline, compositor, or FreeCut work, the agent may not report
+For renderer, timeline, or compositor work, the agent may not report
 "fixed", "complete", or "working" until every automated test, fresh packaged
 dock runtime check, and independent visual review has passed. At that point the
 only allowed handoff state is `READY_FOR_USER_VISUAL_CONFIRMATION`, with the

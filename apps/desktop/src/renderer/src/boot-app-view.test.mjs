@@ -10,14 +10,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 // A deep link carries two independent instructions: which project to open
 // (`projectPath`) and which view to land on (`view`). The boot effect that
 // opens the project used to unconditionally retarget the shell to Recording
-// edit, so `view=nle` was honoured for exactly one render and then thrown
-// away. That silently defeated ROUGH_CUT_STARTUP_VIEW, the `freecut` startup
-// mode, and any "open this project in the Editor" deep link — and it is what
-// made the packaged FreeCut smoke report activeAppView=editor while asking
-// for nle.
+// edit, so a requested `view` was honoured for exactly one render and then
+// thrown away. That silently defeated ROUGH_CUT_STARTUP_VIEW and any deep link
+// that names a view.
 
 test('an explicitly requested view is recognised', () => {
-  assert.equal(resolveRequestedAppView('nle'), 'nle');
+  assert.equal(resolveRequestedAppView('ai'), 'ai');
   assert.equal(resolveRequestedAppView('editor'), 'editor');
   assert.equal(resolveRequestedAppView(' projects '), 'projects');
 });
@@ -30,7 +28,6 @@ test('an absent or unknown view is not a request', () => {
 });
 
 test('opening a project keeps the explicitly requested view', () => {
-  assert.equal(resolveProjectOpenAppView('nle'), 'nle');
   assert.equal(resolveProjectOpenAppView('projects'), 'projects');
   assert.equal(resolveProjectOpenAppView('ai'), 'ai');
 });

@@ -94,23 +94,16 @@ const expectedHasScreenAudio = projectHasScreenAudio(projectDocument);
 
 const gpuHarnessLock = await acquireGpuPlaywrightLock('playback:timeline');
 let recordingResult;
-let nleResult;
 try {
-  recordingResult = probeView === 'nle'
-    ? { ok: true, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_VIEW=nle' }
-    : await runPlaybackProbeWithRetry({ view: 'recording', projectPath });
-  nleResult = probeView === 'recording'
-    ? { ok: true, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_VIEW=recording' }
-    : await runPlaybackProbeWithRetry({ view: 'nle', projectPath });
+  recordingResult = await runPlaybackProbeWithRetry({ view: 'recording', projectPath });
 } finally {
   await gpuHarnessLock.release();
 }
 const report = {
-  ok: recordingResult.ok && nleResult.ok,
+  ok: recordingResult.ok,
   root,
   projectPath,
   recording: recordingResult,
-  nle: nleResult,
 };
 
 await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
@@ -120,11 +113,10 @@ console.info(JSON.stringify({
   root,
   projectPath,
   recording: summarizeResult(recordingResult),
-  nle: summarizeResult(nleResult),
 }, null, 2));
 
 if (!report.ok) {
-  throw new Error(`Timeline playback regression failed: ${JSON.stringify({ reportPath, root, recording: summarizeResult(recordingResult), nle: summarizeResult(nleResult) })}`);
+  throw new Error(`Timeline playback regression failed: ${JSON.stringify({ reportPath, root, recording: summarizeResult(recordingResult) })}`);
 }
 
 async function runPlaybackProbeWithRetry({ view, projectPath }) {
@@ -193,14 +185,8 @@ async function runPlaybackProbe({ view, projectPath }) {
       }
     });
     await page.waitForLoadState('domcontentloaded');
-    if (view === 'nle') {
-      await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 15000 });
-      await page.locator('[data-ui-region="app-view-tabstrip"] button[title="Editor"]').click({ force: true });
-      await page.waitForSelector('[data-ui-region="nle-workspace"]', { timeout: 15000 });
-    } else {
-      await dismissPreRecordOverlay(page);
-      await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 15000 });
-    }
+    await dismissPreRecordOverlay(page);
+    await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 15000 });
     await page.evaluate(() => {
       window.__roughCutPlaybackProbeStartedAtMs = performance.now();
     });
@@ -250,33 +236,13 @@ async function runPlaybackProbe({ view, projectPath }) {
         return video instanceof HTMLVideoElement && Math.abs(video.currentTime - value) < 1;
       }, seekStartSec, { timeout: 7000 });
     }
-    if (view === 'nle' && seekStartSec > 0) {
-      const ratio = await page.evaluate((value) => {
-        const video = window.__roughCutSelectPlaybackVideoElement?.() ?? document.querySelector('video');
-        const duration = video instanceof HTMLVideoElement && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : value;
-        return Math.max(0, Math.min(1, value / Math.max(0.1, duration)));
-      }, seekStartSec);
-      const ruler = page.locator('[data-ui-region="nle-time-ruler"]');
-      const box = await ruler.boundingBox();
-      if (!box) throw new Error('Missing NLE time ruler for seek probe.');
-      await page.mouse.click(box.x + box.width * ratio, box.y + box.height / 2);
-      await page.waitForFunction((value) => {
-        const video = window.__roughCutSelectPlaybackVideoElement?.() ?? document.querySelector('video');
-        return video instanceof HTMLVideoElement
-          && video.readyState >= 2
-          && video.currentTime >= Math.max(0, value - 1)
-          && video.currentTime <= value + 3;
-      }, seekStartSec, { timeout: 7000 });
-    }
-
     const pausedState = await page.evaluate(() => window.__roughCutReadPlaybackState());
     const pausedScreenshotPath = screenshotPathForViewState(view, 'paused');
     if (pausedScreenshotPath) {
       await mkdir(dirname(pausedScreenshotPath), { recursive: true });
       await page.screenshot({ path: pausedScreenshotPath });
     }
-    if (view === 'nle') await page.locator('[data-ui-region="nle-transport"] button[aria-label="Play"]').click();
-    else await page.locator('.videoControls .transportButton').click();
+    await page.locator('.videoControls .transportButton').click();
     const transitionScreenshotPath = screenshotPathForViewState(view, 'transition');
     if (transitionScreenshotPath) {
       await page.waitForTimeout(40);
@@ -367,7 +333,6 @@ async function runPlaybackProbe({ view, projectPath }) {
         webgpuRendererLog: Array.isArray(window.__roughCutWebgpuRendererLog) ? window.__roughCutWebgpuRendererLog.slice(-160) : [],
         webglRendererInstances: window.__roughCutWebglRendererInstances ?? null,
         webgpuRendererInstances: window.__roughCutWebgpuRendererInstances ?? null,
-        playButtonLabel: document.querySelector('[data-ui-region="nle-transport"] button')?.getAttribute('aria-label') ?? null,
       };
     }).catch(() => null);
     return {
@@ -862,8 +827,7 @@ function readPlaybackState() {
     webgpuRendererLog: Array.isArray(window.__roughCutWebgpuRendererLog) ? window.__roughCutWebgpuRendererLog.slice(-80) : [],
     canvasCameraRect,
     drawCount: window.__roughCutCanvasDrawCount ?? 0,
-    timecode: document.querySelector('.nleTransportTimeCurrent')?.textContent
-      ?? document.querySelector('.videoControls .timecode')?.textContent
+    timecode: document.querySelector('.videoControls .timecode')?.textContent
       ?? null,
     canvas: window.__roughCutReadCanvasStats(),
   };

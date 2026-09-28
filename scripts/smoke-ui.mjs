@@ -107,16 +107,6 @@ if (cleanupReview) {
     },
   );
 }
-if (process.env.ROUGH_CUT_UI_SMOKE_LONG_TRANSCRIPT === '1') {
-  for (let index = transcriptWords.length; index < 6000; index += 1) {
-    transcriptWords.push({
-      word: `token-${index}`,
-      startFrame: 60 + index * 2,
-      endFrame: 61 + index * 2,
-      confidence: 1,
-    });
-  }
-}
 let project = await saveProjectForRecording({
   startedAt: startedAt.toISOString(),
   stoppedAt: stoppedAt.toISOString(),
@@ -177,7 +167,6 @@ const result = spawnSync(electron, [
     ...process.env,
     ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: project.path,
-    ROUGH_CUT_UI_SMOKE_EXTERNAL_PROJECT: externalProjectPath ? '1' : '0',
     ROUGH_CUT_UI_SMOKE_EXPORT_PATH: exportPath,
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
@@ -214,73 +203,6 @@ report.recordingDurationFrames = Math.max(
     .map((asset) => Number(asset.duration) || 0),
 );
 await writeFile(resultPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-if (process.env.ROUGH_CUT_UI_SMOKE_TRANSCRIPT_ONLY === '1') {
-  const longTranscript = process.env.ROUGH_CUT_UI_SMOKE_LONG_TRANSCRIPT === '1';
-  const transcriptCountsValid = externalProjectPath
-    ? report.totalTranscriptWordCount > 0
-      && report.transcriptWordCount > 0
-      && (
-        report.totalTranscriptWordCount <= 1000
-        || report.lastTranscriptWordVisible
-      )
-    : longTranscript
-    ? report.totalTranscriptWordCount === 6000
-      && report.transcriptWordCount < 1000
-      && report.lastTranscriptWordVisible
-    : cleanupReview
-      ? report.totalTranscriptWordCount === transcriptWords.length
-        && report.transcriptWordCount === transcriptWords.length
-      : report.totalTranscriptWordCount === 6 && report.transcriptWordCount === 6;
-  const cleanupReviewValid = cleanupReview
-    ? report.hasCleanupReview
-      && report.hasCleanupTypingGuard
-       && report.hasCleanupKeyboardAccept
-       && report.hasCleanupDraftProjection
-       && report.hasLiveCleanupDraft
-       && report.hasTranscriptSelection
-       && report.hasManualTranscriptCut
-       && report.hasFastReviewSpeeds
-       && report.hasAutomaticJoinVerificationResume
-       && report.hasManualCutUndoRedo
-       && report.hasTranscriptFollowLock
-       && report.hasBoundaryGestureSingleCommit
-       && report.hasReviewFocusContinuity
-       && report.hasReviewLayoutStability
-        && report.hasCleanupFrameContinuity
-      && report.hasBoundaryFeedbackWithinBudget
-      && Number.isFinite(report.boundaryFeedbackLatencyMs)
-      && report.boundaryFeedbackLatencyMs <= 100
-      && Number.isFinite(report.transcriptSeekLatencyMs)
-      && report.transcriptSeekLatencyMs <= 100
-      && Number.isFinite(report.rapidSeekSettleLatencyMs)
-      && report.rapidSeekSettleLatencyMs <= 100
-      && Number.isFinite(report.joinPreviewStartupLatencyMs)
-        && report.joinPreviewStartupLatencyMs <= 250
-        && report.hasNaturalJoinChoice
-       && report.hasVisualDiscontinuityCheck
-       && report.hasFinalizeSingleHistoryCommit
-       && report.hasFinalizeCanonicalTimeline
-       && report.hasFinalizeSavedReopen
-       && report.hasFinalizeUndoRestore
-       && report.hasCleanupReopened
-      && report.hasCleanupDraftAfterReopen
-    : true;
-  const landmarksValid = externalProjectPath
-    ? true
-    : report.hasActionLandmark && report.hasLandmarkSeek;
-  if (!report.hasTranscriptPanel || !report.hasTranscriptSeek || !report.hasTranscriptEnterSeek || !report.hasLatestRapidSeek || !landmarksValid || !transcriptCountsValid || !cleanupReviewValid) {
-    throw new Error(`Electron transcript UI smoke assertions failed: ${JSON.stringify(report)}. Artifacts: ${root}`);
-  }
-  console.info(JSON.stringify({ ...report, root, projectPath: project.path, screenshotPath }, null, 2));
-  process.exit(0);
-}
-if (process.env.ROUGH_CUT_UI_SMOKE_NLE_ONLY === '1') {
-  if (!report.hasNleWorkspace || !report.hasNleRuler || !report.hasNleTrimHandles || !report.hasNleTrimDragMutation || !report.hasNleSplitButtonMutation || !report.hasNleSplitKeepsSelection || !report.hasNleClipDragMutation || !report.hasNleGeneratedAssetsTab || !report.hasNleGeneratedSearch || !report.hasNleGeneratedFilters || !report.hasTranscriptPanel || !report.hasTranscriptSeek) {
-    throw new Error(`Electron NLE UI smoke assertions failed: ${JSON.stringify(report)}. Artifacts: ${root}`);
-  }
-  console.info(JSON.stringify({ ...report, root, projectPath: project.path }, null, 2));
-  process.exit(0);
-}
 const screenshotBytes = (await readFile(screenshotPath)).length;
 const openSelectScreenshotBytes = (await readFile(openSelectScreenshotPath)).length;
 const openShapeScreenshotBytes = (await readFile(openShapeScreenshotPath)).length;

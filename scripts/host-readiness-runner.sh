@@ -38,11 +38,6 @@ run_gate() {
     playback-timeline)
       pnpm playback:timeline
       ;;
-    nle-linked)
-      pnpm --filter @rough-cut/project-model build
-      pnpm --filter @rough-cut/desktop build
-      node scripts/visual-nle-linked-clips-playwright.mjs
-      ;;
     nle-export-parity)
       pnpm visual:nle-export-parity
       ;;
@@ -54,12 +49,6 @@ run_gate() {
       ;;
     regression-lab)
       pnpm test:regression-lab
-      ;;
-    editor-regression)
-      pnpm test:editors
-      ;;
-    edit-sync)
-      pnpm test:edit-sync "$REAL_PROJECT_PATH"
       ;;
     real-editor)
       node scripts/visual-real-editor-playwright.mjs "$REAL_PROJECT_PATH"
@@ -81,9 +70,6 @@ run_gate() {
     preview-export-parity)
       pnpm visual:preview-export-parity "$REAL_PROJECT_PATH"
       ;;
-    pane-switch)
-      pnpm test:pane-switch "${ROUGH_CUT_PANE_SWITCH_PROJECT_PATH:-/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut}"
-      ;;
     canvas2d-fallback)
       ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 \
       VITE_ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 \
@@ -97,15 +83,10 @@ run_gate() {
       ;;
     full-readiness)
       pnpm test:regression-lab
-      pnpm test:pane-switch "$REAL_PROJECT_PATH"
-      pnpm test:edit-sync "$REAL_PROJECT_PATH"
       pnpm visual:export-entrypoints "$REAL_PROJECT_PATH"
       pnpm visual:preview-export-parity "$REAL_PROJECT_PATH"
       pnpm smoke:ui
       pnpm playback:timeline
-      pnpm --filter @rough-cut/project-model build
-      pnpm --filter @rough-cut/desktop build
-      node scripts/visual-nle-linked-clips-playwright.mjs
       pnpm visual:nle-export-parity
       pnpm smoke:styled-export
       pnpm smoke:package
@@ -121,7 +102,7 @@ run_gate() {
       ;;
     *)
       echo "Unknown readiness gate: $gate" >&2
-    echo "Allowed: smoke-ui playback-timeline nle-linked nle-export-parity smoke-styled-export smoke-package regression-lab editor-regression edit-sync real-editor restore-control recording-editor-interactions export-entrypoints preview-export-parity pane-switch canvas2d-fallback full-readiness" >&2
+    echo "Allowed: smoke-ui playback-timeline nle-export-parity smoke-styled-export smoke-package regression-lab real-editor restore-control recording-editor-interactions export-entrypoints preview-export-parity canvas2d-fallback full-readiness" >&2
       return 64
       ;;
   esac

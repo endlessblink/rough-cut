@@ -103,8 +103,7 @@ export function restoreRecordingFullSource(document, { assetId }) {
 /**
  * Return the recording to the clean state created when the take was saved.
  * This is intentionally broader than trim undo: it removes split clips,
- * hidden ranges, generated zoom/censor state, and stale FreeCut placement in
- * one canonical operation so the screen and camera stay frame-locked.
+ * hidden ranges and generated zoom state in one canonical operation so the screen and camera stay frame-locked.
  */
 export function restoreRecordingOriginalState(document, { assetId }) {
   const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
@@ -162,31 +161,6 @@ export function restoreRecordingOriginalState(document, { assetId }) {
       }),
     })),
   };
-  const nextFreecutTimeline = document.freecutTimeline && typeof document.freecutTimeline === 'object'
-    ? {
-        ...document.freecutTimeline,
-        currentFrame: 0,
-        // The camera is part of Rough Cut's linked recording compositor.  A
-        // standalone FreeCut camera item is an edited duplicate and paints the
-        // camera over the whole program, which is exactly the continuity break
-        // this recovery action must remove.
-        items: (document.freecutTimeline.items ?? []).filter((item) => item.mediaId !== cameraAssetId).map((item) => {
-          const isProgram = item.mediaId === `${recording.id}__program`;
-          const isCamera = item.mediaId === cameraAssetId;
-          if (!isProgram && !isCamera) return item;
-          return {
-            ...item,
-            from: 0,
-            durationInFrames: duration,
-            sourceStart: 0,
-            sourceEnd: duration,
-            trimStart: 0,
-            trimEnd: 0,
-          };
-        }),
-      }
-    : document.freecutTimeline;
-
   return syncRecordingTimelinePresentation({
     ...document,
     settings: {
@@ -201,7 +175,6 @@ export function restoreRecordingOriginalState(document, { assetId }) {
       markers: [],
       effects: [],
     },
-    freecutTimeline: nextFreecutTimeline,
   }, recording.id);
 }
 

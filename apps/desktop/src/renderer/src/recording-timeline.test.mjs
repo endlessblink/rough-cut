@@ -319,7 +319,7 @@ test('restoreRecordingSourceEdge maps restore UI to the command service', () => 
   assert.equal(next.timeline.tracks[0].clips[0].sourceIn, 0);
 });
 
-test('restoreRecordingOriginalState returns screen, camera, and FreeCut to one full take', () => {
+test('restoreRecordingOriginalState returns screen and camera to one full take', () => {
   const project = projectWithRecordingAndCamera();
   const recording = project.assets[0];
   const edited = {
@@ -336,10 +336,6 @@ test('restoreRecordingOriginalState returns screen, camera, and FreeCut to one f
       tracks: project.timeline.tracks.map((track) => ({ ...track, clips: [{ ...track.clips[0], timelineIn: 20, timelineOut: 80, sourceIn: 20, sourceOut: 80 }, { ...track.clips[0], id: `${track.id}-split`, timelineIn: 80, timelineOut: 300, sourceIn: 80, sourceOut: 300 }] })),
       markers: [{ id: 'cut-1' }],
     },
-    freecutTimeline: { currentFrame: 80, items: [
-      { mediaId: recording.cameraAssetId, from: 0, durationInFrames: 300, sourceStart: 0, sourceEnd: 300 },
-      { mediaId: `${recording.id}__program`, from: 80, durationInFrames: 20, sourceStart: 80, sourceEnd: 100 },
-    ] },
   };
 
   const next = restoreRecordingOriginalState(edited, { assetId: recording.id });
@@ -350,8 +346,6 @@ test('restoreRecordingOriginalState returns screen, camera, and FreeCut to one f
   assert.deepEqual(next.timeline.tracks.map((track) => track.clips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut])), [[[0, 300, 0, 300]], [[0, 300, 0, 300]]]);
   assert.equal(next.assets[0].presentation.zoom.markers.length, 0);
    assert.deepEqual(next.assets[0].presentation.censorRegions, [{ id: 'censor-1' }]);
-  assert.equal(next.freecutTimeline.currentFrame, 0);
-   assert.deepEqual(next.freecutTimeline.items, [{ mediaId: `${recording.id}__program`, from: 0, durationInFrames: 300, sourceStart: 0, sourceEnd: 300, trimStart: 0, trimEnd: 0 }]);
 });
 
 test('restoreRecordingOriginalState infers the original canvas ratio when an older recording lacks the baseline metadata', () => {

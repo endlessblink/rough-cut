@@ -13,7 +13,7 @@
  * beside this file asserts they match.
  */
 
-export const APP_VIEW_IDS = ['recording', 'projects', 'editor', 'nle', 'ai'];
+export const APP_VIEW_IDS = ['recording', 'projects', 'editor', 'ai'];
 
 /** The view the URL explicitly asked for, or null when it asked for nothing. */
 export function resolveRequestedAppView(rawView) {

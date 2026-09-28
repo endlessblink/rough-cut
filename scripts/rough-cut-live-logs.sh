@@ -10,5 +10,5 @@ if [[ ! -f "$LOG_PATH" ]]; then
 fi
 
 printf 'Following Rough Cut runtime log: %s\n' "$LOG_PATH"
-printf 'Look for [renderer:*], FreeCut bootstrap/probe messages, load failures, and render-process-gone events.\n'
+printf 'Look for [renderer:*], load failures, and render-process-gone events.\n'
 exec tail -n 0 -F "$LOG_PATH"

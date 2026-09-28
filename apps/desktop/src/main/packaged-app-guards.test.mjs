@@ -31,7 +31,6 @@ const PACKAGED = join(
 
 // Each guarded file, and the marker that proves the protection survived the copy.
 const GUARDED = [
-  ['freecut-host.mjs', 'inFlightStyledPrograms', 'single-flight renders'],
   ['export-service.mjs', 'memoryCappedCommand', 'the ffmpeg memory ceiling'],
   ['export-service.mjs', 'segmentInputLabels', 'per-segment inputs'],
 ];

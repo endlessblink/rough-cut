@@ -85,11 +85,6 @@ const result = await runPackagedSmokeApp(electron, ['--no-sandbox', '--force-col
     ROUGH_CUT_UI_SMOKE_EXPORT_PATH: exportPath,
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
-    ROUGH_CUT_UI_SMOKE_FREECUT_ONLY: '1',
-    // This harness asserts the FreeCut surface, so it must ask for the advanced
-    // Editor explicitly. Startup now lands on Recording edit, which used to
-    // carry this smoke into the Editor by accident.
-    ROUGH_CUT_STARTUP_VIEW: 'nle',
     ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH: runtimeReportPath,
   },
 });
@@ -102,25 +97,15 @@ if (result.status !== 0 && !result.artifactsReady) throw new Error(`Packaged app
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
 const runtimeReport = JSON.parse(await readFile(runtimeReportPath, 'utf8'));
 const screenshotBytes = (await readFile(screenshotPath)).length;
-if (report.freecutOnly) {
-  if (!report.ok || !report.freecutReady || !report.hasFreecutSurface || !report.hasFreecutFrame || !report.hasFreecutFrameLoaded || !report.hasTrustedProbe || !report.hasCanonicalNleRoute || report.freecutMarkerVersion !== 'vendored-freecut-1' || typeof report.freecutBuildHash !== 'string' || report.freecutBuildHash.length === 0 || !(screenshotBytes > 1000)) {
-    throw new Error(`Packaged FreeCut surface smoke assertions failed: ${JSON.stringify(report)}`);
-  }
-} else if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'styled' || !report.hasStyledMode || !report.hasStyledPresetDetails || !report.hasReviewExportActions || !report.hasTemplatePresetSelection || !report.hasFocuSeeSplitCameraLayoutBounds || !report.hasFocuSeeYouTubeCameraLayoutBounds || !report.hasTemplateCameraLayoutBounds || !report.hasFrameDragHandles || !report.hasExportStatusArea || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || report.cameraPosition !== 'corner-tl' || report.cameraShape !== 'circle' || report.cameraSize !== 130 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
+if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'styled' || !report.hasStyledMode || !report.hasStyledPresetDetails || !report.hasReviewExportActions || !report.hasTemplatePresetSelection || !report.hasFocuSeeSplitCameraLayoutBounds || !report.hasFocuSeeYouTubeCameraLayoutBounds || !report.hasTemplateCameraLayoutBounds || !report.hasFrameDragHandles || !report.hasExportStatusArea || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || report.cameraPosition !== 'corner-tl' || report.cameraShape !== 'circle' || report.cameraSize !== 130 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
   throw new Error(`Packaged app smoke assertions failed: ${JSON.stringify(report)}`);
 }
 if (
   runtimeReport.kind !== 'packaged-renderer-runtime'
-  || runtimeReport.route?.activeAppView !== 'nle'
-  || runtimeReport.visibleSurface?.freecutSurfaceCount !== 1
-  || runtimeReport.visibleSurface?.freecutFrameCount !== 1
-  || runtimeReport.visibleSurface?.freecutReady !== true
-  || runtimeReport.visibleSurface?.freecutMarkerVersion !== 'vendored-freecut-1'
-  || typeof runtimeReport.visibleSurface?.freecutBuildHash !== 'string'
-  || runtimeReport.visibleSurface.freecutBuildHash.length === 0
-  || runtimeReport.visibleSurface?.freecutProjectId !== runtimeReport.project?.id
+  || runtimeReport.route?.activeAppView !== 'editor'
+  || !runtimeReport.project?.id
 ) {
-  throw new Error(`Packaged FreeCut runtime assertions failed: ${JSON.stringify(runtimeReport)}`);
+  throw new Error(`Packaged runtime assertions failed: ${JSON.stringify(runtimeReport)}`);
 }
 
 console.info(JSON.stringify({ ...report, runtimeReport, smokeRoot, artifactRoot, projectPath, exportPath, screenshotPath, runtimeReportPath, userDataPath, screenshotBytes }, null, 2));

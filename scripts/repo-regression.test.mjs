@@ -32,14 +32,12 @@ const compositionLayoutTestSource = readFileSync(join(root, 'packages/frame-reso
 const styledVideoPreviewSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/styled-video-preview.tsx'), 'utf8');
 const rendererMainSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/main.tsx'), 'utf8');
 const playbackTimelineSource = readFileSync(join(root, 'scripts/playback-timeline-playwright.mjs'), 'utf8');
-const visualNleClipsSource = readFileSync(join(root, 'scripts/visual-nle-clips-playwright.mjs'), 'utf8');
-const visualNleLinkedClipsSource = readFileSync(join(root, 'scripts/visual-nle-linked-clips-playwright.mjs'), 'utf8');
 const compositorMigrationPath = join(root, 'docs/architecture/compositor-migration.md');
 
 test('root test command runs repo-level script regression tests', () => {
   assert.match(
     rootPackage.scripts.test,
-    /node --test scripts\/repo-regression\.test\.mjs scripts\/export-benchmark-utils\.test\.mjs scripts\/smart-rough-cut-benchmark-utils\.test\.mjs/,
+    /node --test scripts\/repo-regression\.test\.mjs scripts\/export-benchmark-utils\.test\.mjs/,
   );
 });
 
@@ -94,10 +92,8 @@ test('linux package copies main-process workspace dependencies', () => {
   assert.match(packageLinuxSource, /join\(appRoot, 'packages', packageName, 'dist'\)/);
 });
 
-test('dock package launches the Rough Cut shell and keeps FreeCut available in the editor', () => {
-  assert.match(packageLinuxSource, /join\(appRoot, 'freecut'\)/);
+test('dock package launches the Rough Cut shell', () => {
   assert.match(packageLinuxSource, /export ROUGH_CUT_STARTUP_MODE=editor/);
-  assert.match(desktopMainSource, /openFreecutEditor\(\{ app \}\)/);
 });
 
 test('GPU-C compositor migration note and task sequence stay in place', () => {
@@ -202,7 +198,6 @@ test('GPU-C WebGPU main UI playback probe stays wired as a real-preview evidence
   assert.match(webgpuMainUiProbeSource, /forceGeneratedStress \|\| runProjects\.length === 0/);
   assert.match(webgpuMainUiProbeSource, /seekSec: '77'/);
   assert.match(webgpuMainUiProbeSource, /motionBlurSeekSec: '86'/);
-  assert.doesNotMatch(webgpuMainUiProbeSource, /motionBlurView: 'nle'/);
   assert.match(webgpuMainUiProbeSource, /seekSec: '4'/);
   assert.match(webgpuMainUiProbeSource, /ROUGH_CUT_PLAYBACK_SEEK_SEC: process\.env\.ROUGH_CUT_PLAYBACK_SEEK_SEC \|\| defaultSeekSec/);
   assert.match(webgpuMainUiProbeSource, /ROUGH_CUT_PLAYBACK_VIEW: defaultPlaybackView/);
@@ -564,15 +559,6 @@ test('UI smoke force-exits after writing artifacts so packaged smoke cannot hang
   assert.match(desktopMainSource, /finally \{\s+quitSmokeApp\(\);\s+\}/);
 });
 
-test('transcript smoke latency checks use frame-based waiting instead of 100 ms polling', () => {
-  assert.match(desktopMainSource, /const waitForAnimationCondition = async \(/);
-  assert.match(
-    desktopMainSource,
-    /await waitForAnimationCondition\(\s*\(\) =>[\s\S]*?playhead\(\) === transcriptWordFrame[\s\S]*?playhead\(\) !== transcriptSeekPlayheadBefore[\s\S]*?'transcript word seek'/,
-  );
-  assert.match(desktopMainSource, /await waitForAnimationCondition\(\s*\(\) => latestWordFrame !== null && playhead\(\) === latestWordFrame,/);
-});
-
 test('headless UI smoke disables GPU acceleration for stable canvas readback', () => {
   assert.match(smokeUiSource, /'--disable-gpu'/);
   assert.match(smokeUiSource, /spawnSync\(electron, \[\s*'--no-sandbox',\s*'--disable-gpu',/);
@@ -595,17 +581,10 @@ test('packaged app smoke can finish from verified artifacts if smoke-mode Electr
   assert.match(smokePackagedAppSource, /!report\.hasTemplateCameraLayoutBounds/);
 });
 
-test('NLE linked-clips deleted-source assertion is scoped to actual gap playback', () => {
-  assert.match(visualNleLinkedClipsSource, /const playheadInGap = samples\.filter/);
-  assert.match(visualNleLinkedClipsSource, /const deletedSourcePlayed = playheadInGap\.filter/);
-  assert.doesNotMatch(visualNleLinkedClipsSource, /const deletedSourcePlayed = samples\.filter/);
-});
-
 test('host readiness runner exposes only named readiness gates', () => {
   for (const gate of [
     'smoke-ui',
     'playback-timeline',
-    'nle-linked',
     'nle-export-parity',
     'smoke-styled-export',
     'smoke-package',
@@ -871,45 +850,4 @@ test('pre-record camera sources refresh when setup becomes visible or focused', 
   assert.match(rendererMainSource, /void refreshCameraSources\(\);\n\s+const handleFocus = \(\) => \{/);
   assert.match(rendererMainSource, /window\.addEventListener\('focus', handleFocus\)/);
   assert.match(rendererMainSource, /window\.removeEventListener\('focus', handleFocus\)/);
-});
-
-test('NLE visual harnesses require playable timeline gaps instead of skipped cuts', () => {
-  assert.match(visualNleClipsSource, /playedThroughGap: inGap\.length >= 3 && reachedAfterGap/);
-  assert.match(visualNleClipsSource, /gap-playback: playback did not continue through the timeline gap/);
-  assert.match(
-    visualNleClipsSource,
-    /const sampleCount = Math\.min\(360, Math\.max\(90, Math\.ceil\(\(\(\(gapBounds\.gapEnd - preRollFrame\) \/ FPS\) \+ 6\) \* 10\)\)\)/,
-  );
-  assert.match(visualNleClipsSource, /if \(frame !== null && frame >= targetFrame && hasEnoughGapSamples\(\)\) break/);
-  assert.doesNotMatch(visualNleClipsSource, /skippedGap/);
-
-  assert.match(visualNleLinkedClipsSource, /Timeline gaps are real timeline time/);
-  assert.match(
-    visualNleLinkedClipsSource,
-    /const sampleCount = Math\.min\(420, Math\.max\(60, Math\.ceil\(\(\(\(gapEndFrame - startFrame\) \/ FPS\) \+ 6\) \* 10\)\)\)/,
-  );
-  assert.match(visualNleLinkedClipsSource, /playheadInGap\.length < 3/);
-  assert.match(visualNleLinkedClipsSource, /playback never reached the clip after the gap during the sample window/);
-  assert.match(visualNleLinkedClipsSource, /deletedSourcePlayed\.length > 0/);
-});
-
-test('NLE visual harness keeps TASK-229 undo and redo coverage', () => {
-  assert.match(visualNleClipsSource, /afterDragUndo/);
-  assert.match(visualNleClipsSource, /afterDragRedo/);
-  assert.match(visualNleClipsSource, /await page\.keyboard\.press\('Control\+Z'\)/);
-  assert.match(visualNleClipsSource, /await page\.keyboard\.press\('Control\+Shift\+Z'\)/);
-  assert.match(visualNleClipsSource, /undoRestoredPosition: undoInFrame === dragBefore\.inFrame/);
-  assert.match(visualNleClipsSource, /redoRestoredMove: redoInFrame === dragAfter\.inFrame/);
-  assert.match(visualNleClipsSource, /afterBladeUndo/);
-  assert.match(visualNleClipsSource, /undoRejoinedClip: bladeClipCountAfterUndo === bladeClipCountBefore/);
-  assert.match(visualNleClipsSource, /undo: blade undo left/);
-});
-
-test('NLE visual harness keeps TASK-231 ripple trim coverage', () => {
-  assert.match(visualNleClipsSource, /afterRippleTrim/);
-  assert.match(visualNleClipsSource, /Ripple trim: shortening the left segment's tail should pull the right/);
-  assert.match(visualNleClipsSource, /downstreamShiftedWithTail:/);
-  assert.match(visualNleClipsSource, /closedPairBoundary:/);
-  assert.match(visualNleClipsSource, /ripple-trim: downstream moved/);
-  assert.match(visualNleClipsSource, /ripple-trim: trimmed clip and downstream clip did not stay edge-contiguous/);
 });

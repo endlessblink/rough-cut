@@ -79,9 +79,7 @@ document.documentElement.dataset.hostBundleSignature = hostBundleSignature;
 import { LibraryShell } from './library/library-shell';
 import { formatProjectName } from './library/project-name.mjs';
 import { AiShell } from './ai/ai-shell';
-import { FreecutEditorSurface } from './freecut-editor-surface';
-import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout, type StyledPreviewProject, type EditorOverlayLayer } from './styled-video-preview';
-import { resolveOverlayLayers, viewerFromStoredTimeline } from './editor-timeline-placement.mjs';
+import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
@@ -121,8 +119,8 @@ import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDura
 import { restoreRecordingFullSource, restoreRecordingOriginalState, restoreRecordingSourceEdge, rippleDeleteRecordingRange, selectRecordingEditModel, splitRecordingAtFrame, syncRecordingTimelinePresentation, trimRecordingClipEdge, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
-import { contentWidthPx, resolvePixelsPerFrame, scrollLeftForPlayheadFollow, stepScrollLeftTowardTarget, zoomStep, MAX_PIXELS_PER_FRAME } from './nle/timeline-viewport.mjs';
-import { isTypingTarget } from './nle/keyboard.mjs';
+import { contentWidthPx, resolvePixelsPerFrame, scrollLeftForPlayheadFollow, stepScrollLeftTowardTarget, zoomStep, MAX_PIXELS_PER_FRAME } from './timeline-viewport.mjs';
+import { isTypingTarget } from './keyboard.mjs';
 
 declare global {
   interface Window {
@@ -130,10 +128,6 @@ declare global {
       getVersion: () => Promise<string>;
       getRuntimeLogPath: () => Promise<string>;
       openEditor: (projectPath?: string | null) => Promise<void>;
-      getFreecutStatus: () => Promise<{ available: boolean; root: string | null }>;
-      getFreecutEditorUrl: (projectId?: string | null) => Promise<{ ok: boolean; url?: string; reason?: string }>;
-      openFreecutEditor: () => Promise<{ ok: boolean; reused?: boolean; reason?: string }>;
-      applyFreecutCommand: (command: Record<string, unknown>) => Promise<{ ok: boolean; opId?: string; projectVersion?: number; reason?: string }>;
       setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
       writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
       showItemInFolder: (path: string) => Promise<void>;
@@ -594,8 +588,6 @@ function App() {
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const shell = document.querySelector<HTMLElement>('[data-ui-shell="recording-studio"]');
-      const surfaces = Array.from(document.querySelectorAll<HTMLElement>('[data-ui-region="freecut-editor-surface"]'));
-      if (surfaces.length > 0) return;
       void window.roughCut.writePlaybackDebugReport({
         schemaVersion: 1,
         kind: 'packaged-renderer-runtime',
@@ -610,19 +602,6 @@ function App() {
           shellCount: shell ? 1 : 0,
         },
         visibleSurface: {
-          freecutSurfaceCount: surfaces.length,
-          freecutFrameCount: 0,
-          freecutBooted: false,
-          freecutError: '',
-          freecutReady: false,
-          freecutProbeReceived: false,
-          freecutProbeSourceMatched: false,
-          freecutFrameLoaded: false,
-          freecutFrameSrc: '',
-          freecutMarkerVersion: '',
-          freecutBuildHash: '',
-          freecutProjectId: '',
-          freecutProjectVersion: '',
           bodyTextSample: document.body.innerText.slice(0, 600),
         },
         project: {
@@ -636,101 +615,15 @@ function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [activeAppView, project?.document?.id, project?.path, projectVersion]);
 
-  // The clips the Editor has on this timeline, held by the app rather than by
-  // whichever view happens to be open. A clip added in the Editor belongs to the
-  // project, so Recording edit draws it too — that is what makes the two views
-  // one timeline instead of two documents that happen to share media.
-  const [editorLayers, setEditorLayers] = React.useState<{ above: EditorOverlayLayer[]; below: EditorOverlayLayer[] }>({ above: [], below: [] });
-  const [freecutMediaUrl, setFreecutMediaUrl] = React.useState<string | null>(null);
-  const filterLinkedRecordingLayers = React.useCallback((layers: { above: EditorOverlayLayer[]; below: EditorOverlayLayer[] }) => {
-    const recordingAsset = project?.document?.assets?.find((asset) => asset.type === 'recording');
-    const linkedMediaIds = new Set([
-      recordingAsset?.id,
-      recordingAsset?.cameraAssetId,
-      recordingAsset?.id ? `${recordingAsset.id}__program` : null,
-    ].filter((value): value is string => Boolean(value)));
-    const keepEditorLayer = (layer: EditorOverlayLayer) => {
-      const mediaId = layer.mediaId ?? '';
-      const source = layer.src ?? '';
-      return !linkedMediaIds.has(mediaId)
-        && ![recordingAsset?.id, recordingAsset?.cameraAssetId]
-          .filter((value): value is string => Boolean(value))
-          .some((value) => source.includes(`/${value}`));
-    };
-    return {
-      above: layers.above.filter(keepEditorLayer),
-      below: layers.below.filter(keepEditorLayer),
-    };
-  }, [project?.document?.assets]);
-  const handleEditorLayersChange = React.useCallback((layers: { above: EditorOverlayLayer[]; below: EditorOverlayLayer[] }) => {
-    setEditorLayers(filterLinkedRecordingLayers(layers));
-  }, [filterLinkedRecordingLayers]);
-
-  React.useEffect(() => {
-    const projectId = project?.document?.id;
-    if (!projectId) {
-      setFreecutMediaUrl(null);
-      return;
-    }
-    // Needed to address the Editor's media from here. Same endpoint the Editor
-    // itself uses, so both views resolve a clip to exactly one file.
-    let cancelled = false;
-    void window.roughCut.getFreecutEditorUrl(projectId)
-      .then((next) => { if (!cancelled) setFreecutMediaUrl(next?.ok ? next.url ?? null : null); })
-      .catch(() => { if (!cancelled) setFreecutMediaUrl(null); });
-    return () => { cancelled = true; };
-  }, [project?.document?.id]);
-
-  // Seed from what the project already knows, so a view is correct on the first
-  // frame after a restart instead of only once the Editor has loaded and
-  // reported in. The live report replaces this as soon as it arrives.
-  const storedLayersKey = JSON.stringify([
-    (project?.document as unknown as { freecutTimeline?: unknown })?.freecutTimeline ?? null,
-    freecutMediaUrl,
-  ]);
-  React.useEffect(() => {
-    const projectId = project?.document?.id ?? null;
-    const recordingAsset = project?.document?.assets?.find((asset) => asset.type === 'recording');
-    const viewer = viewerFromStoredTimeline(project?.document, {
-      fps: project?.recording?.fps ?? 30,
-      recordingAssetId: recordingAsset?.id ?? null,
-      cameraAssetId: recordingAsset?.cameraAssetId ?? null,
-    });
-    if (!viewer) return;
-    const resolvedLayers = resolveOverlayLayers(viewer, freecutMediaUrl, projectId);
-    setEditorLayers(filterLinkedRecordingLayers(resolvedLayers));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, see above
-  }, [storedLayersKey, filterLinkedRecordingLayers]);
-
-  // Set when the Editor saved while it was the visible view. Re-reading the
-  // project on every one of those would re-parse from disk continuously and
-  // clear Recording edit's undo history mid-edit, so the refresh is deferred
-  // until the user actually looks at another view.
-  const pendingEditorRefresh = React.useRef(false);
-
   React.useEffect(() => window.roughCut.onProjectUpdated((update) => {
     if (!project || update.projectId !== project.document.id) return;
     setProjectVersion(update.projectVersion);
-    if (update.origin === 'freecut' && activeAppView === 'nle') {
-      pendingEditorRefresh.current = true;
-      return;
-    }
     void window.roughCut.openProjectPath(project.path).then((opened) => {
       if (!opened) return;
       setProject(opened);
-      if (update.origin !== 'freecut') setEditHistory(EMPTY_EDIT_HISTORY);
+      setEditHistory(EMPTY_EDIT_HISTORY);
     });
-  }), [project, activeAppView]);
-
-  // Leaving the Editor: pick up whatever it wrote while we were not looking.
-  React.useEffect(() => {
-    if (activeAppView === 'nle' || !pendingEditorRefresh.current || !project) return;
-    pendingEditorRefresh.current = false;
-    void window.roughCut.openProjectPath(project.path).then((opened) => {
-      if (!opened) return;
-      setProject(opened);
-    });
-  }, [activeAppView, project]);
+  }), [project]);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -940,8 +833,7 @@ function App() {
         setExportResult(null);
         // The URL's `view` is a decision, not a suggestion: the main process
         // already defaults a plain project launch to Recording edit, so a view
-        // that survived into the URL was asked for on purpose. Overwriting it
-        // here honoured `view=nle` for one render and then threw it away.
+        // that survived into the URL was asked for on purpose.
         setActiveAppView(resolveProjectOpenAppView(requestedAppView));
       })
       .catch((err) => {
@@ -1710,10 +1602,6 @@ function App() {
                 setProject((current) => (current && current.path === oldPath ? (updated as unknown as ProjectState) : current));
               }}
             />
-          ) : activeAppView === 'nle' ? (
-            // Rendered by the persistent slot below, outside this keyed subtree,
-            // so switching views hides it instead of destroying it.
-            null
           ) : activeAppView === 'ai' ? (
             <AiShell
               project={project ? { path: project.path, document: project.document } : null}
@@ -1763,9 +1651,6 @@ function App() {
             <ProjectPreview
               project={project}
               recording={recording}
-              editorLayers={editorLayers}
-              // The clips the Editor has on this timeline. Recording edit is a
-              // window onto the same timeline, so it draws them too.
               onProjectChange={applyProjectChange}
               onExportMode={exportProjectWithMode}
               onCancelExport={cancelExport}
@@ -1795,28 +1680,6 @@ function App() {
           ) : (
             <EditorEmptyState onGoToProjects={() => setActiveAppView('projects')} />
           )}
-        </div>
-        {/* Outside the keyed slot above on purpose. Keeping the advanced Editor
-            mounted is what lets an edit survive a view switch: unmounting tears
-            down the embedded editor's document and anything not yet written with
-            it. Hidden, not removed, so returning restores the same session. */}
-        <div
-          className="persistentEditorSlot"
-          data-ui-region="persistent-editor-slot"
-          hidden={activeAppView !== 'nle'}
-          aria-hidden={activeAppView !== 'nle'}
-        >
-          <FreecutEditorSurface
-            projectId={project?.document?.id ?? null}
-            projectVersion={projectVersion}
-            active={activeAppView === 'nle'}
-            // Same project state Recording edit composites, so both views are
-            // literally drawn by the same renderer from the same state.
-            previewProject={(project as unknown as StyledPreviewProject | null) ?? null}
-            // What the Editor has on the timeline, held by the app so Recording
-            // edit draws the same clips without waiting for a save.
-            onLayersChange={handleEditorLayersChange}
-          />
         </div>
       </section>
     </main>
@@ -4100,7 +3963,6 @@ function getProjectCameraWarning(project: ProjectState) {
 
 function ProjectPreview({
   project,
-  editorLayers,
   recording,
   onProjectChange,
   onExportMode,
@@ -4124,7 +3986,6 @@ function ProjectPreview({
   onActiveToolChange,
 }: {
   project: ProjectState;
-  editorLayers: { above: EditorOverlayLayer[]; below: EditorOverlayLayer[] };
   recording: RecordingStatus;
   onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
   onExportMode: (mode: ExportMode, documentOverride?: ProjectState['document'] | null) => void;
@@ -5149,11 +5010,9 @@ function ProjectPreview({
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <h2 className="srOnly">{project.document.name}</h2>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} overlayLayersAbove={editorLayers.above} overlayLayersBelow={editorLayers.below} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
         ) : (
-          // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
-          // NLE Editor view will be the proper home for blank projects once it
-          // lands; until then Recording edit is the only available landing.
+          // P-AI-C/TASK-169 — empty-state for blank projects (no assets).
           <section className="projectPreviewEmpty" data-testid="project-preview-empty" aria-label="Blank project empty state">
             <h3>This project has no recording yet.</h3>
             <p>Record a new take to start editing, or import a file from the Projects view.</p>

@@ -47,20 +47,9 @@ const review = {
     screenshotSha256: hash(boundaryScreenshotPath),
     interactionReportSha256: hash(evidence.interactionReportPath || reportPath),
   },
-  sharedEditor: {
-    projectIdentity: 'shared-rough-cut-project',
-    timelineSource: 'live-shared-timeline',
-    programMediaRole: 'compositor-preview-only',
-    programMediaIds: [],
-    roundTrip: 'verified',
-  },
   runtimeEvidence: {
     ...report.runtimeEvidence,
     projectId: report.projectPath,
-    eventSource: 'rough-cut-host-sync',
-    observed: true,
-    freecutMarker: { version: 'vendored-freecut-1', embedded: true, buildHash: 'packaged' },
-    editorSurface: { ready: true, projectId: report.projectPath },
   },
 };
 writeFileSync(outputPath, `${JSON.stringify(review, null, 2)}\n`);

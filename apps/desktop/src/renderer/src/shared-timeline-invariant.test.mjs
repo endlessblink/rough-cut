@@ -6,12 +6,11 @@ import { join } from 'node:path';
 const root = process.cwd().endsWith('/apps/desktop') ? '../..' : '.';
 const doc = readFileSync(join(root, 'docs/shared-timeline-architecture.md'), 'utf8');
 const mainSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/main.tsx'), 'utf8');
-const freecutSurfaceSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/freecut-editor-surface.tsx'), 'utf8');
 
-test('shared timeline architecture names one timeline and two canonical toolsets', () => {
+test('shared timeline architecture names one timeline and one canonical toolset', () => {
   assert.match(doc, /Rough Cut has one timeline/);
-  assert.match(doc, /Recording edit and FreeCut Editor are two canonical toolsets/);
-  assert.match(doc, /Neither surface is a read-only projection/);
+  assert.match(doc, /Recording edit is the canonical toolset/);
+  assert.match(doc, /No surface is a read-only projection/);
   assert.match(doc, /same project timeline through the same project-change path/);
 });
 
@@ -36,16 +35,8 @@ test('shared timeline architecture blocks pointermove mutations as canonical sta
   assert.match(doc, /Do not mutate project state on every pointermove/);
 });
 
-test('recording edit and FreeCut share app-owned project state across tab switches', () => {
+test('the playhead is app-owned project state that survives tab switches', () => {
   assert.match(mainSource, /const \[sharedTimelineTimeSec, setSharedTimelineTimeSec\] = React\.useState\(0\)/);
-  assert.match(mainSource, /persistentEditorSlot/);
-  assert.match(mainSource, /<FreecutEditorSurface/);
-  assert.match(mainSource, /projectVersion=\{projectVersion\}/);
-  assert.match(mainSource, /onLayersChange=\{handleEditorLayersChange\}/);
-  assert.match(mainSource, /handleEditorLayersChange = React\.useCallback\([^]*?setEditorLayers\(filterLinkedRecordingLayers\(layers\)\)/);
   assert.match(mainSource, /currentTimeSec=\{clampedSharedTimelineTimeSec\}/);
   assert.match(mainSource, /onCurrentTimeSecChange=\{updateSharedTimelineTimeSec\}/);
-  assert.match(freecutSurfaceSource, /freecut:flush/);
-  assert.match(freecutSurfaceSource, /applyFreecutCommand/);
-  assert.match(freecutSurfaceSource, /project-id-mismatch/);
 });
