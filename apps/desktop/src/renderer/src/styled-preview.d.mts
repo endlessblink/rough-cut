@@ -42,6 +42,12 @@ export function clampedCameraTime(
   frameRate?: number,
 ): number;
 
+export function cameraSyncCorrection(
+  driftSec: number,
+  baseRate?: number,
+  frameRate?: number,
+): { seek: boolean; playbackRate: number };
+
 export function cameraCoversSourceTime(
   sourceTimeSec: number,
   cameraOffsetSec: number,

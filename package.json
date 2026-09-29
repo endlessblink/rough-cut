@@ -60,7 +60,8 @@
     "smoke:package-recording-flow-cancel": "ROUGH_CUT_UI_SMOKE_CANCEL_FLOW=1 pnpm smoke:package-recording-flow",
     "dev": "pnpm --filter @rough-cut/desktop dev",
     "clean": "pnpm -r --parallel clean",
-    "visual:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-timeline-interactions-playwright.mjs"
+    "visual:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-timeline-interactions-playwright.mjs",
+    "test:graphics": "node scripts/visual-graphics-playwright.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

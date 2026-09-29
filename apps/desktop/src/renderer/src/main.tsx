@@ -36,6 +36,7 @@ import {
   VideoCamera as PhosphorVideoCamera,
   Waveform as PhosphorWaveform,
   X as PhosphorX,
+  TextAa as PhosphorTextAa,
 } from '@phosphor-icons/react';
 import {
   createDefaultCameraPresentation,
@@ -79,6 +80,9 @@ document.documentElement.dataset.hostBundleSignature = hostBundleSignature;
 import { LibraryShell } from './library/library-shell';
 import { formatProjectName } from './library/project-name.mjs';
 import { AiShell } from './ai/ai-shell';
+import { GraphicsOverlay } from './graphics-overlay';
+import { GraphicsPanel, type GeneratedGraphic } from './graphics-panel';
+import { addGraphic, dragGraphicRange, listGraphics, moveGraphic, removeGraphic, replaceGraphicContent, requestMentionsTime, setGraphicAnimate, updateGraphicFields, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
@@ -128,6 +132,10 @@ declare global {
       getVersion: () => Promise<string>;
       getRuntimeLogPath: () => Promise<string>;
       openEditor: (projectPath?: string | null) => Promise<void>;
+      generateGraphic: (payload: Record<string, unknown>) => Promise<unknown>;
+      cancelGraphic: (requestId: string) => Promise<unknown>;
+      getGraphicsStyle: () => Promise<any>;
+      setGraphicsStyle: (style: Record<string, unknown>) => Promise<any>;
       setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
       writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
       showItemInFolder: (path: string) => Promise<void>;
@@ -2548,7 +2556,7 @@ function getFocusableElements(root: HTMLElement) {
 
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom' | 'censor';
 type FrameAlignmentMode = 'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
-type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'censor';
+type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'censor' | 'graphics';
 
 const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
   folder: PhosphorFolder,
@@ -2588,6 +2596,7 @@ function ToolRail({ active, onSelect, panelOpen, onTogglePanel }: { active: Acti
     { id: 'cursor', icon: PhosphorCursor, label: 'Cursor' },
     { id: 'zoom', icon: PhosphorMagnifyingGlassPlus, label: 'Zoom' },
     { id: 'censor', icon: PhosphorEyeSlash, label: 'Censor' },
+    { id: 'graphics', icon: PhosphorTextAa, label: 'Graphics' },
   ];
   return (
     <nav className="toolRail" aria-label="Editor tools" data-panel-state={panelOpen ? 'expanded' : 'collapsed'}>
@@ -4031,6 +4040,8 @@ function ProjectPreview({
   // which reads as "this censor is already following" when it is not.
   const [censorTrack, setCensorTrack] = React.useState<{ censorId: string; message: string } | null>(null);
   const [selectedCensorId, setSelectedCensorId] = React.useState<string | null>(null);
+  const [selectedGraphicId, setSelectedGraphicId] = React.useState<string | null>(null);
+  const graphicsStageRef = React.useRef<HTMLDivElement | null>(null);
   const [selectedFramingId, setSelectedFramingId] = React.useState<string | null>(null);
   // Always the newest document, for handlers that await something slow before
   // writing. Following a censor takes tens of seconds, and the captured `project`
@@ -4826,6 +4837,48 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+  // Claude-made graphics: timeline-level layers over the whole composite.
+  const graphics = listGraphics(project.document as unknown as ProjectDocument);
+  const graphicsFps = project.recording?.fps ?? 30;
+  // The export canvas (default long edge), so a graphic lays out identically in
+  // the scaled-down preview and the exported file.
+  const graphicsCanvas = getStyledCanvasResolution({ aspectRatio, sourceWidth: screenSourceSize.width, sourceHeight: screenSourceSize.height });
+
+  async function persistGraphics(nextDocument: ProjectDocument, action: string) {
+    if (nextDocument === (project.document as unknown as ProjectDocument)) return;
+    // Logged so a lost or duplicated graphic can be traced in the runtime log.
+    console.info(`[graphics] ${action}: ${listGraphics(project.document as unknown as ProjectDocument).length} -> ${listGraphics(nextDocument).map((graphic) => `${graphic.id}@${graphic.startFrame}-${graphic.endFrame}`).join(', ') || 'none'} (project ${project.path})`);
+    await persist(nextDocument as unknown as ProjectState['document']);
+  }
+
+  async function addGeneratedGraphic(graphic: GeneratedGraphic, request: string) {
+    const id = `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    // At the playhead, unless the request itself named a start time.
+    const startSec = requestMentionsTime(request) && graphic.startSec !== null ? graphic.startSec : currentTimeSec;
+    const startFrame = Math.round(startSec * graphicsFps);
+    setSelectedGraphicId(id);
+    await persistGraphics(addGraphic(project.document as unknown as ProjectDocument, {
+      id,
+      title: graphic.title,
+      html: graphic.html,
+      fields: graphic.fields,
+      request,
+      startFrame,
+      endFrame: startFrame + Math.max(1, Math.round(graphic.durationSec * graphicsFps)),
+      timelineFrames: recordingEditModel.timelineDurationFrames,
+    }), 'add');
+  }
+
+  function selectGraphic(id: string | null) {
+    setSelectedGraphicId(id);
+    if (id) onActiveToolChange('graphics');
+  }
+
+  async function removeGraphicById(id: string) {
+    if (selectedGraphicId === id) setSelectedGraphicId(null);
+    await persistGraphics(removeGraphic(project.document as unknown as ProjectDocument, id), 'remove');
+  }
+
   // A framing range only means something while the screen is cropped.
   const framingAvailable = Boolean(screenCrop?.enabled);
   const selectedFramingRange = framingAvailable && selectedFramingId
@@ -5006,9 +5059,24 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace" data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
       <ToolRail active={activeTool} onSelect={onActiveToolChange} panelOpen={setupBoardOpen} onTogglePanel={onSetupBoardToggle} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRestoreOriginal={restoreOriginalRecording} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} selectedCensorId={selectedCensorId} selectedCensorSoftness={resolveCensorSoftness(listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId))} onCensorSoftnessChange={updateCensorSoftness} selectedCensorFollows={Boolean((listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId)?.keyframes?.length ?? 0) > 1)} censorTrackBusy={censorTrackBusy} censorTrackStatus={censorTrackStatus} onCensorTrack={trackCensor} onCensorClearTrack={clearCensorTrack} framingHoldCount={framingAvailable ? listFramingRanges(project.document as unknown as ProjectDocument).length : 0} framingHoldSelected={Boolean(selectedFramingRange)} onAddFramingHold={addFramingHoldAtPlayhead} />
-      <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
+      {activeTool === 'graphics' ? (
+        <GraphicsPanel
+          graphics={graphics}
+          selectedGraphicId={selectedGraphicId}
+          fps={graphicsFps}
+          canvas={graphicsCanvas}
+          disabled={isSaving}
+          onSelect={selectGraphic}
+          onAdd={(graphic, request) => void addGeneratedGraphic(graphic, request)}
+          onReplace={(id, graphic, request) => void persistGraphics(replaceGraphicContent(project.document as unknown as ProjectDocument, id, { title: graphic.title, html: graphic.html, fields: graphic.fields, request }), 'replace')}
+          onFieldsChange={(id, values) => void persistGraphics(updateGraphicFields(project.document as unknown as ProjectDocument, id, values), 'fields')}
+          onAnimateChange={(id, animate) => void persistGraphics(setGraphicAnimate(project.document as unknown as ProjectDocument, id, animate), 'animate')}
+          onRemove={(id) => void removeGraphicById(id)}
+        />
+      ) : <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRestoreOriginal={restoreOriginalRecording} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} selectedCensorId={selectedCensorId} selectedCensorSoftness={resolveCensorSoftness(listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId))} onCensorSoftnessChange={updateCensorSoftness} selectedCensorFollows={Boolean((listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId)?.keyframes?.length ?? 0) > 1)} censorTrackBusy={censorTrackBusy} censorTrackStatus={censorTrackStatus} onCensorTrack={trackCensor} onCensorClearTrack={clearCensorTrack} framingHoldCount={framingAvailable ? listFramingRanges(project.document as unknown as ProjectDocument).length : 0} framingHoldSelected={Boolean(selectedFramingRange)} onAddFramingHold={addFramingHoldAtPlayhead} />}
+      <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage" ref={graphicsStageRef}>
         <h2 className="srOnly">{project.document.name}</h2>
+        {project.mediaUrl ? <GraphicsOverlay stageRef={graphicsStageRef} graphics={graphics} currentTimeSec={currentTimeSec} fps={graphicsFps} canvasWidth={graphicsCanvas.width} canvasHeight={graphicsCanvas.height} selectedGraphicId={selectedGraphicId} /> : null}
         {project.mediaUrl ? (
           <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
         ) : (
@@ -5025,7 +5093,7 @@ function ProjectPreview({
           <p className="timelineHeaderTitle">Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} /> : null}
+           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} /> : null}
         </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector" hidden={!inspectorOpen}>
         <div className="inspectorHeader">
@@ -5205,7 +5273,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove }: { project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void }) {
+function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove }: { project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -5222,6 +5290,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const [selectedZoomMarkerIds, setSelectedZoomMarkerIds] = React.useState<string[]>([]);
   const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
+  const [graphicDragPreview, setGraphicDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
   const [framingDragPreview, setFramingDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [framingSpanPreview, setFramingSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [cutDragPreview, setCutDragPreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
@@ -6337,6 +6406,71 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     window.addEventListener('pointercancel', up, { once: true });
   }
 
+  // Graphics live in timeline frames already, so unlike censors there is no
+  // source-frame mapping: the block follows the pointer directly.
+  const graphicTotalFrames = Math.max(1, Math.round(model.durationSec * fps));
+
+  function graphicRegionStyle(graphic: TimelineGraphic) {
+    const range = graphicDragPreview?.id === graphic.id ? graphicDragPreview : graphic;
+    const placement = frameRangeToPlacement(range.startFrame, range.endFrame, fps, model.durationSec);
+    return { left: `${placement.left}%`, width: `${placement.width}%` };
+  }
+
+  function beginGraphicDrag(graphic: TimelineGraphic, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
+    if (!onGraphicRangeChange) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const startClientX = event.clientX;
+    const initialFrame = timelineFrameFromClient(handle, event.clientX) ?? 0;
+    const initial = { startFrame: graphic.startFrame, endFrame: graphic.endFrame };
+    let latest = initial;
+    let dragged = false;
+    const update = (clientX: number) => {
+      if (!dragged) {
+        if (Math.abs(clientX - startClientX) < 4) return;
+        dragged = true;
+      }
+      const frame = timelineFrameFromClient(handle, clientX);
+      if (frame === null) return;
+      latest = dragGraphicRange(initial, { mode, delta: frame - initialFrame, totalFrames: graphicTotalFrames });
+      setGraphicDragPreview({ id: graphic.id, ...latest });
+    };
+    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
+    const up = (upEvent: PointerEvent) => {
+      update(upEvent.clientX);
+      setGraphicDragPreview(null);
+      if (dragged) onGraphicRangeChange(graphic.id, latest.startFrame, latest.endFrame);
+      else if (mode === 'move') onSelectGraphic?.(graphic.id);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+    window.addEventListener('pointercancel', up, { once: true });
+  }
+
+  function handleGraphicKeyboard(graphic: TimelineGraphic, mode: 'move' | 'start' | 'end', event: React.KeyboardEvent<HTMLElement>) {
+    if ((event.key === 'Delete' || event.key === 'Backspace') && mode === 'move' && onGraphicRemove) {
+      event.preventDefault();
+      onGraphicRemove(graphic.id);
+      return;
+    }
+    if (event.key === 'Enter' && mode === 'move') {
+      event.preventDefault();
+      onSelectGraphic?.(graphic.id);
+      return;
+    }
+    if ((event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') || !onGraphicRangeChange) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const delta = (event.shiftKey ? Math.max(1, Math.round(fps)) : 1) * (event.key === 'ArrowLeft' ? -1 : 1);
+    const next = dragGraphicRange(graphic, { mode, delta, totalFrames: graphicTotalFrames });
+    onGraphicRangeChange(graphic.id, next.startFrame, next.endFrame);
+  }
+
   function handleCensorKeyboard(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.KeyboardEvent<HTMLElement>) {
     handleRangeKeyboard(region, mode, event, onCensorRangeChange, onCensorRemove);
   }
@@ -6531,6 +6665,45 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               />
               <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
             </div>
+            <TimelineLane label="Graphics" className="graphicsLane" aria-label="Graphics" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+          {graphics.length > 0
+            ? graphics.map((graphic) => {
+                const selected = selectedGraphicId === graphic.id;
+                const range = graphicDragPreview?.id === graphic.id ? graphicDragPreview : graphic;
+                const timeLabel = `${formatClock(range.startFrame / fps)} to ${formatClock(range.endFrame / fps)}`;
+                return (
+                  <div
+                    key={graphic.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${graphic.title}, ${timeLabel}. Arrow keys retime. Delete to remove.`}
+                    aria-pressed={selected}
+                    className={`timelineRegion graphicRegion ${selected ? 'selectedRegion' : ''}`}
+                    data-graphic-id={graphic.id}
+                    title={`${graphic.title} · ${timeLabel}`}
+                    style={graphicRegionStyle(graphic)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => handleGraphicKeyboard(graphic, 'move', event)}
+                    onPointerDown={(event) => beginGraphicDrag(graphic, 'move', event)}
+                  >
+                    <span className="graphicClipLabel" dir="auto"><PhosphorTextAa size={14} weight="regular" aria-hidden /> {graphic.title}</span>
+                    <span role="slider" tabIndex={0} aria-label={`${graphic.title} start`} aria-valuemin={0} aria-valuemax={Math.max(0, graphic.endFrame - 6)} aria-valuenow={graphic.startFrame} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleGraphicKeyboard(graphic, 'start', event)} onPointerDown={(event) => beginGraphicDrag(graphic, 'start', event)} />
+                    <span role="slider" tabIndex={0} aria-label={`${graphic.title} end`} aria-valuemin={graphic.startFrame + 6} aria-valuemax={graphicTotalFrames} aria-valuenow={graphic.endFrame} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleGraphicKeyboard(graphic, 'end', event)} onPointerDown={(event) => beginGraphicDrag(graphic, 'end', event)} />
+                    {onGraphicRemove ? (
+                      <button
+                        type="button"
+                        className="zoomRegionDelete graphicRegionDelete"
+                        aria-label={`Delete ${graphic.title}`}
+                        title="Delete this graphic"
+                        onClick={(event) => { event.stopPropagation(); onGraphicRemove(graphic.id); }}
+                        onPointerDown={(event) => { event.stopPropagation(); }}
+                      >×</button>
+                    ) : null}
+                  </div>
+                );
+              })
+            : <p className="srOnly">No graphics yet.</p>}
+            </TimelineLane>
             <TimelineLane
               label="Screen"
               className={`screenLane ${cutModeActive ? 'cutModeActive' : ''}`}
@@ -6767,6 +6940,7 @@ const TIMELINE_LANE_ICONS: Record<string, PhosphorIconType> = {
   clicks: PhosphorCursorClick,
   camera: PhosphorVideoCamera,
   framing: PhosphorFrameCorners,
+  graphics: PhosphorTextAa,
 };
 
 function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackPointerDown, onTrackPointerDownCapture, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; onTrackPointerDownCapture?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {

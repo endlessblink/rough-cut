@@ -46,6 +46,13 @@ try {
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 30000 });
   await page.waitForSelector('[data-ui-region="central-stage"] canvas.styledPreviewCanvas', { timeout: 30000 });
+  // Optional: open a tool tab and park the playhead, to photograph a specific state.
+  if (process.env.ROUGH_CUT_REAL_EDITOR_TOOL) {
+    await page.locator(`.toolRail button[aria-label="${process.env.ROUGH_CUT_REAL_EDITOR_TOOL}"]`).click();
+  }
+  if (process.env.ROUGH_CUT_REAL_EDITOR_SEEK_SEC) {
+    await page.locator('input.timelineScrubber').fill(process.env.ROUGH_CUT_REAL_EDITOR_SEEK_SEC);
+  }
   // Let the first decoded frame land before photographing the stage.
   await page.waitForTimeout(Number(process.env.ROUGH_CUT_REAL_EDITOR_SETTLE_MS || 1500));
 

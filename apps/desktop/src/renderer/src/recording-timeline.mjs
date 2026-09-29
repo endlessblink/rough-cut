@@ -112,6 +112,9 @@ export function restoreRecordingOriginalState(document, { assetId }) {
 
   const duration = Math.max(1, Math.round(recording.duration ?? model.sourceDurationFrames));
   const cameraAssetId = recording.cameraAssetId ?? null;
+  // The camera file starts a few frames before the screen; its clip must keep
+  // that head offset from capture or the face plays behind the voice.
+  const cameraOffset = recordingCameraSourceOffset(document, cameraAssetId);
   const originalAspectRatio = inferOriginalRecordingAspectRatio(recording.metadata)
     ?? recording.metadata?.recordingEditOriginalAspectRatio
     ?? 'auto';
@@ -137,15 +140,17 @@ export function restoreRecordingOriginalState(document, { assetId }) {
     const clips = (track.clips ?? []).filter((clip) => sourceIds.has(clip.mediaId));
     if (clips.length === 0) return track;
     const first = clips[0];
-    const assetIdForClip = first.source?.id ?? (first.mediaId.endsWith(':camera') ? cameraAssetId : recording.id);
+    const isCamera = first.mediaId.endsWith(':camera');
+    const assetIdForClip = first.source?.id ?? (isCamera ? cameraAssetId : recording.id);
+    const sourceIn = isCamera ? cameraOffset : 0;
     return {
       ...track,
       clips: [{
         ...first,
         timelineIn: 0,
         timelineOut: duration,
-        sourceIn: 0,
-        sourceOut: duration,
+        sourceIn,
+        sourceOut: sourceIn + duration,
         source: { kind: 'project-asset', id: assetIdForClip },
       }],
     };
@@ -157,7 +162,8 @@ export function restoreRecordingOriginalState(document, { assetId }) {
       ...track,
       clips: (track.clips ?? []).map((clip) => {
         if (clip.assetId !== recording.id && clip.assetId !== cameraAssetId) return clip;
-        return { ...clip, timelineIn: 0, timelineOut: duration, sourceIn: 0, sourceOut: duration };
+        const sourceIn = cameraAssetId && clip.assetId === cameraAssetId ? cameraOffset : 0;
+        return { ...clip, timelineIn: 0, timelineOut: duration, sourceIn, sourceOut: sourceIn + duration };
       }),
     })),
   };
@@ -173,7 +179,9 @@ export function restoreRecordingOriginalState(document, { assetId }) {
       ...document.timeline,
       tracks: nextTimelineTracks,
       markers: [],
-      effects: [],
+      // Graphics are content laid over the program, like censors — restoring
+      // the recording's continuity must not delete them.
+      effects: (document.timeline.effects ?? []).filter((effect) => effect.kind === 'graphic'),
     },
   }, recording.id);
 }
@@ -437,6 +445,14 @@ function listTimelineCutRanges(document, assetId, totalFrames) {
 function clampFrame(value, min, max) {
   const frame = Number.isFinite(value) ? Math.round(value) : min;
   return Math.max(min, Math.min(max, frame));
+}
+
+/** Frames the camera file runs ahead of the screen, measured at capture time. */
+export function recordingCameraSourceOffset(document, cameraAssetId) {
+  if (!cameraAssetId) return 0;
+  const camera = (document?.assets ?? []).find((asset) => asset.id === cameraAssetId);
+  const frames = camera?.metadata?.sourceInFrames ?? camera?.metadata?.sync?.cameraSourceInFrames ?? 0;
+  return Number.isFinite(frames) ? Math.max(0, Math.round(frames)) : 0;
 }
 
 function updateCompositionTracks(tracks, assetId, cameraAssetId, screenPatch, cameraPatch) {

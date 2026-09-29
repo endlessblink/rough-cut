@@ -829,3 +829,9 @@ test('cuts that skip source are crossed by a pre-rolled standby decoder, not a s
   // Every stop, scrub, seek, gap and end resets the standby.
   assert.ok((source.match(/resetCutPreroll\(\);/g) ?? []).length >= 6);
 });
+
+test('timeline playback locks the camera to the screen clock (face drifted off the voice, 2026-09-29)', () => {
+  const source = readFileSync(new URL('./styled-video-preview.tsx', import.meta.url), 'utf8');
+  assert.match(source, /timeMode === 'timeline' && activeTimelinePlayback && !cameraVideo\.seeking/);
+  assert.match(source, /cameraSyncCorrection\(drift, timelineRateRef\.current, fps\)/);
+});

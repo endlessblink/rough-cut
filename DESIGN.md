@@ -8,7 +8,8 @@ Rough Cut should feel like a focused screen-recording editor inspired by Screen 
 - Avoid glossy, oversized, or game-like controls.
 - Avoid placeholder controls. If a control is visible, it should do something.
 - Keep editor panels dense and scannable. No hero cards or paragraph-heavy helper text inside tool panels.
-- Studio layout (approved 2026-09-28): one slim top bar (project, page tabs, Record, Export); the preview is the hero; the settings panel and a labelled six-tab tool strip (Background, Frame, Camera, Cursor, Zoom, Censor) sit on the right; the timeline spans the full width; export is a pop-over from the top bar. Rarely used controls go under a "More …" disclosure, never deleted.
+- Studio layout (approved 2026-09-28): one slim top bar (project, page tabs, Record, Export); the preview is the hero; the settings panel and a labelled seven-tab tool strip (Background, Frame, Camera, Cursor, Zoom, Censor, Graphics) sit on the right; the timeline spans the full width; export is a pop-over from the top bar. Rarely used controls go under a "More …" disclosure, never deleted.
+- Graphics (added 2026-09-29): Claude-made layers drawn live over the whole composite. The Graphics lane is the top timeline lane (top of the stack draws on top). Graphic pills are a pale translucent fill with a solid edge, distinct from blue zoom, dark censor and dashed framing pills without adding an accent hue.
 
 ## Tokens
 

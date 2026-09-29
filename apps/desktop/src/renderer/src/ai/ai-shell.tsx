@@ -24,8 +24,7 @@ import {
 type ProjectLike = { path: string; document: unknown };
 
 type RoughCutBridge = {
-  getAiKeyStatus: () => Promise<{ configured: boolean; source: 'env' | 'userData' | null }>;
-  setAiApiKey: (apiKey: string) => Promise<{ ok: true }>;
+  getAiStatus: () => Promise<{ available: boolean; reason: string | null }>;
   analyzeProjectWithAi: (payload: {
     project: ProjectLike;
     recordingDurationFrames: number;
@@ -66,10 +65,7 @@ export function AiShell(props: Props): React.ReactElement {
     onApplyTitle,
     onGoToProjects,
   } = props;
-  const [keyStatus, setKeyStatus] = React.useState<{ configured: boolean; source: string | null } | null>(null);
-  const [keyDraft, setKeyDraft] = React.useState('');
-  const [keySaving, setKeySaving] = React.useState(false);
-  const [keyError, setKeyError] = React.useState<string | null>(null);
+  const [status, setStatus] = React.useState<{ available: boolean; reason: string | null } | null>(null);
   const [load, setLoad] = React.useState<LoadState>({ kind: 'idle' });
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
   const [applied, setApplied] = React.useState<Set<string>>(new Set());
@@ -77,24 +73,8 @@ export function AiShell(props: Props): React.ReactElement {
   React.useEffect(() => {
     const b = bridge();
     if (!b) return;
-    b.getAiKeyStatus().then(setKeyStatus).catch(() => setKeyStatus({ configured: false, source: null }));
+    b.getAiStatus().then(setStatus).catch(() => setStatus({ available: false, reason: 'Could not check for Claude Code.' }));
   }, []);
-
-  async function onSaveKey() {
-    const b = bridge();
-    if (!b) return;
-    setKeySaving(true);
-    setKeyError(null);
-    try {
-      await b.setAiApiKey(keyDraft);
-      setKeyStatus({ configured: true, source: 'userData' });
-      setKeyDraft('');
-    } catch (err) {
-      setKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setKeySaving(false);
-    }
-  }
 
   async function onAnalyze() {
     const b = bridge();
@@ -105,7 +85,7 @@ export function AiShell(props: Props): React.ReactElement {
     try {
       const result = await b.analyzeProjectWithAi({ project, recordingDurationFrames, fps });
       if ('error' in result) {
-        setLoad({ kind: 'error', message: `${result.error.code}: ${result.error.message}` });
+        setLoad({ kind: 'error', message: result.error.message });
         return;
       }
       setLoad({ kind: 'analyzed', analysis: result });
@@ -128,36 +108,12 @@ export function AiShell(props: Props): React.ReactElement {
     );
   }
 
-  if (keyStatus && !keyStatus.configured) {
+  if (status && !status.available) {
     return (
       <section className="aiShell" data-ui-region="ai-workspace" aria-label="AI assistant">
         <div className="aiEmptyState">
-          <h2>Set your Anthropic API key</h2>
-          <p>
-            The AI view uses Claude. Paste an API key (starts with{' '}
-            <code>sk-ant-</code>) — or set <code>ANTHROPIC_API_KEY</code> in
-            your environment. Keys are stored locally with 0600 permissions.
-          </p>
-          <input
-            type="password"
-            value={keyDraft}
-            onChange={(event) => setKeyDraft(event.target.value)}
-            placeholder="sk-ant-…"
-            className="aiKeyInput"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <div className="aiKeyActions">
-            <button
-              type="button"
-              className="primary"
-              onClick={() => void onSaveKey()}
-              disabled={keySaving || keyDraft.trim().length === 0}
-            >
-              {keySaving ? 'Saving…' : 'Save key'}
-            </button>
-            {keyError ? <span className="aiKeyError">{keyError}</span> : null}
-          </div>
+          <h2>Claude Code is needed</h2>
+          <p>{status.reason ?? 'Install Claude Code and sign in by running claude once.'}</p>
         </div>
       </section>
     );
@@ -182,11 +138,7 @@ export function AiShell(props: Props): React.ReactElement {
       <header className="aiHeader">
         <div>
           <h2>AI suggestions</h2>
-          {keyStatus?.source === 'env' ? (
-            <p className="aiHeaderHint">Using ANTHROPIC_API_KEY from your environment.</p>
-          ) : keyStatus?.source === 'userData' ? (
-            <p className="aiHeaderHint">Using saved API key.</p>
-          ) : null}
+          <p className="aiHeaderHint">Uses your Claude Code login on this computer.</p>
         </div>
         <button
           type="button"

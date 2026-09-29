@@ -460,3 +460,12 @@ test('resizeRectFromPointer clamps oversized and undersized resizes', () => {
   assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 9999, 9999, 1000, 500), { x: 0.2, y: 0.2, w: 0.8, h: 0.8 });
   assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 201, 101, 1000, 500), { x: 0.2, y: 0.2, w: 0.05, h: 0.05 });
 });
+
+test('cameraSyncCorrection keeps the camera on the voice clock', async () => {
+  const { cameraSyncCorrection } = await import('./styled-preview.mjs');
+  assert.deepEqual(cameraSyncCorrection(0.005, 1, 30), { seek: false, playbackRate: 1 });
+  assert.deepEqual(cameraSyncCorrection(0.1, 1, 30), { seek: false, playbackRate: 0.9 });
+  assert.deepEqual(cameraSyncCorrection(-0.1, 2, 30), { seek: false, playbackRate: 2.2 });
+  assert.deepEqual(cameraSyncCorrection(0.34, 1, 30), { seek: true, playbackRate: 1 });
+  assert.deepEqual(cameraSyncCorrection(Number.NaN, 1, 30), { seek: false, playbackRate: 1 });
+});

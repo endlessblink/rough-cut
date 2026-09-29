@@ -40,6 +40,7 @@ import { CUT_PREROLL_EARLY_FRAMES, cutPrerollKey, planCutPreroll, standbyAligned
 import { shouldPublishTimelinePlayhead } from './timeline-playhead-publish.mjs';
 import {
   cameraCoversSourceTime,
+  cameraSyncCorrection,
   clampedCameraTime,
   coverSourceRect,
   cursorAtTimeMs,
@@ -2045,7 +2046,9 @@ export function StyledVideoPreview({
         });
         publishScreenLayerRendererStats(backgroundLayerStats);
       }
-      if (!activeTimelinePlayback && editablePreview && alignmentGridVisibleRef.current && !parityCapture) {
+      // The grid stays up while playing: the viewer must not change look on
+      // every play/pause. It is an editing guide and never reaches the export.
+      if (editablePreview && alignmentGridVisibleRef.current && !parityCapture) {
         drawAlignmentGrid(ctx, canvasWidth, canvasHeight);
       }
       markDrawPhase('background');
@@ -2100,6 +2103,15 @@ export function StyledVideoPreview({
           lastDrawnFrame = -1;
           scheduleNextDraw();
           return;
+        }
+        if (timeMode === 'timeline' && activeTimelinePlayback && !cameraVideo.seeking) {
+          // Lock the camera to the frame being drawn (the voice's clock) — see
+          // cameraSyncCorrection. Without this the face drifts off the voice.
+          const drift = cameraVideo.currentTime - expectedCameraTime;
+          const correction = cameraSyncCorrection(drift, timelineRateRef.current, fps);
+          if (correction.seek) cameraVideo.currentTime = expectedCameraTime;
+          if (cameraVideo.playbackRate !== correction.playbackRate) cameraVideo.playbackRate = correction.playbackRate;
+          (window as unknown as Record<string, unknown>).__roughCutCameraSync = { driftSec: drift, offsetSec: cameraSourceOffsetSec, ...correction };
         }
         const dragRect = cameraDragRef.current;
         const rawCameraFrame = constrainCameraShapeFrame(dragRect

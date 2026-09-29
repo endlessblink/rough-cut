@@ -14,6 +14,11 @@
   --strong-line: #33333f;
   --shadow: 0 24px 82px rgb(0 0 0 / 0.45);
   /* Censor pills read as a blackout cut into the lane, not a second accent hue. */
+  /* Graphics pills read as a pale layer sitting on the program, not an accent. */
+  --graphic-chip-fill: rgb(255 255 255 / 0.13);
+  --graphic-chip-fill-selected: rgb(255 255 255 / 0.22);
+  --graphic-chip-border: rgb(255 255 255 / 0.36);
+  --graphic-chip-ink: #f4f4f7;
   --censor-chip-top: #4a4a58;
   --censor-chip-bottom: #23232c;
   --censor-chip-border: rgb(255 255 255 / 0.26);
@@ -4772,23 +4777,6 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   font-size: 0.85em;
   padding: 0.05em 0.4em;
 }
-.aiKeyInput {
-  background: rgb(15 23 42 / 0.6);
-  border: 1px solid rgb(255 255 255 / 0.1);
-  border-radius: var(--radius-md);
-  color: var(--text);
-  font: inherit;
-  padding: var(--space-2) var(--space-3);
-  width: 100%;
-}
-.aiKeyInput:focus { border-color: rgb(96 165 250 / 0.55); outline: none; }
-.aiKeyActions {
-  align-items: center;
-  display: flex;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-}
-.aiKeyError { color: rgb(248 113 113); font-size: var(--text-sm); }
 .aiBanner {
   border-radius: var(--radius-md);
   font-size: var(--text-md);
@@ -6032,3 +6020,149 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .editorShell .topBar .primaryAction .icon { display: none; }
 .editorShell .topBar .primaryAction:not(.stop)::before { background: var(--record); border-radius: 50%; box-shadow: 0 0 0 3px rgb(244 63 94 / 0.2); content: ""; height: 0.5625rem; width: 0.5625rem; }
 .editorShell .topBar .primaryAction { align-items: center; display: inline-flex; gap: var(--space-2); }
+
+/* ── Graphics (Claude-made motion graphics) ───────────────────────────────── */
+
+/* Live layer: sits exactly over the preview canvas; never takes the pointer,
+ * so frame handles and censor drawing underneath keep working. */
+.stageColumn { position: relative; }
+.graphicsOverlay { overflow: hidden; pointer-events: none; position: absolute; z-index: 3; }
+.graphicFrame {
+  background: transparent;
+  border: 0;
+  color-scheme: normal;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/* Timeline lane: the topmost lane, because graphics draw over everything. */
+.graphicsLane,
+.graphicsLane .laneTrack { overflow: visible; }
+.graphicsLane { min-height: 1.85rem; z-index: 20; }
+.graphicRegion {
+  background: var(--graphic-chip-fill);
+  border: 1px solid var(--graphic-chip-border);
+  color: var(--graphic-chip-ink);
+}
+.graphicRegion:hover { border-color: var(--graphic-chip-ink); }
+.graphicRegion.selectedRegion { background: var(--graphic-chip-fill-selected); border-color: var(--graphic-chip-ink); }
+.graphicClipLabel {
+  align-items: center;
+  color: var(--graphic-chip-ink);
+  display: flex;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  gap: var(--space-1);
+  letter-spacing: var(--tracking-ui);
+  line-height: 1;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graphicRegion .graphicRegionDelete { color: rgb(255 255 255 / 0.6); }
+.graphicRegion .graphicRegionDelete:hover { color: #fca5a5; }
+
+/* Panel */
+.graphicsPane .inspectorSection { display: grid; gap: var(--space-3); }
+.graphicsField { display: grid; gap: var(--space-1-5); min-width: 0; }
+.graphicsField > span { color: var(--muted); font-size: var(--text-sm); }
+.graphicsField input[type="text"],
+.graphicsField input[type="number"],
+.graphicsField textarea {
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1.45;
+  min-width: 0;
+  padding: var(--space-2) var(--space-2-5);
+  resize: vertical;
+  width: 100%;
+}
+.graphicsField textarea::placeholder,
+.graphicsField input::placeholder { color: var(--subtle); }
+.graphicsField input:focus-visible,
+.graphicsField textarea:focus-visible { border-color: var(--accent); outline: 2px solid rgb(59 130 246 / 0.35); outline-offset: 0; }
+.graphicsField input:disabled,
+.graphicsField textarea:disabled { opacity: 0.55; }
+.graphicsRequest textarea { min-height: 4.5rem; }
+
+.graphicsActions { align-items: center; display: flex; gap: var(--space-2); justify-content: flex-end; min-height: 1.9rem; }
+.graphicsActions button { align-items: center; display: inline-flex; gap: var(--space-1-5); }
+.graphicsGenerate:disabled { opacity: 0.5; }
+.graphicsWorking { align-items: center; color: var(--muted); display: inline-flex; font-size: var(--text-sm); gap: var(--space-2); margin-right: auto; }
+.graphicsWorkingDot { animation: graphicsPulse 1.2s ease-in-out infinite; background: var(--accent); border-radius: var(--radius-pill); height: 0.5rem; width: 0.5rem; }
+@keyframes graphicsPulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .graphicsWorkingDot { animation: none; } }
+
+.graphicsProblem { border: 1px solid rgb(248 113 113 / 0.4); border-radius: var(--radius-md); color: #fecaca; display: grid; font-size: var(--text-sm); gap: var(--space-1); padding: var(--space-2) var(--space-2-5); }
+.graphicsProblem strong { font-weight: var(--weight-semibold); }
+.graphicsProblem ul { color: #fca5a5; margin: 0; padding-left: var(--space-4); }
+
+.graphicsList { display: grid; gap: var(--space-1); list-style: none; margin: 0; padding: 0; }
+.graphicsListItem {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  min-height: 2.25rem;
+  padding: var(--space-1-5) var(--space-2-5);
+  text-align: start;
+  width: 100%;
+}
+.graphicsListItem:hover { background: var(--panel-alt); }
+.graphicsListItem.isSelected { background: var(--panel-alt); border-color: var(--strong-line); box-shadow: inset 0 -2px 0 var(--accent); }
+.graphicsListTitle { font-size: var(--text-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graphicsListTime { color: var(--muted); flex: none; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.graphicsEmpty { color: var(--subtle); font-size: var(--text-sm); line-height: 1.5; margin: 0; }
+.graphicsFields { display: grid; gap: var(--space-3); }
+.graphicsColorRow { display: grid; gap: var(--space-2); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.graphicsColorControl {
+  align-items: center;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: var(--space-2);
+  min-height: 2.25rem;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+}
+.graphicsColorControl:focus-within { border-color: var(--accent); }
+.graphicsColorField input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  flex: none;
+  height: 1.375rem;
+  padding: 0;
+  width: 1.375rem;
+}
+.graphicsColorField input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.graphicsColorField input[type="color"]::-webkit-color-swatch { border: 1px solid rgb(255 255 255 / 0.25); border-radius: var(--radius-sm); }
+.graphicsColorValue { color: var(--text); font-size: var(--text-sm); font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.graphicsDelete { align-items: center; color: var(--muted); display: inline-flex; font-size: var(--text-sm); gap: var(--space-1); }
+.graphicsDelete:hover:not(:disabled) { color: #fca5a5; }
+
+/* A short graphic on a long timeline is only a few pixels wide: the edge grab
+ * zones shrink with it so the middle always stays grabbable for a move, and the
+ * × hides (Delete key and the panel still remove it). */
+.graphicRegion { container-type: inline-size; }
+.graphicRegion .zoomResizeHandle { width: min(var(--zoom-edge-hit), 22%); }
+@container (max-width: 72px) {
+  .graphicRegion .graphicRegionDelete,
+  .graphicRegion .graphicClipLabel { display: none; }
+}

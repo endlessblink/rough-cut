@@ -15,6 +15,7 @@ import {
   censorRegionIsAnimated,
 } from '../shared/censor-regions.mjs';
 import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
+import { buildGraphicsOverlayArgs, planGraphicsOverlay } from './graphics-export.mjs';
 import {
   canonicalizeProjectDocument,
   createDefaultCameraPresentation,
@@ -68,6 +69,7 @@ export async function exportProjectToMp4({
   signal = null,
   preparedStabilizationTransforms = null,
   resolveStabilizationTransforms = null,
+  renderGraphicFrames = null,
 } = {}) {
   const exportMode = normalizeExportMode(mode);
   const scope = normalizeExportScope(exportScope);
@@ -115,14 +117,37 @@ export async function exportProjectToMp4({
   }
 
   if (exportMode === EXPORT_MODES.STYLED) {
-    return exportStyledProjectToMp4({
+    const graphicsPlan = planGraphicsOverlay({
+      document: project,
+      fps: Number.isFinite(exportRecording.fps) && exportRecording.fps > 0 ? exportRecording.fps : 30,
+      durationFrames: exportRecording.timelineDurationFrames ?? exportRecording.duration,
+    });
+    // Graphics get the last slice of the progress bar; the styled pass the rest.
+    const styledShare = graphicsPlan.length > 0 ? 0.8 : 1;
+    const styledResult = await exportStyledProjectToMp4({
       project,
       recording: exportRecording,
       outputPath,
-      onProgress,
+      onProgress: (event) => {
+        if (graphicsPlan.length === 0) return onProgress(event);
+        // The export is not complete until the graphics pass has run.
+        if (event?.phase === 'complete') return undefined;
+        return onProgress(typeof event?.progress === 'number' ? { ...event, progress: event.progress * styledShare } : event);
+      },
       signal,
       sourceStabilization,
       cameraStabilization,
+    });
+    if (styledResult?.cancelled || graphicsPlan.length === 0) return styledResult;
+    return overlayGraphicsOnExport({
+      styledResult,
+      outputPath,
+      items: graphicsPlan,
+      fps: graphicsPlan[0].fps,
+      onProgress: (progress) => onProgress({ phase: 'rendering-graphics', progress: styledShare + progress * (1 - styledShare) }),
+      onComplete: () => onProgress({ phase: 'complete', progress: 1 }),
+      signal,
+      renderGraphicFrames,
     });
   }
 
@@ -2747,6 +2772,72 @@ export function memoryCappedCommand(command, args) {
       ...args,
     ],
   };
+}
+
+/**
+ * Lay Claude-made graphics over a finished styled export: render each graphic
+ * to PNG frames with the preview's own page, then one ffmpeg overlay per
+ * graphic. Replaces the output file only when the pass succeeds.
+ */
+async function overlayGraphicsOnExport({ styledResult, outputPath, items, fps, onProgress, onComplete = () => undefined, signal, renderGraphicFrames }) {
+  const render = renderGraphicFrames ?? (await import('./graphics-frame-renderer.mjs')).renderGraphicFrames;
+  const size = await probeVideoSize(outputPath, signal);
+  if (!size) throw new Error('Could not read the exported video size to place graphics.');
+  const workDir = await mkdtemp(join(tmpdir(), 'rough-cut-graphics-'));
+  const totalFrames = items.reduce((sum, item) => sum + item.frameCount, 0);
+  let renderedFrames = 0;
+  try {
+    for (const item of items) {
+      const rendered = await render({
+        item,
+        width: size.width,
+        height: size.height,
+        framesDir: join(workDir, item.id.replace(/[^a-zA-Z0-9_-]/g, '_')),
+        signal,
+        onFrame: () => {
+          renderedFrames += 1;
+          onProgress((renderedFrames / totalFrames) * 0.7);
+        },
+      });
+      if (!rendered?.ok) {
+        await rm(outputPath, { force: true });
+        return createCancelledExportResult({ outputPath, sourcePath: styledResult?.sourcePath });
+      }
+    }
+    const overlaidPath = join(workDir, 'with-graphics.mp4');
+    const durationSeconds = await probeDurationSeconds(outputPath, signal);
+    const result = await run('ffmpeg', buildGraphicsOverlayArgs({ inputPath: outputPath, outputPath: overlaidPath, items, framesRoot: workDir, fps }), {
+      signal,
+      onStdout: (chunk) => {
+        const progress = parseFfmpegProgress(chunk, durationSeconds);
+        if (progress !== null) onProgress(0.7 + progress * 0.3);
+      },
+    });
+    if (result.cancelled) {
+      await rm(outputPath, { force: true });
+      return createCancelledExportResult({ outputPath, sourcePath: styledResult?.sourcePath });
+    }
+    if (result.code !== 0) throw new Error(`Adding graphics to the export failed: ${result.stderr.trim()}`);
+    await copyFile(overlaidPath, outputPath);
+    const exported = await stat(outputPath);
+    onProgress(1);
+    onComplete();
+    return { ...styledResult, bytes: exported.size, graphicsCount: items.length };
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+async function probeVideoSize(inputPath, signal = null) {
+  const result = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x', inputPath], { signal });
+  const match = String(result.stdout ?? '').trim().match(/^(\d+)x(\d+)/);
+  return match ? { width: Number(match[1]), height: Number(match[2]) } : null;
+}
+
+async function probeDurationSeconds(inputPath, signal = null) {
+  const result = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', inputPath], { signal });
+  const value = Number(String(result.stdout ?? '').trim());
+  return Number.isFinite(value) && value > 0 ? value : 1;
 }
 
 async function run(command, args, options = {}) {

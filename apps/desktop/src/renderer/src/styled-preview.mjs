@@ -231,6 +231,23 @@ export function clampedCameraTime(sourceTimeSec, cameraOffsetSec, cameraDuration
   return Math.max(0, Math.min(requested, maxCameraTime));
 }
 
+/**
+ * Keeps the camera on the screen video's clock while playing. The screen video
+ * carries the voice, so it is the master; the camera is a separate element with
+ * its own clock that keeps running through the screen's decode stalls. Small
+ * drift is pulled in by nudging the (muted) camera's rate, which never shows;
+ * a large jump is fixed with one seek.
+ */
+export function cameraSyncCorrection(driftSec, baseRate = 1, frameRate = 30) {
+  const rate = Number.isFinite(baseRate) && baseRate > 0 ? baseRate : 1;
+  if (!Number.isFinite(driftSec)) return { seek: false, playbackRate: rate };
+  if (Math.abs(driftSec) > 0.25) return { seek: true, playbackRate: rate };
+  const frame = 1 / (Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30);
+  if (Math.abs(driftSec) <= frame / 2) return { seek: false, playbackRate: rate };
+  // Ahead → slow down, behind → speed up; ±10% closes a 2-frame gap in ~0.7 s.
+  return { seek: false, playbackRate: rate * (driftSec > 0 ? 0.9 : 1.1) };
+}
+
 export function cameraCoversSourceTime(sourceTimeSec, cameraOffsetSec, cameraDurationSec, frameRate = 30) {
   if (!Number.isFinite(cameraDurationSec) || cameraDurationSec <= 0) return true;
   const requested = (Number.isFinite(sourceTimeSec) ? sourceTimeSec : 0) + (Number.isFinite(cameraOffsetSec) ? cameraOffsetSec : 0);

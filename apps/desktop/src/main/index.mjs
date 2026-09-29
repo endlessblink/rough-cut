@@ -33,6 +33,8 @@ import { createAiAssetsStore, defaultAiAssetsRoot } from './ai-assets-store.mjs'
 import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import { createStabilizationService } from './stabilization-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
+import { generateGraphic } from './claude-graphics-service.mjs';
+import { createGraphicsStyleStore, defaultGraphicsStylePath } from './graphics-style-store.mjs';
 import { persistTranscriptToProject } from './transcription-project-persistence.mjs';
 import { createTranscriptionRuntime } from './transcription-runtime.mjs';
 import {
@@ -41,8 +43,7 @@ import {
 } from './transcription-main-lifecycle.mjs';
 import {
   analyzeProject,
-  getKeyStatus as getAiKeyStatus,
-  setApiKey as setAiApiKey,
+  getAiStatus,
 } from './ai-service.mjs';
 
 const ownsSingleInstance = app.requestSingleInstanceLock();
@@ -1180,14 +1181,46 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_LIST, () => recordingTem
 ipcMain.handle(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_SAVE, (_event, payload) => recordingTemplateOverridesStore.save(payload ?? {}));
 registerAiAssetIpcHandlers(ipcMain, { store: aiAssetsStore });
 
-ipcMain.handle(IPC_CHANNELS.AI_GET_KEY_STATUS, () => getAiKeyStatus());
-ipcMain.handle(IPC_CHANNELS.AI_SET_API_KEY, async (_event, payload) => {
-  const key = typeof payload === 'string' ? payload : payload?.apiKey;
-  return setAiApiKey(key);
+ipcMain.handle(IPC_CHANNELS.AI_GET_STATUS, () => getAiStatus());
+const graphicsStyleStore = createGraphicsStyleStore({ filePath: defaultGraphicsStylePath(app.getPath('appData')) });
+const graphicRequests = new Map();
+// Last few Claude exchanges, for diagnosing a bad or missing result. Under
+// appData so it survives rebuilds (each dock build gets its own userData).
+const claudeDebugDir = join(app.getPath('appData'), 'rough-cut-mvp', 'claude-log');
+ipcMain.handle(IPC_CHANNELS.GRAPHICS_GET_STYLE, () => graphicsStyleStore.get());
+ipcMain.handle(IPC_CHANNELS.GRAPHICS_SET_STYLE, (_event, style) => graphicsStyleStore.set(style));
+ipcMain.handle(IPC_CHANNELS.GRAPHICS_CANCEL, (_event, requestId) => {
+  graphicRequests.get(requestId)?.abort();
+  return { ok: true };
+});
+ipcMain.handle(IPC_CHANNELS.GRAPHICS_GENERATE, async (_event, payload = {}) => {
+  const requestId = typeof payload.requestId === 'string' ? payload.requestId : `graphic-${Date.now()}`;
+  const controller = new AbortController();
+  graphicRequests.set(requestId, controller);
+  try {
+    const width = Number(payload.canvas?.width);
+    const height = Number(payload.canvas?.height);
+    return await generateGraphic({
+      request: payload.request,
+      existing: payload.existing ?? null,
+      canvas: {
+        width: Number.isFinite(width) && width > 0 ? Math.round(width) : 1920,
+        height: Number.isFinite(height) && height > 0 ? Math.round(height) : 1080,
+      },
+      fps: Number(payload.fps) > 0 ? Number(payload.fps) : 30,
+      style: await graphicsStyleStore.get(),
+      signal: controller.signal,
+      debugDir: claudeDebugDir,
+    });
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  } finally {
+    graphicRequests.delete(requestId);
+  }
 });
 ipcMain.handle(IPC_CHANNELS.AI_ANALYZE_PROJECT, async (_event, payload) => {
   try {
-    return await analyzeProject(payload ?? {});
+    return await analyzeProject({ ...(payload ?? {}), debugDir: claudeDebugDir });
   } catch (err) {
     // Re-shape into a serializable payload so the renderer can render a
     // human-readable error without losing the code field.

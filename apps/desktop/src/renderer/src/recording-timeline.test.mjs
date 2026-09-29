@@ -335,6 +335,7 @@ test('restoreRecordingOriginalState returns screen and camera to one full take',
       ...project.timeline,
       tracks: project.timeline.tracks.map((track) => ({ ...track, clips: [{ ...track.clips[0], timelineIn: 20, timelineOut: 80, sourceIn: 20, sourceOut: 80 }, { ...track.clips[0], id: `${track.id}-split`, timelineIn: 80, timelineOut: 300, sourceIn: 80, sourceOut: 300 }] })),
       markers: [{ id: 'cut-1' }],
+      effects: [{ id: 'graphic:g1', kind: 'graphic', ownerId: 'timeline', ownerType: 'timeline', startFrame: 10, endFrame: 60, enabled: true, params: { html: '<div></div>' } }],
     },
   };
 
@@ -342,8 +343,11 @@ test('restoreRecordingOriginalState returns screen and camera to one full take',
 
   assert.equal(next.timeline.markers.length, 0);
   assert.equal(next.settings.aspectRatio, '16:9');
-  assert.equal(next.timeline.effects.length, 3);
-  assert.deepEqual(next.timeline.tracks.map((track) => track.clips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut])), [[[0, 300, 0, 300]], [[0, 300, 0, 300]]]);
+  assert.equal(next.timeline.effects.length, 4);
+  assert.ok(next.timeline.effects.some((effect) => effect.id === 'graphic:g1'), 'graphics survive a restore');
+  // The camera keeps its capture-time head offset (30 frames) so it stays lip-synced.
+  assert.deepEqual(next.timeline.tracks.map((track) => track.clips.map((clip) => [clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut])), [[[0, 300, 0, 300]], [[0, 300, 30, 330]]]);
+  assert.deepEqual(next.composition.tracks.map((track) => track.clips.map((clip) => [clip.sourceIn, clip.sourceOut])), [[[0, 300]], [[30, 330]]]);
   assert.equal(next.assets[0].presentation.zoom.markers.length, 0);
    assert.deepEqual(next.assets[0].presentation.censorRegions, [{ id: 'censor-1' }]);
 });

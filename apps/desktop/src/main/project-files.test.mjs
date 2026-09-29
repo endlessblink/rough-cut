@@ -17,6 +17,7 @@ import {
   PROJECT_TEMP_SUFFIX,
   ProjectPathError,
   renameProjectFile,
+  repairCameraSyncOffset,
   saveBlankProject,
   saveProjectFile,
   saveProjectForImport,
@@ -1123,4 +1124,29 @@ test('openProjectFile migrates legacy cursor events from the recording events lo
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('repairCameraSyncOffset restores a camera head offset that a restore dropped, exactly once', () => {
+  const doc = {
+    assets: [
+      { id: 'rec', type: 'recording', cameraAssetId: 'cam', metadata: {} },
+      { id: 'cam', type: 'video', metadata: { sourceInFrames: 4 } },
+    ],
+    composition: { tracks: [
+      { clips: [{ assetId: 'rec', timelineIn: 0, timelineOut: 100, sourceIn: 0, sourceOut: 100 }] },
+      { clips: [{ assetId: 'cam', timelineIn: 0, timelineOut: 100, sourceIn: 0, sourceOut: 100 }] },
+    ] },
+    timeline: { tracks: [
+      { clips: [{ mediaId: 'source:rec:screen', timelineIn: 0, timelineOut: 100, sourceIn: 0, sourceOut: 100 }] },
+      { clips: [{ mediaId: 'source:rec:camera', timelineIn: 0, timelineOut: 100, sourceIn: 0, sourceOut: 100 }] },
+    ] },
+  };
+  repairCameraSyncOffset(doc);
+  assert.deepEqual([doc.composition.tracks[1].clips[0].sourceIn, doc.composition.tracks[1].clips[0].sourceOut], [4, 104]);
+  assert.deepEqual([doc.timeline.tracks[1].clips[0].sourceIn, doc.timeline.tracks[1].clips[0].sourceOut], [4, 104]);
+  // A healthy (already offset) project is left alone.
+  repairCameraSyncOffset(doc);
+  assert.equal(doc.composition.tracks[1].clips[0].sourceIn, 4);
+  assert.equal(doc.timeline.tracks[1].clips[0].sourceIn, 4);
+  assert.equal(doc.composition.tracks[0].clips[0].sourceIn, 0);
 });

@@ -149,10 +149,13 @@ export const IPC_CHANNELS = {
 
   // AI Analysis
   AI_ANALYZE_CAPTIONS: 'ai:analyze-captions',
+  GRAPHICS_GENERATE: 'graphics:generate',
+  GRAPHICS_CANCEL: 'graphics:cancel',
+  GRAPHICS_GET_STYLE: 'graphics:get-style',
+  GRAPHICS_SET_STYLE: 'graphics:set-style',
   AI_TRANSCRIBE_LIBRARY_SOURCE: 'ai:transcribe-library-source',
   AI_ANALYSIS_PROGRESS: 'ai:analysis-progress',
   AI_CANCEL_ANALYSIS: 'ai:cancel-analysis',
-  AI_SET_API_KEY: 'ai:set-api-key',
   AI_GET_API_KEY: 'ai:get-api-key',
   AI_GET_PROVIDER_CONFIG: 'ai:get-provider-config',
   AI_SET_PROVIDER_CONFIG: 'ai:set-provider-config',
@@ -169,7 +172,7 @@ export const IPC_CHANNELS = {
   AI_ASSET_RESOLVE: 'ai-asset:resolve',
   // AI editing-suggestions view (new)
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
-  AI_GET_KEY_STATUS: 'ai:get-key-status',
+  AI_GET_STATUS: 'ai:get-status',
 
   // File system
   READ_TEXT_FILE: 'fs:read-text-file',

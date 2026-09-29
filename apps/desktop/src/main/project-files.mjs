@@ -258,6 +258,7 @@ export async function openProjectFile(projectPath) {
   }
   document = await resolveProjectAssetPaths(projectPath, document);
   await migrateCursorEventAlignment(document);
+  repairCameraSyncOffset(document);
   ensureRecordingAudioTrack(document);
   return {
     path: projectPath,
@@ -298,6 +299,51 @@ function ensureRecordingAudioTrack(document) {
       id: `${trackId}:clip:${clipIndex}`,
     })),
   });
+}
+
+// "Restore original" used to reset the camera clips to source frame 0, dropping
+// the camera's capture-time head offset (metadata.sourceInFrames) so the face
+// played a few frames behind the voice. A healthy camera clip always sits
+// exactly `offset` frames past the screen clip at the same timeline position;
+// when every pair instead matches frame-for-frame, the offset was lost — put it
+// back. Healthy projects never match, so this cannot shift twice.
+export function repairCameraSyncOffset(document) {
+  const assets = Array.isArray(document?.assets) ? document.assets : [];
+  for (const recording of assets) {
+    if (recording?.type !== 'recording' || !recording.cameraAssetId) continue;
+    const camera = assets.find((asset) => asset?.id === recording.cameraAssetId);
+    const offset = Math.round(camera?.metadata?.sourceInFrames ?? camera?.metadata?.sync?.cameraSourceInFrames ?? 0);
+    if (!Number.isFinite(offset) || offset <= 0) continue;
+    const layouts = [
+      {
+        tracks: document.composition?.tracks ?? [],
+        isScreen: (clip) => clip.assetId === recording.id,
+        isCamera: (clip) => clip.assetId === camera.id,
+      },
+      {
+        tracks: document.timeline?.tracks ?? [],
+        isScreen: (clip) => clip.mediaId === `source:${recording.id}:screen`,
+        isCamera: (clip) => clip.mediaId === `source:${recording.id}:camera`,
+      },
+    ];
+    for (const { tracks, isScreen, isCamera } of layouts) {
+      const clips = tracks.flatMap((track) => track?.clips ?? []);
+      const screenClips = clips.filter(isScreen);
+      const cameraClips = clips.filter(isCamera);
+      if (cameraClips.length === 0) continue;
+      const lostOffset = cameraClips.every((cameraClip) => {
+        const screenClip = screenClips.find((clip) => clip.timelineIn === cameraClip.timelineIn);
+        return screenClip && screenClip.sourceIn === cameraClip.sourceIn;
+      });
+      if (!lostOffset) continue;
+      for (const track of tracks) {
+        if (!Array.isArray(track?.clips)) continue;
+        track.clips = track.clips.map((clip) => (isCamera(clip)
+          ? { ...clip, sourceIn: clip.sourceIn + offset, sourceOut: clip.sourceOut + offset }
+          : clip));
+      }
+    }
+  }
 }
 
 // One-time migration for projects saved before cursor events were aligned

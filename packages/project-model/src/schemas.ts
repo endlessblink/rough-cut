@@ -677,7 +677,7 @@ export const TimelineMarkerSchema = z.object({
 
 export const TimelineEffectSchema = z.object({
   id: z.string().min(1),
-  kind: z.enum(['cursor', 'click', 'camera-pip', 'zoom', 'annotation', 'stabilization']),
+  kind: z.enum(['cursor', 'click', 'camera-pip', 'zoom', 'annotation', 'stabilization', 'graphic']),
   ownerId: z.string().min(1),
   ownerType: z.enum(['clip', 'track', 'source', 'linked-group', 'timeline']),
   startFrame: nonNegativeInt.optional(),
