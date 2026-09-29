@@ -133,3 +133,23 @@ test('the service never reads the Claude credentials file itself', async () => {
   const cli = await readFile(new URL('./claude-cli.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(cli, /credentials\.json|api\.anthropic\.com|ANTHROPIC_API_KEY/);
 });
+
+test('the brief follows the chosen style and creativity level', () => {
+  const calm = buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: { styleId: 'velvet', creativity: 1 } });
+  assert.match(calm, /Visual style: Velvet/);
+  assert.match(calm, /Creativity: 1\/5 — Calm/);
+  const wild = buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: { styleId: 'maximal', creativity: 5 } });
+  assert.match(wild, /Visual style: Maximal Type/);
+  assert.match(wild, /Creativity: 5\/5 — Wild/);
+  assert.match(wild, /Break the grid/);
+  const fallback = buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: { styleId: 'nope', creativity: 99 } });
+  assert.match(fallback, /Visual style: Studio/);
+  assert.match(fallback, /Creativity: 5\/5/);
+});
+
+test('right-to-left never mirrors non-directional icons, and kinetic type survives field edits', () => {
+  const prompt = buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: {} });
+  assert.match(prompt, /NEVER mirror or flip \(scaleX\(-1\)\) glyphs and icons that are not directional: question marks/);
+  assert.match(prompt, /rc:fields/);
+  assert.match(prompt, /--rc-duration/);
+});

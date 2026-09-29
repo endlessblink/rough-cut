@@ -26,3 +26,18 @@ test('a saved style is read back, and a missing file gives the defaults', async 
   assert.equal(read.primaryColor, '#101010');
   assert.equal(read.notes, 'Rounded corners');
 });
+
+test('style and creativity are remembered, and partial saves never wipe other fields', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'graphics-look-'));
+  const store = createGraphicsStyleStore({ filePath: join(dir, 'style.json') });
+  assert.equal((await store.get()).styleId, 'studio');
+  assert.equal((await store.get()).creativity, 3);
+  await store.set({ notes: 'No caps' });
+  await store.set({ styleId: 'noir' });
+  await store.set({ creativity: 5 });
+  const read = await store.get();
+  assert.deepEqual([read.styleId, read.creativity, read.notes], ['noir', 5, 'No caps']);
+  await store.set({ styleId: 'made-up', creativity: 12 });
+  const clamped = await store.get();
+  assert.deepEqual([clamped.styleId, clamped.creativity], ['studio', 5]);
+});

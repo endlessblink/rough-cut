@@ -152,6 +152,8 @@ function graphicRuntime() {
     }
     if (texts > 0 && rtl === texts) document.documentElement.setAttribute('dir', 'rtl');
     else document.documentElement.removeAttribute('dir');
+    // Lets a page that splits text into per-word/char spans redo it.
+    document.dispatchEvent(new Event('rc:fields'));
   }
   // With animation off the graphic holds its fully-entered state for its whole
   // length: every frame shows the same moment, `holdSec` into the animation.

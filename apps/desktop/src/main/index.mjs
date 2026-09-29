@@ -1208,7 +1208,11 @@ ipcMain.handle(IPC_CHANNELS.GRAPHICS_GENERATE, async (_event, payload = {}) => {
         height: Number.isFinite(height) && height > 0 ? Math.round(height) : 1080,
       },
       fps: Number(payload.fps) > 0 ? Number(payload.fps) : 30,
-      style: await graphicsStyleStore.get(),
+      style: {
+        ...(await graphicsStyleStore.get()),
+        ...(typeof payload.styleId === 'string' ? { styleId: payload.styleId } : {}),
+        ...(payload.creativity !== undefined ? { creativity: payload.creativity } : {}),
+      },
       signal: controller.signal,
       debugDir: claudeDebugDir,
     });

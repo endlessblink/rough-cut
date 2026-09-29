@@ -6,6 +6,7 @@ import {
 } from '@phosphor-icons/react';
 
 import type { GraphicField, TimelineGraphic } from '../../shared/motion-graphics.mjs';
+import { CREATIVITY_LEVELS, DEFAULT_CREATIVITY, DEFAULT_GRAPHICS_STYLE_ID, GRAPHIC_STYLES, normalizeCreativity, resolveGraphicStyle } from '../../shared/graphics-styles.mjs';
 
 export type GraphicsStyle = {
   fontFamily: string;
@@ -13,6 +14,8 @@ export type GraphicsStyle = {
   primaryColor: string;
   accentColor: string;
   notes: string;
+  styleId: string;
+  creativity: number;
 };
 
 export type GeneratedGraphic = {
@@ -73,6 +76,19 @@ export function GraphicsPanel({
   const [changeRequest, setChangeRequest] = React.useState('');
   const [busy, setBusy] = React.useState<Busy>(null);
   const [problem, setProblem] = React.useState<{ reason: string; errors?: string[] } | null>(null);
+  // The look for the next generation; remembered across sessions.
+  const [look, setLook] = React.useState<{ styleId: string; creativity: number }>({ styleId: DEFAULT_GRAPHICS_STYLE_ID, creativity: DEFAULT_CREATIVITY });
+  React.useEffect(() => {
+    let cancelled = false;
+    void window.roughCut?.getGraphicsStyle?.().then((saved: GraphicsStyle) => {
+      if (!cancelled && saved) setLook({ styleId: resolveGraphicStyle(saved.styleId).id, creativity: normalizeCreativity(saved.creativity) });
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+  const changeLook = (patch: Partial<{ styleId: string; creativity: number }>) => {
+    setLook((current) => ({ ...current, ...patch }));
+    void window.roughCut?.setGraphicsStyle?.(patch).catch(() => undefined);
+  };
   const selected = graphics.find((graphic) => graphic.id === selectedGraphicId) ?? null;
   const available = typeof window !== 'undefined' && typeof window.roughCut?.generateGraphic === 'function';
 
@@ -89,6 +105,8 @@ export function GraphicsPanel({
         request: text,
         canvas,
         fps,
+        styleId: look.styleId,
+        creativity: look.creativity,
         existing: kind === 'change' && selected
           ? { title: selected.title, html: selected.html, fields: selected.fields, durationSec: (selected.endFrame - selected.startFrame) / fps }
           : null,
@@ -147,6 +165,59 @@ export function GraphicsPanel({
             data-graphics-request="true"
           />
         </label>
+        <div className="graphicsLook" data-graphics-look="true">
+          <div className="graphicsField">
+            <span>Style</span>
+            <div className="graphicsStyleGrid" role="radiogroup" aria-label="Style" data-graphics-style="true">
+              {GRAPHIC_STYLES.map((style) => {
+                const current = look.styleId === style.id;
+                const [ground, ink, accent] = style.swatch;
+                return (
+                  <button
+                    key={style.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={current}
+                    title={`${style.label} — ${style.mood}`}
+                    className={`graphicsStyleTile${current ? ' isCurrent' : ''}`}
+                    disabled={controlsDisabled || busy !== null}
+                    onClick={() => changeLook({ styleId: style.id })}
+                    data-graphics-style-id={style.id}
+                  >
+                    <span className="graphicsStyleSwatch" style={{ background: ground }} aria-hidden="true">
+                      <span className="graphicsStyleSwatchInk" style={{ background: ink }} />
+                      <span className="graphicsStyleSwatchAccent" style={{ background: accent }} />
+                    </span>
+                    <span className="graphicsStyleText">
+                      <span className="graphicsStyleName">{style.label}</span>
+                      <span className="graphicsStyleMood">{style.mood.split(' — ')[0]}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="graphicsField" role="radiogroup" aria-label="Creativity">
+            <span>Creativity <em className="graphicsLookValue">{CREATIVITY_LEVELS[look.creativity - 1]?.label}</em></span>
+            <div className="graphicsCreativity">
+              {CREATIVITY_LEVELS.map((level) => (
+                <button
+                  key={level.level}
+                  type="button"
+                  role="radio"
+                  aria-checked={look.creativity === level.level}
+                  aria-label={`${level.level} — ${level.label}`}
+                  title={level.label}
+                  className={`graphicsCreativityStep${look.creativity >= level.level ? ' isFilled' : ''}${look.creativity === level.level ? ' isCurrent' : ''}`}
+                  disabled={controlsDisabled || busy !== null}
+                  onClick={() => changeLook({ creativity: level.level })}
+                  data-graphics-creativity={level.level}
+                />
+              ))}
+            </div>
+            <div className="graphicsCreativityScale" aria-hidden="true"><span>Calm</span><span>Wild</span></div>
+          </div>
+        </div>
         <div className="graphicsActions">
           {busy?.kind === 'new' ? (
             <>
@@ -325,9 +396,8 @@ function HouseStyle({ disabled }: { disabled: boolean }) {
   }, []);
   const save = (patch: Partial<GraphicsStyle>) => {
     if (!style) return;
-    const next = { ...style, ...patch };
-    setStyle(next);
-    void window.roughCut?.setGraphicsStyle?.(next).then((saved: GraphicsStyle) => setStyle(saved)).catch(() => undefined);
+    setStyle({ ...style, ...patch });
+    void window.roughCut?.setGraphicsStyle?.(patch).catch(() => undefined);
   };
   return (
     <details className="studioMore graphicsHouseStyle">
@@ -348,11 +418,11 @@ function HouseStyle({ disabled }: { disabled: boolean }) {
             </div>
             <label className="graphicsField">
               <span>Font</span>
-              <input type="text" value={style.fontFamily} disabled={disabled} onChange={(event) => setStyle({ ...style, fontFamily: event.target.value })} onBlur={() => save({})} />
+              <input type="text" value={style.fontFamily} disabled={disabled} onChange={(event) => setStyle({ ...style, fontFamily: event.target.value })} onBlur={() => save({ fontFamily: style.fontFamily })} />
             </label>
             <label className="graphicsField">
               <span>Notes for Claude</span>
-              <textarea rows={2} dir="auto" maxLength={400} value={style.notes} placeholder="Rounded corners, subtle shadow, no all-caps" disabled={disabled} onChange={(event) => setStyle({ ...style, notes: event.target.value })} onBlur={() => save({})} />
+              <textarea rows={2} dir="auto" maxLength={400} value={style.notes} placeholder="Rounded corners, subtle shadow, no all-caps" disabled={disabled} onChange={(event) => setStyle({ ...style, notes: event.target.value })} onBlur={() => save({ notes: style.notes })} />
             </label>
           </>
         ) : <p className="graphicsEmpty">Loading…</p>}
