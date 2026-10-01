@@ -3057,7 +3057,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       canceledState: document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state'),
       hasSavedMessage: document.body.textContent?.includes('Saved to:') ?? false,
       hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
-      hasVideo: Boolean(document.querySelector('video')),
+      hasVideo: Boolean(document.querySelector('[data-ui-region="editor-workspace"] video')),
       cancelFlow: true,
       hasLiveCameraFailureBanner,
       hasLiveCameraFailureActions,
