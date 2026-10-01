@@ -31,10 +31,10 @@ test('sidebar layout smoke fails when known dead placeholder copy returns', () =
 test('sidebar layout smoke exercises representative controls for each tab', () => {
   assert.match(mainSource, /button\[aria-label="Soft blur"\]/);
   assert.match(mainSource, /data-cut-range-panel="true"/);
-  assert.match(mainSource, /Restorable hidden ranges/);
+  assert.match(mainSource, /Restore all hidden ranges/);
   assert.match(mainSource, /data-cursor-style="spotlight"/);
-  assert.match(mainSource, /textContent\?\.includes\('Shape'\)/);
-  assert.match(mainSource, /shapeSelect\.dispatchEvent\(new Event\('change'/);
+  assert.match(mainSource, /\[aria-label="Camera shape"\] button/);
+  assert.match(mainSource, /camera shape mutates selected state/);
 });
 
 test('sidebar layout smoke has small viewport and screenshot byte guards', () => {
