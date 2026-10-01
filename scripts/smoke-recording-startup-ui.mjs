@@ -44,7 +44,7 @@ const scenarios = [
       ROUGH_CUT_UI_SMOKE_STARTUP_CREATE_BLANK_PROJECT: '1',
     },
     assert(report) {
-      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow?.fillsAvailableScreen && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView && report.createdBlankProjectFromProjects && report.hasNleWorkspace && report.hasNamedProject && report.hasNleTab;
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow?.fillsAvailableScreen && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView && report.createdBlankProjectFromProjects && report.hasBlankEmptyState && report.hasNamedProject && report.hasRecordingEditTab;
     },
   },
 ];

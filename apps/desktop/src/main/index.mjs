@@ -328,7 +328,11 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
     // surface is still being created. Re-assert it once the window is visible
     // so the editor cannot open as a clipped, partially hidden work surface.
     maximizeStudioWindow(window);
-    window.once('ready-to-show', () => maximizeStudioWindow(window));
+    // ready-to-show can land after the renderer already asked for the compact
+    // recorder profile (startup into Recording); maximizing then re-expands it.
+    window.once('ready-to-show', () => {
+      if (!studioWindowBoundsById.has(window.id)) maximizeStudioWindow(window);
+    });
   }
 
   window.webContents.on('console-message', (event, level, message, line, sourceId) => {
@@ -508,8 +512,17 @@ function requestedSmokeWindowBounds() {
   };
 }
 
+const maximizeFallbackTimers = new Map();
+
+function cancelMaximizeFallback(window) {
+  const timer = maximizeFallbackTimers.get(window?.id);
+  if (timer) clearTimeout(timer);
+  maximizeFallbackTimers.delete(window?.id);
+}
+
 function maximizeStudioWindow(window) {
   if (!window || window.isDestroyed()) return;
+  cancelMaximizeFallback(window);
   window.setResizable(true);
   window.setMaximizable(true);
   window.setMinimumSize(860, 560);
@@ -518,11 +531,14 @@ function maximizeStudioWindow(window) {
   // (recorder) window becomes resizable. The editor then stayed recorder-sized
   // and was placed half below the screen, so it looked like it never opened
   // (2026-09-27). Fall back to filling the display the window is on.
-  setTimeout(() => {
+  // Cancelled when the window drops to the compact recorder profile, otherwise
+  // the late fallback re-expands the recorder window to full screen.
+  maximizeFallbackTimers.set(window.id, setTimeout(() => {
+    maximizeFallbackTimers.delete(window.id);
     if (window.isDestroyed() || window.isMaximized() || window.isFullScreen()) return;
     window.setBounds(screen.getDisplayMatching(window.getBounds()).workArea);
     window.maximize();
-  }, 300);
+  }, 300));
 }
 
 // Keep a fixed-size window fully inside the visible area of its display.
@@ -849,6 +865,7 @@ ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') 
 
   setRecorderStacking(senderWindow, profile === 'recording');
   if (profile === 'recording') {
+    cancelMaximizeFallback(senderWindow);
     if (!studioWindowBoundsById.has(senderWindow.id)) {
       studioWindowBoundsById.set(senderWindow.id, senderWindow.getBounds());
     }
