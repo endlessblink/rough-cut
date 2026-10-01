@@ -54,10 +54,14 @@ const stopped = await stopRecordingAndCreateProject({
 if (stopped.state !== 'saved' || !stopped.project) {
   throw new Error('Recording did not produce a saved project.');
 }
-if (!stopped.diagnosticsPath) {
-  throw new Error('Recording did not produce a diagnostics report.');
+// The stop handler returns as soon as the project is saved and finishes validation and diagnostics in the background
+// (finalizationPromise), so wait for that before reading the diagnostics report.
+const finalization = stopped.finalizationPromise ? await stopped.finalizationPromise : stopped.finalization;
+const diagnosticsPath = finalization?.diagnosticsPath ?? stopped.diagnosticsPath;
+if (!diagnosticsPath) {
+  throw new Error(`Recording did not produce a diagnostics report (finalization: ${finalization?.state ?? 'none'}${finalization?.error ? `, ${finalization.error}` : ''}).`);
 }
-const diagnostics = JSON.parse(await readFile(stopped.diagnosticsPath, 'utf8'));
+const diagnostics = JSON.parse(await readFile(diagnosticsPath, 'utf8'));
 if (diagnostics.status !== 'ok' || diagnostics.media?.hasVideo !== true || diagnostics.cursor?.totalEvents < 1) {
   throw new Error(`Recording diagnostics report failed smoke assertions: ${JSON.stringify(diagnostics)}`);
 }

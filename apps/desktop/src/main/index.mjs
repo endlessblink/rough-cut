@@ -2226,6 +2226,11 @@ async function runRendererUiSmoke() {
     await waitFor(() => Number(timelineScrubberInput.value) > beforeValue, 'timeline arrow key advance');
     hasTimelineArrowKeyAdvance = Number(timelineScrubberInput.value) > beforeValue;
   }
+  // Trim handles only exist for a selected clip and selection starts empty (the old Editor tab used to select it), so select the screen clip first.
+  const screenClipBody = await waitFor(() => document.querySelector('[data-timeline-lane="screen"] .clipBody'), 'screen clip body');
+  if (screenClipBody instanceof HTMLElement) {
+    screenClipBody.click();
+  }
   const hasTrimHandles = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="screen"] .trimHandleStart') && document.querySelector('[data-timeline-lane="screen"] .trimHandleEnd'), 'timeline trim handles'));
   const hasTimelineLiveRegion = Boolean(document.querySelector('[data-ui-region="timeline-live-region"][aria-live="polite"]'));
   const hasKeyboardTrimHandles = Boolean(
