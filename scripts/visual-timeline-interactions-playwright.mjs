@@ -197,6 +197,8 @@ console.info(JSON.stringify({
 if (failure) throw failure;
 
 async function dragTrimHandle(page, label, targetRatio) {
+  // Trim handles only render while the screen clip is selected.
+  if (!(await page.locator(`button[aria-label="${label}"]`).count())) await page.locator('[data-timeline-lane="screen"] .clipBody').first().click();
   const beforeTool = await activeTool(page);
   const clipBefore = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'screen clip');
   const hiddenEndBefore = await page.locator('button[aria-label="Restore hidden end"]').count();
@@ -392,6 +394,8 @@ async function assertWheelStable(page, scrubber, box) {
 }
 
 async function assertRangeWheelStable(page) {
+  // Padding lives on the Frame tab.
+  await page.locator('button[aria-label="Frame"]').click();
   const input = page.locator('label:has-text("Padding") input[type="range"]').first();
   const box = await requiredBox(input, 'padding range');
   const before = await input.inputValue();

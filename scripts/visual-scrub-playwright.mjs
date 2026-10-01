@@ -107,6 +107,8 @@ try {
   await page.screenshot({ path: afterPath });
 
   const clipBefore = await page.locator('[data-timeline-lane="screen"] .clipBar').boundingBox();
+  // Trim handles only render while the screen clip is selected.
+  await page.locator('[data-timeline-lane="screen"] .clipBody').first().click();
   const trimEnd = page.locator('button[aria-label="Trim end"]');
   const trimEndBox = await trimEnd.boundingBox();
   if (!clipBefore || !trimEndBox) throw new Error('Timeline trim handle bounding box was unavailable.');
@@ -117,7 +119,9 @@ try {
   await page.mouse.down();
   await page.mouse.move(clipBefore.x + clipBefore.width * 0.72, trimEndBox.y + trimEndBox.height / 2, { steps: 10 });
   await page.mouse.up();
+  // Trimming the end either shrinks the clip or leaves a "Restore hidden end" handle.
   await page.waitForFunction((previousWidth) => {
+    if (document.querySelector('button[aria-label="Restore hidden end"]')) return true;
     const clip = document.querySelector('[data-timeline-lane="screen"] .clipBar');
     if (!(clip instanceof HTMLElement)) return false;
     return clip.getBoundingClientRect().width < previousWidth - 8;
