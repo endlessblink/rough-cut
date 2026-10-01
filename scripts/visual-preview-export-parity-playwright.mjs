@@ -67,12 +67,13 @@ try {
     if (typeof target.__roughCutSetPreviewTimeSec !== 'function') throw new Error('Preview seek test hook is missing.');
     target.__roughCutSetPreviewTimeSec(timeSec);
   }, parityTimeSec);
+  // The overlay frame-diagnostics hook went away with the separate Editor tab;
+  // wait for the screen video to settle at the requested time instead.
   await page.waitForFunction((timeSec) => {
-    const diag = window.__roughCutOverlayDiag;
-    const expectedFrame = Math.round(timeSec * 30);
-    return Math.abs(Number(diag?.above?.frame ?? -1) - expectedFrame) <= 1
-      && Math.abs(Number(diag?.below?.frame ?? -1) - expectedFrame) <= 1;
+    const video = document.querySelector('video');
+    return Boolean(video) && !video.seeking && video.readyState >= 2 && Math.abs(video.currentTime - timeSec) <= 0.1;
   }, parityTimeSec, { timeout: 30000 });
+  await new Promise((resolve) => setTimeout(resolve, 400));
   await new Promise((resolve) => setTimeout(resolve, 100));
   const previewDataUrl = await page.locator('canvas.styledPreviewCanvas').evaluate((canvas) => canvas.toDataURL('image/png'));
   writeFileSync(previewFramePath, Buffer.from(previewDataUrl.split(',')[1], 'base64'));
@@ -91,7 +92,7 @@ try {
   }));
   if (process.env.ROUGH_CUT_PREVIEW_PARITY_SKIP_EXPORT !== '1') {
     await page.locator('[data-ui-region="export-popover-toggle"][aria-pressed="false"]').click().catch(() => {});
-    await page.locator('[data-export-format="styled"]').click();
+    await page.locator('button.exportFormat[data-export-format="styled"]').click();
     await page.locator('[data-export-action="export"]').click();
     await page.waitForFunction(() => document.body.textContent?.includes('Exported to:'), null, { timeout: 900000 });
   }
