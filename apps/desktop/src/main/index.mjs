@@ -749,15 +749,20 @@ let playbackDebugReportWrite = Promise.resolve();
 ipcMain.handle(IPC_CHANNELS.APP_WRITE_PLAYBACK_DEBUG_REPORT, (_event, report = {}) => {
   const reportPath = process.env.ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH;
   if (!reportPath) return { ok: false, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH not set' };
+  // The one-shot packaged-runtime report and the 1 Hz playback report share this
+  // env var; the runtime report goes to a sibling file so playback can't overwrite it.
+  const targetPath = report?.kind === 'packaged-renderer-runtime'
+    ? reportPath.replace(/(\.json)?$/, '.runtime.json')
+    : reportPath;
   const write = playbackDebugReportWrite.then(async () => {
     const payload = {
       writtenAt: new Date().toISOString(),
-      reportPath,
+      reportPath: targetPath,
       ...report,
     };
-    await mkdir(dirname(reportPath), { recursive: true });
-    await writeFile(reportPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-    return { ok: true, path: reportPath };
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    return { ok: true, path: targetPath };
   });
   playbackDebugReportWrite = write.catch(() => undefined);
   return write;
@@ -2676,12 +2681,16 @@ async function runRendererUiSmoke() {
     cameraPosition = 'corner-tl';
     const shapeTile = (label) => Array.from(document.querySelectorAll('[aria-label="Camera shape"] button')).find((button) => button.textContent?.trim() === label);
     const shapePressed = (label) => shapeTile(label)?.getAttribute('aria-pressed') === 'true';
+    const clickShape = async (label) => {
+      await waitFor(() => { const tile = shapeTile(label); return tile && !tile.disabled; }, `camera ${label} shape enabled`);
+      shapeTile(label).click();
+    };
     await waitFor(() => shapeTile('Circle'), 'camera shape control');
     const originalCameraRect = await readCameraRect('camera rect before circle shape change');
-    shapeTile('Circle').click();
+    await clickShape('Circle');
     await waitFor(() => shapePressed('Circle'), 'camera shape value');
     const firstCircleCameraRect = await readCameraRect('circle camera rect after shape change');
-    shapeTile('Square').click();
+    await clickShape('Square');
     await waitFor(() => shapePressed('Square'), 'camera square shape value');
     const squareCameraRect = await readCameraRect('camera rect after returning to square shape');
     hasRectangleAfterCircleShape = Boolean(
@@ -2689,7 +2698,7 @@ async function runRendererUiSmoke() {
       squareCameraRect &&
       Math.abs((squareCameraRect.w * 9) - (squareCameraRect.h * 16)) > 0.05
     );
-    shapeTile('Circle').click();
+    await clickShape('Circle');
     await waitFor(() => shapePressed('Circle'), 'camera final circle shape value');
     cameraShape = 'circle';
     const cameraSizeInput = await waitFor(() => controlByLabel(document.querySelector('[aria-label="Camera board"]'), 'Size', 'input[type="range"]'), 'camera size control');

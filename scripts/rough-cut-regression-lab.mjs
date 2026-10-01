@@ -223,7 +223,7 @@ const markdown = [
   'Point the lab at the artifacts those gates write so the GUI findings can be judged:',
   '',
   '```',
-  'ROUGH_CUT_PACKAGED_RUNTIME_REPORT=<smoke-dir>/runtime-report.json \\',
+  'ROUGH_CUT_PACKAGED_RUNTIME_REPORT=<smoke-dir>/runtime-report.runtime.json \\',
   'ROUGH_CUT_REAL_EDITOR_REPORT=<real-editor-dir>/real-editor-report.json \\',
   'ROUGH_CUT_PANE_SWITCH_REPORT=<pane-switch-dir>/pane-switch-report.json \\',
   'ROUGH_CUT_EDIT_SYNC_REPORT=<edit-sync-dir>/editor-recording-edit-sync-report.json \\\\',

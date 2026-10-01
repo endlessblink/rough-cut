@@ -95,7 +95,7 @@ if (result.error && !result.artifactsReady) throw result.error;
 if (result.status !== 0 && !result.artifactsReady) throw new Error(`Packaged app smoke failed with exit code ${result.status}. Artifacts: ${smokeRoot}`);
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
-const runtimeReport = JSON.parse(await readFile(runtimeReportPath, 'utf8'));
+const runtimeReport = JSON.parse(await readFile(runtimeReportPath.replace(/\.json$/, '.runtime.json'), 'utf8'));
 const screenshotBytes = (await readFile(screenshotPath)).length;
 if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'styled' || !report.hasStyledMode || !report.hasStyledPresetDetails || !report.hasReviewExportActions || !report.hasTemplatePresetSelection || !report.hasFocuSeeSplitCameraLayoutBounds || !report.hasFocuSeeYouTubeCameraLayoutBounds || !report.hasTemplateCameraLayoutBounds || !report.hasFrameDragHandles || !report.hasExportStatusArea || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || report.cameraPosition !== 'corner-tl' || report.cameraShape !== 'circle' || report.cameraSize !== 130 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
   throw new Error(`Packaged app smoke assertions failed: ${JSON.stringify(report)}`);
