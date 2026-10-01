@@ -324,6 +324,21 @@ describe('timeline command service', () => {
     });
   });
 
+  it('restores a hidden head on a clip already at the timeline start without going negative', () => {
+    const asset = createAsset('video', '/tmp/screen.mp4', { id: 'asset-1' as never, duration: 180 });
+    const project = createProject({
+      assets: [asset],
+      tracks: [track({ clips: [clip('a', asset.id, 0, 164, 16)] })],
+    });
+
+    const head = restoreSourceEdge(project, { clipId: 'a', edge: 'head' });
+    const full = restoreFullSource(project, { clipId: 'a' });
+
+    expect(head.document.timeline.tracks[0]?.clips[0]).toMatchObject({ timelineIn: 0, timelineOut: 180, sourceIn: 0, sourceOut: 180 });
+    expect(full.document.timeline.tracks[0]?.clips[0]).toMatchObject({ timelineIn: 0, timelineOut: 180, sourceIn: 0, sourceOut: 180 });
+    assertTimelineInvariants(head.document.timeline);
+  });
+
   it('rejects overlaps, invalid ranges, and partial ripple ranges', () => {
     const asset = createAsset('video', '/tmp/screen.mp4', { id: 'asset-1' as never, duration: 300 });
     const project = createProject({

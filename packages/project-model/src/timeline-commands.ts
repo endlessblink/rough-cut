@@ -269,7 +269,11 @@ export function restoreSourceEdge(
     const media = canonical.timeline.sources.find((source) => source.id === clip.mediaId);
     if (!media) return clip;
     if (edge === 'head') {
-      return { ...clip, timelineIn: clip.timelineIn - clip.sourceIn, sourceIn: 0 };
+      // A clip already at the start of the timeline cannot move earlier: keep it in place and
+      // grow its end instead, so the hidden head becomes playable rather than failing validation.
+      const timelineIn = Math.max(0, clip.timelineIn - clip.sourceIn);
+      const shortfall = timelineIn - (clip.timelineIn - clip.sourceIn);
+      return { ...clip, timelineIn, timelineOut: clip.timelineOut + shortfall, sourceIn: 0 };
     }
     return { ...clip, timelineOut: clip.timelineOut + (media.duration - clip.sourceOut), sourceOut: media.duration };
   });
@@ -289,10 +293,11 @@ export function restoreFullSource(
   const nextTimeline = updateClips(canonical.timeline, linked, (clip) => {
     const media = canonical.timeline.sources.find((source) => source.id === clip.mediaId);
     if (!media) return clip;
+    const timelineIn = Math.max(0, clip.timelineIn - clip.sourceIn);
     return {
       ...clip,
-      timelineIn: clip.timelineIn - clip.sourceIn,
-      timelineOut: clip.timelineIn - clip.sourceIn + media.duration,
+      timelineIn,
+      timelineOut: timelineIn + media.duration,
       sourceIn: 0,
       sourceOut: media.duration,
     };

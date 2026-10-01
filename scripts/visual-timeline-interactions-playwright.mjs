@@ -202,6 +202,7 @@ async function dragTrimHandle(page, label, targetRatio) {
   const beforeTool = await activeTool(page);
   const clipBefore = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'screen clip');
   const hiddenEndBefore = await page.locator('button[aria-label="Restore hidden end"]').count();
+  const hiddenStartBefore = await page.locator('button[aria-label="Restore hidden start"]').count();
   const handle = page.locator(`button[aria-label="${label}"]`);
   const handleBox = await requiredBox(handle, label);
   const trackLocator = page.locator('[data-timeline-lane="screen"] .laneTrack');
@@ -224,8 +225,11 @@ async function dragTrimHandle(page, label, targetRatio) {
   const clipAfter = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'screen clip after drag');
   const afterTool = await activeTool(page);
   const hiddenEndAfter = await page.locator('button[aria-label="Restore hidden end"]').count();
+  const hiddenStartAfter = await page.locator('button[aria-label="Restore hidden start"]').count();
   const changedGeometry = Math.abs(clipAfter.width - clipBefore.width) > 6 || Math.abs(clipAfter.x - clipBefore.x) > 6;
-  const changedHiddenEnd = label === 'Trim end' && hiddenEndAfter > hiddenEndBefore;
+  // The timeline refits to the trimmed clip, so geometry may not change; the hidden-range marker is the signal.
+  const changedHiddenEnd = (label === 'Trim end' && hiddenEndAfter > hiddenEndBefore)
+    || (label === 'Trim start' && hiddenStartAfter > hiddenStartBefore);
   return {
     label,
     changed: changedGeometry || changedHiddenEnd,
@@ -259,12 +263,18 @@ async function restoreFullSource(page) {
   else {
     const hiddenStart = page.locator('button[aria-label="Restore hidden start"]');
     const hiddenEnd = page.locator('button[aria-label="Restore hidden end"]');
-    if (await hiddenStart.count() > 0) await hiddenStart.click();
+    // One restore at a time, as a user would: each click persists from the current document, so
+    // back-to-back clicks before the first lands would overwrite each other.
+    if (await hiddenStart.count() > 0) {
+      await hiddenStart.click();
+      await page.waitForSelector('button[aria-label="Restore hidden start"]', { state: 'detached', timeout: 5000 }).catch(() => undefined);
+    }
     if (await hiddenEnd.count() > 0) await hiddenEnd.click();
   }
   await page.waitForFunction((trackWidth) => {
     const clip = document.querySelector('[data-timeline-lane="screen"] .clipBar');
     if (!(clip instanceof HTMLElement)) return false;
+    if (document.querySelector('button[aria-label="Restore hidden start"], button[aria-label="Restore hidden end"]')) return false;
     return Math.abs(clip.getBoundingClientRect().width - trackWidth) < 8;
   }, track.width, { timeout: 10000 }).catch(() => undefined);
   const clipAfter = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'restored screen clip');
@@ -272,8 +282,9 @@ async function restoreFullSource(page) {
   return {
     hiddenControlsVisible: hiddenStartVisible || hiddenEndVisible,
     hiddenControlsCompact,
+    // Restored = clip spans the track and no hidden-range marker is left (the timeline refits, so width alone can't grow).
     restored: Math.abs(clipAfter.width - track.width) < 8
-      && (!hiddenStartVisible && !hiddenEndVisible ? true : clipAfter.width >= clipBefore.width + Math.min(6, track.width * 0.01)),
+      && await page.locator('button[aria-label="Restore hidden start"], button[aria-label="Restore hidden end"]').count() === 0,
     activeToolStable: beforeTool === afterTool,
     before: { x: clipBefore.x, width: clipBefore.width },
     after: { x: clipAfter.x, width: clipAfter.width },
