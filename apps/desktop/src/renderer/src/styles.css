@@ -4787,81 +4787,108 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   border: 1px solid rgb(248 113 113 / 0.25);
   color: rgb(252 165 165);
 }
-.aiSummary {
-  background: rgb(255 255 255 / 0.02);
-  border: 1px solid rgb(255 255 255 / 0.06);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
+/* AI edit (redesign 2026-10-01): a map of the recording, then suggestions
+   grouped by kind as dense rows. A work list, not a card grid. */
+.aiShell > * { max-width: 64rem; width: 100%; }
+.aiHeaderText { min-width: 0; }
+.aiSummaryText { color: var(--muted); font-size: var(--text-md); line-height: 1.55; margin: 0; max-width: 72ch; }
+.aiEmptyHint { color: var(--muted); font-size: var(--text-md); margin: 0; max-width: 72ch; }
+
+.aiMap { display: grid; gap: var(--space-1); }
+.aiMapTrack {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  height: 1.75rem;
+  position: relative;
 }
-.aiSummary h3 {
-  color: rgb(226 232 240 / 0.7);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-caps);
-  margin: 0 0 var(--space-1-5);
-  text-transform: uppercase;
+.aiMapMark {
+  border: 0;
+  border-radius: var(--radius-sm);
+  bottom: 0.3rem;
+  cursor: pointer;
+  min-height: 0;
+  padding: 0;
+  position: absolute;
+  top: 0.3rem;
+  transition: opacity 120ms ease, transform 120ms ease;
 }
-.aiSummary p { color: rgb(226 232 240 / 0.85); line-height: 1.55; margin: 0; }
-.aiSuggestionList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2-5);
+.aiMapMark:hover { transform: scaleY(1.15); }
+.aiMapMark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.aiMapMark.isApplied { opacity: 0.3; }
+.aiMapScale { color: var(--subtle); display: flex; font-size: var(--text-2xs); font-variant-numeric: tabular-nums; justify-content: space-between; }
+
+/* One hue per kind, shared by the map, the group swatch and nothing else. */
+.aiKind-silence { background: rgb(248 113 113 / 0.75); }
+.aiKind-cut { background: rgb(203 213 225 / 0.6); }
+.aiKind-zoom { background: var(--accent); }
+.aiKind-title { background: rgb(250 204 21 / 0.8); }
+
+.aiGroups { display: grid; gap: var(--space-6); }
+.aiGroup { display: grid; gap: var(--space-1-5); }
+.aiGroupHead { align-items: center; display: flex; gap: var(--space-3); justify-content: space-between; min-height: 2rem; }
+.aiGroupHead h3 { align-items: center; display: flex; font-size: var(--text-lg); font-weight: var(--weight-semibold); gap: var(--space-2); margin: 0; }
+.aiGroupSwatch { border-radius: var(--radius-sm); display: inline-block; height: 0.625rem; width: 0.625rem; }
+.aiGroupMeta { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; font-weight: var(--weight-regular); }
+.aiGroupEmpty { color: var(--subtle); font-size: var(--text-sm); margin: 0; }
+
+.aiRows { border-top: 1px solid var(--line); list-style: none; margin: 0; padding: 0; }
+.aiRow {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: 7.5rem 3.25rem minmax(0, 1fr) auto;
+  min-height: 2.5rem;
+  padding: 0 var(--space-2);
 }
-.aiEmptyHint {
-  color: rgb(226 232 240 / 0.5);
-  font-size: var(--text-md);
-  margin: 0;
-  padding: var(--space-4) 0;
-}
-.aiSuggestionCard {
-  align-items: flex-start;
-  background: rgb(255 255 255 / 0.02);
-  border: 1px solid rgb(255 255 255 / 0.06);
-  border-radius: var(--radius-md);
-  display: flex;
-  gap: var(--space-4);
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-}
-.aiSuggestionCard.applied {
-  background: rgb(34 197 94 / 0.04);
-  border-color: rgb(34 197 94 / 0.2);
-  opacity: 0.7;
-}
-.aiSuggestionCard.invalid {
-  background: rgb(248 113 113 / 0.03);
-  border-color: rgb(248 113 113 / 0.2);
-}
-.aiSuggestionBody { flex: 1; min-width: 0; }
-.aiSuggestionKind {
-  color: rgb(226 232 240 / 0.5);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-}
-.aiSuggestionBody h4 {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  margin: var(--space-1) 0 var(--space-1-5);
-}
-.aiSuggestionBody p {
-  color: rgb(226 232 240 / 0.7);
-  font-size: var(--text-md);
-  line-height: 1.45;
-  margin: 0;
-}
-.aiValidationError {
-  color: rgb(252 165 165);
+.aiRow:hover { background: rgb(255 255 255 / 0.02); }
+.aiRow.isApplied .aiRowTime,
+.aiRow.isApplied .aiRowLength,
+.aiRow.isApplied .aiRowWhy { color: var(--subtle); }
+.aiRowTime {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
   font-size: var(--text-sm);
-  margin-top: var(--space-1-5) !important;
+  font-variant-numeric: tabular-nums;
+  gap: 0.2em;
+  justify-self: start;
+  min-height: 0;
+  padding: 0;
+  text-align: start;
 }
-.aiSuggestionActions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  flex-shrink: 0;
+.aiRowTime:hover { color: var(--accent-hover, #93c5fd); text-decoration: underline; text-underline-offset: 3px; }
+.aiRowTitle { font-size: var(--text-md); font-weight: var(--weight-medium); grid-column: span 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aiRowLength { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.aiRowWhy { color: var(--muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aiRow.isInvalid .aiRowWhy { color: rgb(252 165 165); }
+.aiRowActions { align-items: center; display: inline-flex; gap: var(--space-1); justify-self: end; }
+.aiRowDone { color: rgb(134 239 172); font-size: var(--text-sm); }
+.aiRowDismiss {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--subtle);
+  cursor: pointer;
+  font-size: var(--text-lg);
+  height: 1.75rem;
+  line-height: 1;
+  min-height: 0;
+  padding: 0;
+  width: 1.75rem;
 }
+.aiRowDismiss:hover { background: var(--panel-alt); color: var(--text); }
+
+.aiWorking { display: grid; gap: var(--space-1-5); }
+.aiWorkingText { color: var(--muted); display: flex; font-size: var(--text-sm); justify-content: space-between; }
+.aiWorkingTime { color: var(--subtle); font-variant-numeric: tabular-nums; }
+.aiWorkingTrack { background: rgb(255 255 255 / 0.08); border-radius: var(--radius-pill); height: 4px; overflow: hidden; position: relative; }
+.aiWorkingSweep { animation: aiSweep 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite; background: var(--accent); border-radius: inherit; height: 100%; position: absolute; width: 30%; }
+@keyframes aiSweep { from { left: -30%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .aiWorkingSweep { animation: none; left: 0; width: 100%; opacity: 0.5; } .aiMapMark { transition: none; } }
 
 /* Empty stretch between sections. Quiet until pointed at; selecting it lets
    Delete close the gap so the sections sit next to each other. */
@@ -6026,7 +6053,7 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 /* Live layer: sits exactly over the preview canvas; never takes the pointer,
  * so frame handles and censor drawing underneath keep working. */
 .stageColumn { position: relative; }
-.graphicsOverlay { overflow: hidden; pointer-events: none; position: absolute; z-index: 3; }
+.graphicsOverlay { overflow: visible; pointer-events: none; position: absolute; z-index: 3; }
 .graphicFrame {
   background: transparent;
   border: 0;
@@ -6037,11 +6064,70 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   top: 0;
   transform-origin: 0 0;
 }
+/* Graphics on the viewer (Graphics tool, paused): each one is grabbable; the
+   selected one shows edge + corner handles. Violet so it reads apart from the
+   screen (blue) and camera (orange) frames. Handles sit half outside the box,
+   so the overlay must not clip them at the frame edge. */
+.graphicHandles {
+  border: 1.5px dashed transparent;
+  box-sizing: border-box;
+  cursor: move;
+  pointer-events: auto;
+  position: absolute;
+  touch-action: none;
+  transition: border-color 140ms ease-out;
+}
+.graphicHandles:hover { border-color: rgb(196 181 253 / 0.6); }
+.graphicHandles.isSelected { border: 1.5px solid var(--graphic-handle, #c4b5fd); z-index: 1; }
+.graphicHandle {
+  background: #fff;
+  border: 1.5px solid var(--graphic-handle, #c4b5fd);
+  border-radius: 50%;
+  box-sizing: border-box;
+  height: 12px;
+  position: absolute;
+  width: 12px;
+}
+/* A bigger invisible grab area than the dot itself. */
+.graphicHandle::before { content: ''; inset: -6px; position: absolute; }
+.graphicHandle-nw, .graphicHandle-n, .graphicHandle-ne { top: -6.5px; }
+.graphicHandle-sw, .graphicHandle-s, .graphicHandle-se { bottom: -6.5px; }
+.graphicHandle-nw, .graphicHandle-w, .graphicHandle-sw { left: -6.5px; }
+.graphicHandle-ne, .graphicHandle-e, .graphicHandle-se { right: -6.5px; }
+.graphicHandle-n, .graphicHandle-s { left: calc(50% - 6px); }
+.graphicHandle-e, .graphicHandle-w { top: calc(50% - 6px); }
+.graphicHandle-nw, .graphicHandle-se { cursor: nwse-resize; }
+.graphicHandle-ne, .graphicHandle-sw { cursor: nesw-resize; }
+.graphicHandle-n, .graphicHandle-s { cursor: ns-resize; }
+.graphicHandle-e, .graphicHandle-w { cursor: ew-resize; }
+
+.graphicsLayout { display: grid; gap: var(--space-2); }
+/* Generation progress: stage text + a bar paced by real answer times. */
+.graphicsJob { display: grid; flex: 1; gap: var(--space-1-5); min-width: 0; }
+.graphicsJobText { color: var(--muted); display: flex; font-size: var(--text-sm); gap: var(--space-2); justify-content: space-between; }
+.graphicsJobHint { color: var(--subtle); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.graphicsJobTrack { background: rgb(255 255 255 / 0.08); border-radius: var(--radius-pill); height: 4px; overflow: hidden; }
+.graphicsJobFill { background: var(--accent); height: 100%; transform-origin: 0 50%; transition: transform 250ms linear; }
+@media (prefers-reduced-motion: reduce) { .graphicsJobFill { transition: none; } }
+/* Text-only choices: a compact row, not the icon tiles the cursor picker uses. */
+.studioPane .graphicsLayout .segmentedPicker,
+.studioPane .graphicsTiming .segmentedPicker { gap: var(--space-1); }
+.studioPane .graphicsLayout .segmentedOption,
+.studioPane .graphicsTiming .segmentedOption {
+  border-radius: var(--radius-md);
+  min-height: 2rem;
+  padding: var(--space-1-5) 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
 
 /* Timeline lane: the topmost lane, because graphics draw over everything. */
 .graphicsLane,
 .graphicsLane .laneTrack { overflow: visible; }
-.graphicsLane { min-height: 1.85rem; z-index: 20; }
+/* Overlapping graphics stack in rows (front-most on top), so none hides another. */
+.graphicsLane { --graphic-row-height: 1.6rem; z-index: 20; }
+.graphicsLane,
+.timelineDock .graphicsLane { min-height: max(1.875rem, calc(var(--graphic-rows, 1) * var(--graphic-row-height) + 0.25rem)); }
 .graphicRegion {
   background: var(--graphic-chip-fill);
   border: 1px solid var(--graphic-chip-border);
@@ -6064,8 +6150,25 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.graphicRegion .graphicRegionDelete { color: rgb(255 255 255 / 0.6); }
-.graphicRegion .graphicRegionDelete:hover { color: #fca5a5; }
+/* Graphic blocks are often only a few seconds — too short for an × inside.
+   So the × is a small badge on the block's top-right corner, outside the
+   edge grab zone, always clickable when hovered or selected. */
+.graphicRegion { overflow: visible; }
+.graphicRegion .graphicRegionDelete {
+  background: #2a1f33;
+  border: 1px solid var(--graphic-chip-ink);
+  border-radius: 50%;
+  color: var(--graphic-chip-ink);
+  display: flex;
+  font-size: var(--text-xs);
+  height: 0.95rem;
+  right: -0.45rem;
+  top: -0.3rem;
+  transform: none;
+  width: 0.95rem;
+  z-index: 7;
+}
+.graphicRegion .graphicRegionDelete:hover { background: #7f1d1d; border-color: #fca5a5; color: #fff; }
 
 /* Panel */
 .graphicsPane .inspectorSection { display: grid; gap: var(--space-3); }
@@ -6159,11 +6262,11 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 
 /* A short graphic on a long timeline is only a few pixels wide: the edge grab
  * zones shrink with it so the middle always stays grabbable for a move, and the
- * × hides (Delete key and the panel still remove it). */
+ * label hides. The × stays: it is a badge outside the block's corner (see the
+ * .graphicRegion .graphicRegionDelete rule), so it never covers a grab zone. */
 .graphicRegion { container-type: inline-size; }
 .graphicRegion .zoomResizeHandle { width: min(var(--zoom-edge-hit), 22%); }
 @container (max-width: 72px) {
-  .graphicRegion .graphicRegionDelete,
   .graphicRegion .graphicClipLabel { display: none; }
 }
 
@@ -6202,6 +6305,9 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   color: var(--text);
   cursor: pointer;
   display: flex;
+  /* Swatch + name always start at the left edge, so every tile lines up. */
+  justify-content: flex-start;
+  width: 100%;
   gap: var(--space-2);
   min-height: 2.75rem;
   min-width: 0;

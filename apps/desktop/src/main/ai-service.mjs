@@ -61,7 +61,7 @@ export function getAiStatus({ binary = resolveClaudeBinary() } = {}) {
 // Build a compact, structured prompt from the project document so the model
 // reasons over signals (durations, click counts, existing markers) rather
 // than verbose JSON.
-export function buildAnalysisPrompt({ project, recordingDurationFrames, fps }) {
+export function buildAnalysisPrompt({ project, recordingDurationFrames, fps, silenceCuts = [] }) {
   const document = project?.document ?? project;
   const recording = document?.assets?.find?.((a) => a.type === 'recording') ?? null;
   const cursorEvents = recording?.cursorEvents ?? [];
@@ -75,13 +75,16 @@ export function buildAnalysisPrompt({ project, recordingDurationFrames, fps }) {
     `Cursor events: ${cursorEvents.length} (${clicks} clicks).`,
     `Existing zoom markers: ${existingZoomMarkers.length}.`,
     `Existing cut ranges: ${existingCuts.length}.`,
+    silenceCuts.length > 0
+      ? `Measured from the audio — stretches with no speech (frames), ALREADY suggested as cuts, do not repeat them: ${silenceCuts.map((c) => `${c.startFrame}-${c.endFrame}`).join(', ')}.`
+      : 'No long silences were measured in the audio.',
     '',
     'Rules:',
     `- startFrame >= 0, endFrame <= ${recordingDurationFrames}, endFrame > startFrame.`,
     '- focalPoint coordinates in [0, 1].',
     '- strength in [0, 1].',
     '- At most 5 zoomMarkers and 3 cutRanges.',
-    '- Prefer cutting silent intros/outros when supported by the event data.',
+    '- Silences are already handled; suggest other cuts only if the data clearly supports them.',
     '- Do not suggest cuts that, combined, would remove every frame.',
   ].join('\n');
 }
@@ -135,11 +138,31 @@ export function toSuggestions(parsed) {
 // Returns an AiAnalysis-shaped object; the renderer runs validateSuggestion()
 // on each entry before applying. Throws (with a code) on failure so the IPC
 // handler can hand the renderer a readable error.
-export async function analyzeProject({ project, recordingDurationFrames, fps, signal = null, ask = askClaudeForJson, debugDir = null }) {
+/**
+ * Dead air found in the audio, as cut suggestions. These come from measuring
+ * the sound, so they are always offered — Claude cannot hear the recording.
+ */
+export function silenceCutSuggestions(silenceCuts, fps) {
+  const stamp = Date.now();
+  return silenceCuts.map((cut, i) => ({
+    kind: 'cut-range',
+    id: `ai-silence-${stamp}-${i}`,
+    startFrame: cut.startFrame,
+    endFrame: cut.endFrame,
+    rationale: `No speech for ${cut.silenceSec ?? Math.round(((cut.endFrame - cut.startFrame) / (fps || 30)) * 10) / 10} s — cut the dead air.`,
+  }));
+}
+
+function overlaps(a, b) {
+  const shared = Math.min(a.endFrame, b.endFrame) - Math.max(a.startFrame, b.startFrame);
+  return shared > 0.5 * Math.min(a.endFrame - a.startFrame, b.endFrame - b.startFrame);
+}
+
+export async function analyzeProject({ project, recordingDurationFrames, fps, silenceCuts = [], signal = null, ask = askClaudeForJson, debugDir = null }) {
   if (!Number.isFinite(recordingDurationFrames) || recordingDurationFrames <= 0) {
     throw new Error('recordingDurationFrames must be a positive number');
   }
-  const userPrompt = buildAnalysisPrompt({ project, recordingDurationFrames, fps });
+  const userPrompt = buildAnalysisPrompt({ project, recordingDurationFrames, fps, silenceCuts });
   const result = await ask({
     systemPrompt: SYSTEM_PROMPT,
     schema: ANALYSIS_SCHEMA,
@@ -155,9 +178,12 @@ export async function analyzeProject({ project, recordingDurationFrames, fps, si
     err.code = result.cancelled ? 'AI_CANCELLED' : 'AI_CLAUDE';
     throw err;
   }
+  const silenceSuggestions = silenceCutSuggestions(silenceCuts, fps);
+  const claudeSuggestions = toSuggestions(result.value)
+    .filter((s) => s.kind !== 'cut-range' || !silenceSuggestions.some((silence) => overlaps(s, silence)));
   return {
     summary: typeof result.value?.summary === 'string' ? result.value.summary : '',
-    suggestions: toSuggestions(result.value),
+    suggestions: [...silenceSuggestions, ...claudeSuggestions],
     generatedAt: new Date().toISOString(),
     model: 'claude-code',
   };

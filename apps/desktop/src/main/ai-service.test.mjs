@@ -53,3 +53,18 @@ test('the prompt carries the recording signals and bounds', () => {
   assert.match(prompt, /Cursor events: 2 \(1 clicks\)/);
   assert.match(prompt, /endFrame <= 90/);
 });
+
+test('measured silences are always offered as cuts, and Claude cuts that repeat them are dropped', async () => {
+  const { analyzeProject } = await import('./ai-service.mjs');
+  const ask = async () => ({ ok: true, value: { summary: 's', title: 't', description: 'd', zoomMarkers: [], cutRanges: [
+    { startFrame: 1520, endFrame: 1560, rationale: 'dup of silence' },
+    { startFrame: 3000, endFrame: 3100, rationale: 'retake' },
+  ] } });
+  let prompt = '';
+  const wrappedAsk = async (options) => { prompt = options.buildPrompt([]); return ask(options); };
+  const result = await analyzeProject({ project: { document: { assets: [] } }, recordingDurationFrames: 10680, fps: 30, silenceCuts: [{ startFrame: 1517, endFrame: 1565, silenceSec: 2.1 }], ask: wrappedAsk });
+  const cuts = result.suggestions.filter((s) => s.kind === 'cut-range');
+  assert.deepEqual(cuts.map((c) => [c.startFrame, c.endFrame]), [[1517, 1565], [3000, 3100]]);
+  assert.match(cuts[0].rationale, /No speech for 2.1 s/);
+  assert.match(prompt, /ALREADY suggested as cuts/);
+});

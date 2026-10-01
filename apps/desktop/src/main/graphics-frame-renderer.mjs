@@ -39,7 +39,7 @@ export async function renderGraphicFrames({ item, width, height, framesDir, sign
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   try {
     await mkdir(framesDir, { recursive: true });
-    const page = buildGraphicDocument({ html: item.html, fields: item.fields, width, height, animate: item.animate !== false, holdSec: item.holdSec, durationSec: item.durationSec });
+    const page = buildGraphicDocument({ html: item.html, fields: item.fields, width, height, animate: item.animate !== false, holdSec: item.holdSec, durationSec: item.durationSec, layout: item.layout, timing: item.timing, designedSec: item.designedSec });
     await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`);
     await win.webContents.executeJavaScript('document.fonts.ready.then(() => true)');
     for (let frame = 0; frame < item.frameCount; frame += 1) {

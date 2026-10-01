@@ -34,6 +34,32 @@ import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import { createStabilizationService } from './stabilization-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
 import { generateGraphic } from './claude-graphics-service.mjs';
+import { typicalClaudeAnswerMs } from './claude-cli.mjs';
+import { detectSilences, silencesToCutRanges } from './silence-detect.mjs';
+
+/** Silent stretches of the open recording as cut ranges (frames); [] if none or unreadable. */
+async function measureSilenceCuts({ project, recordingDurationFrames, fps }) {
+  try {
+    const document = project?.document ?? project;
+    const recording = document?.assets?.find?.((asset) => asset?.type === 'recording');
+    if (!recording) return [];
+    const stored = recording.metadata?.absoluteFilePath || recording.filePath;
+    const filePath = stored && isAbsolute(stored) ? stored : (stored && project?.path ? join(dirname(project.path), stored) : null);
+    const rate = Number(fps) > 0 ? Number(fps) : 30;
+    const result = await detectSilences({ filePath, durationSec: recordingDurationFrames / rate });
+    if (!result.ok) {
+      console.info(`[ai] silence scan skipped: ${result.reason}`);
+      return [];
+    }
+    const existingCuts = (recording.presentation?.cutRanges ?? document?.cutRanges ?? []).filter((cut) => Number.isFinite(cut?.startFrame));
+    const cuts = silencesToCutRanges(result.silences, { fps: rate, durationFrames: recordingDurationFrames, existingCuts });
+    console.info(`[ai] silence scan: ${result.silences.length} silent stretches, ${cuts.length} cut suggestions`);
+    return cuts;
+  } catch (error) {
+    console.info(`[ai] silence scan failed: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+}
 import { createGraphicsStyleStore, defaultGraphicsStylePath } from './graphics-style-store.mjs';
 import { persistTranscriptToProject } from './transcription-project-persistence.mjs';
 import { createTranscriptionRuntime } from './transcription-runtime.mjs';
@@ -54,13 +80,42 @@ if (!ownsSingleInstance) {
 
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('disable-http-cache');
+  // Electron's sound otherwise reaches PulseAudio/PipeWire as "Chromium", so a
+  // remembered "Chromium muted" (from any other Chromium-based app) silently
+  // muted all playback here (2026-10-01). Our own name keeps our own volume.
+  if (!process.env.PULSE_PROP_OVERRIDE) {
+    process.env.PULSE_PROP_OVERRIDE = "application.name='Rough Cut' application.id='rough-cut' application.icon_name='rough-cut'";
+  }
 }
 
 if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
   app.setDesktopName('@rough-cut/desktop');
 }
 
-app.on('second-instance', () => {
+// The build this process started from. A hidden window (e.g. the recorder)
+// can keep an old copy alive after its editor closes; launching from the dock
+// then only re-showed that old copy, so fixes "never arrived" (2026-10-01).
+const startedPackageStamp = readPackageStamp();
+function readPackageStamp() {
+  try {
+    return JSON.parse(readFileSync(join(app.getAppPath(), 'package-identity.json'), 'utf8')).packagedAt ?? null;
+  } catch {
+    return null;
+  }
+}
+
+app.on('second-instance', (_event, argv) => {
+  const installedStamp = readPackageStamp();
+  const recording = (() => {
+    try { return recordingSession.status()?.state !== 'idle' || Boolean(activeRecordingFinalizePromise); } catch { return true; }
+  })();
+  if (startedPackageStamp && installedStamp && installedStamp !== startedPackageStamp && !recording) {
+    console.info(`[startup] newer build installed (${installedStamp}, running ${startedPackageStamp}) — restarting into it`);
+    // Relaunch the way the dock just launched us (new build's user-data dir).
+    app.relaunch({ execPath: process.execPath, args: Array.isArray(argv) ? argv.slice(1) : process.argv.slice(1) });
+    app.exit(0);
+    return;
+  }
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isMinimized()) window.restore();
     window.show();
@@ -1193,16 +1248,25 @@ ipcMain.handle(IPC_CHANNELS.GRAPHICS_CANCEL, (_event, requestId) => {
   graphicRequests.get(requestId)?.abort();
   return { ok: true };
 });
-ipcMain.handle(IPC_CHANNELS.GRAPHICS_GENERATE, async (_event, payload = {}) => {
+ipcMain.handle(IPC_CHANNELS.GRAPHICS_GENERATE, async (event, payload = {}) => {
   const requestId = typeof payload.requestId === 'string' ? payload.requestId : `graphic-${Date.now()}`;
   const controller = new AbortController();
   graphicRequests.set(requestId, controller);
+  // How long one Claude answer usually takes here, so the progress bar's pace
+  // matches this computer and account rather than a guess.
+  const expectedMs = await typicalClaudeAnswerMs(claudeDebugDir, payload.existing ? 'graphic-change' : 'graphic');
+  const sendProgress = (progress) => {
+    if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.GRAPHICS_PROGRESS, { requestId, expectedMs, ...progress });
+  };
   try {
     const width = Number(payload.canvas?.width);
     const height = Number(payload.canvas?.height);
     return await generateGraphic({
       request: payload.request,
       existing: payload.existing ?? null,
+      others: Array.isArray(payload.others) ? payload.others : [],
+      usedDirections: Array.isArray(payload.usedDirections) ? payload.usedDirections : [],
+      lengthSec: Number(payload.lengthSec) > 0 ? Number(payload.lengthSec) : null,
       canvas: {
         width: Number.isFinite(width) && width > 0 ? Math.round(width) : 1920,
         height: Number.isFinite(height) && height > 0 ? Math.round(height) : 1080,
@@ -1212,9 +1276,11 @@ ipcMain.handle(IPC_CHANNELS.GRAPHICS_GENERATE, async (_event, payload = {}) => {
         ...(await graphicsStyleStore.get()),
         ...(typeof payload.styleId === 'string' ? { styleId: payload.styleId } : {}),
         ...(payload.creativity !== undefined ? { creativity: payload.creativity } : {}),
+        ...(typeof payload.styleLock === 'boolean' ? { styleLock: payload.styleLock } : {}),
       },
       signal: controller.signal,
       debugDir: claudeDebugDir,
+      onProgress: sendProgress,
     });
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
@@ -1224,7 +1290,9 @@ ipcMain.handle(IPC_CHANNELS.GRAPHICS_GENERATE, async (_event, payload = {}) => {
 });
 ipcMain.handle(IPC_CHANNELS.AI_ANALYZE_PROJECT, async (_event, payload) => {
   try {
-    return await analyzeProject({ ...(payload ?? {}), debugDir: claudeDebugDir });
+    // Measure dead air locally first: Claude never hears the recording.
+    const silenceCuts = await measureSilenceCuts(payload ?? {});
+    return await analyzeProject({ ...(payload ?? {}), silenceCuts, debugDir: claudeDebugDir });
   } catch (err) {
     // Re-shape into a serializable payload so the renderer can render a
     // human-readable error without losing the code field.

@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { buildGraphicDocument, graphicHoldSec, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
+import { buildGraphicDocument, graphicHoldSec, resizeGraphicLayout, type GraphicHandle, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
+
+type CanvasRect = { x: number; y: number; w: number; h: number };
 
 /**
  * Claude-made graphics drawn live over the whole composite.
@@ -20,6 +22,9 @@ export function GraphicsOverlay({
   canvasWidth,
   canvasHeight,
   selectedGraphicId = null,
+  editable = false,
+  onLayoutChange,
+  onSelect,
 }: {
   stageRef: React.RefObject<HTMLElement | null>;
   graphics: readonly TimelineGraphic[];
@@ -28,8 +33,17 @@ export function GraphicsOverlay({
   canvasWidth: number;
   canvasHeight: number;
   selectedGraphicId?: string | null;
+  /** Graphics tool open and paused: the selected graphic can be dragged. */
+  editable?: boolean;
+  onLayoutChange?: (id: string, patch: Partial<GraphicLayout>, commit: boolean) => void;
+  onSelect?: (id: string) => void;
 }) {
   const rect = usePreviewCanvasRect(stageRef);
+  // Where each graphic's visible content sits, reported by its page.
+  const [bounds, setBounds] = React.useState<Record<string, CanvasRect | null>>({});
+  const reportBounds = React.useCallback((id: string, next: CanvasRect | null) => {
+    setBounds((current) => (JSON.stringify(current[id]) === JSON.stringify(next) ? current : { ...current, [id]: next }));
+  }, []);
   const frame = Math.round(currentTimeSec * fps);
   if (!rect || graphics.length === 0) return null;
   const scale = rect.width / canvasWidth;
@@ -55,14 +69,37 @@ export function GraphicsOverlay({
             scale={scale}
             holdSec={graphicHoldSec((graphic.endFrame - graphic.startFrame) / fps)}
             durationSec={(graphic.endFrame - graphic.startFrame) / fps}
+            onBounds={reportBounds}
           />
         );
       })}
+      {editable && onLayoutChange ? graphics.map((graphic) => {
+        // Every graphic on screen can be grabbed; the selected one on top
+        // gets the handles. Grabbing an unselected one selects it.
+        const box = bounds[graphic.id];
+        const active = graphic.enabled && frame >= graphic.startFrame && frame < graphic.endFrame;
+        if (!box || !active) return null;
+        const selected = graphic.id === selectedGraphicId;
+        return (
+          <GraphicHandles
+            key={graphic.id}
+            selected={selected}
+            layout={graphic.layout}
+            box={box}
+            scale={scale}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            // Always: re-opens the Graphics panel even if this one was already selected.
+            onGrab={() => onSelect?.(graphic.id)}
+            onChange={(patch, commit) => onLayoutChange(graphic.id, patch, commit)}
+          />
+        );
+      }) : null}
     </div>
   );
 }
 
-function GraphicFrame({ graphic, active, selected, localSec, width, height, scale, holdSec, durationSec }: {
+function GraphicFrame({ graphic, active, selected, localSec, width, height, scale, holdSec, durationSec, onBounds }: {
   graphic: TimelineGraphic;
   active: boolean;
   selected: boolean;
@@ -72,8 +109,17 @@ function GraphicFrame({ graphic, active, selected, localSec, width, height, scal
   scale: number;
   holdSec: number;
   durationSec: number;
+  onBounds: (id: string, rect: CanvasRect | null) => void;
 }) {
   const ref = React.useRef<HTMLIFrameElement | null>(null);
+  React.useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== ref.current?.contentWindow || event.data?.type !== 'rc-bounds') return;
+      onBounds(graphic.id, event.data.rect ?? null);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [graphic.id, onBounds]);
   const localSecRef = React.useRef(localSec);
   localSecRef.current = localSec;
   // Rebuilt only when the content or the canvas changes; field edits and seeks
@@ -99,8 +145,19 @@ function GraphicFrame({ graphic, active, selected, localSec, width, height, scal
   }, [post, fieldsKey]);
 
   React.useEffect(() => {
-    post({ type: 'rc-animate', animate: graphic.animate, holdSec, durationSec });
-  }, [post, graphic.animate, holdSec, durationSec]);
+    post({ type: 'rc-animate', animate: graphic.animate, holdSec, durationSec, timing: graphic.timing, designedSec: graphic.designedSec });
+  }, [post, graphic.animate, holdSec, durationSec, graphic.timing, graphic.designedSec]);
+
+  // Drawn at the shown size (see the page's viewScale), not shrunk afterwards.
+  React.useEffect(() => {
+    post({ type: 'rc-viewport', scale });
+  }, [post, scale]);
+
+  const layoutKey = JSON.stringify(graphic.layout);
+  React.useEffect(() => {
+    post({ type: 'rc-layout', layout: graphic.layout });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key
+  }, [post, layoutKey]);
 
   return (
     <iframe
@@ -113,18 +170,106 @@ function GraphicFrame({ graphic, active, selected, localSec, width, height, scal
       srcDoc={srcDoc}
       tabIndex={-1}
       style={{
-        width,
-        height,
-        transform: `scale(${scale})`,
+        width: Math.round(width * scale),
+        height: Math.round(height * scale),
         visibility: active ? 'visible' : 'hidden',
       }}
       onLoad={() => {
+        post({ type: 'rc-viewport', scale });
         post({ type: 'rc-fields', fields: graphic.fields });
-        post({ type: 'rc-animate', animate: graphic.animate, holdSec, durationSec });
+        post({ type: 'rc-animate', animate: graphic.animate, holdSec, durationSec, timing: graphic.timing, designedSec: graphic.designedSec });
+        post({ type: 'rc-layout', layout: graphic.layout });
         post({ type: 'rc-seek', t: localSecRef.current });
       }}
     />
   );
+}
+
+const HANDLES: readonly GraphicHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
+/**
+ * A box around a graphic's visible content. Drag inside to move it; drag any
+ * edge or corner to resize it with the opposite side pinned. Previews live and
+ * saves once on release, like the panel sliders.
+ */
+function GraphicHandles({ selected, layout, box, scale, canvasWidth, canvasHeight, onGrab, onChange }: {
+  selected: boolean;
+  layout: GraphicLayout;
+  box: CanvasRect;
+  scale: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  onGrab: () => void;
+  onChange: (patch: Partial<GraphicLayout>, commit: boolean) => void;
+}) {
+  // The box moves while dragging (the page re-reports it), so every step is
+  // computed from where the drag started.
+  const dragRef = React.useRef<{ handle: GraphicHandle | 'move'; startX: number; startY: number; layout: GraphicLayout; box: CanvasRect; last: Partial<GraphicLayout> | null } | null>(null);
+  const begin = (handle: GraphicHandle | 'move') => (event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onGrab();
+    // Take focus so the Delete key reaches the editor and removes this graphic.
+    (event.currentTarget.closest(".graphicHandles") as HTMLElement | null)?.focus({ preventScroll: true });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { handle, startX: event.clientX, startY: event.clientY, layout, box, last: null };
+    traceDrag('begin', handle);
+  };
+  const move = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag) {
+      if (event.buttons) traceDrag('move-without-drag', event.type);
+      return;
+    }
+    traceDrag('move', drag.handle);
+    const dx = (event.clientX - drag.startX) / scale;
+    const dy = (event.clientY - drag.startY) / scale;
+    const patch: Partial<GraphicLayout> = drag.handle === 'move'
+      ? { x: round(drag.layout.x + dx / canvasWidth), y: round(drag.layout.y + dy / canvasHeight) }
+      : resizeGraphicLayout({ layout: drag.layout, box: drag.box, handle: drag.handle, dx, dy, width: canvasWidth, height: canvasHeight });
+    drag.last = patch;
+    onChange(patch, false);
+  };
+  const end = () => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    traceDrag(drag?.last ? 'commit' : 'end-no-change', drag?.handle ?? 'none');
+    if (drag?.last) onChange(drag.last, true);
+  };
+  React.useEffect(() => {
+    traceDrag('mount', selected ? 'selected' : 'idle');
+    return () => traceDrag('unmount', selected ? 'selected' : 'idle');
+  }, [selected]);
+  const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end };
+  return (
+    <div
+      className={`graphicHandles${selected ? ' isSelected' : ''}`}
+      data-graphic-handles={selected ? 'selected' : 'idle'}
+      tabIndex={-1}
+      style={{ left: box.x * scale, top: box.y * scale, width: box.w * scale, height: box.h * scale }}
+      onPointerDown={begin('move')}
+      {...handlers}
+      title="Drag to move · drag an edge or corner to resize"
+    >
+      {selected ? HANDLES.map((handle) => (
+        <span key={handle} className={`graphicHandle graphicHandle-${handle}`} data-graphic-handle={handle} onPointerDown={begin(handle)} {...handlers} />
+      )) : null}
+    </div>
+  );
+}
+
+/** Drag trace for diagnosing lost drags (read `__roughCutGraphicDragTrace`). */
+function traceDrag(event: string, detail: string) {
+  const target = window as unknown as { __roughCutGraphicDragTrace?: string[] };
+  const trace = target.__roughCutGraphicDragTrace ?? (target.__roughCutGraphicDragTrace = []);
+  if (trace.length > 0 && trace[trace.length - 1] === `${event}:${detail}` && event === 'move') return;
+  trace.push(`${event}:${detail}`);
+  if (trace.length > 200) trace.shift();
+}
+
+function round(value: number) {
+  return Math.round(value * 1000) / 1000;
 }
 
 /**
@@ -147,7 +292,9 @@ function usePreviewCanvasRect(stageRef: React.RefObject<HTMLElement | null>) {
         }
         const stageBox = stage.getBoundingClientRect();
         const box = canvas.getBoundingClientRect();
-        const next = { left: box.left - stageBox.left, top: box.top - stageBox.top, width: box.width, height: box.height };
+        // Whole screen pixels: a layer at a fractional offset (e.g. x = 269.34)
+        // is resampled across pixels and every graphic looks soft.
+        const next = { left: Math.round(box.left) - stageBox.left, top: Math.round(box.top) - stageBox.top, width: Math.round(box.width), height: Math.round(box.height) };
         setRect((current) => (
           current && Math.abs(current.left - next.left) < 0.5 && Math.abs(current.top - next.top) < 0.5
             && Math.abs(current.width - next.width) < 0.5 && Math.abs(current.height - next.height) < 0.5

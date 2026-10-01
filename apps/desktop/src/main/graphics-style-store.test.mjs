@@ -41,3 +41,10 @@ test('style and creativity are remembered, and partial saves never wipe other fi
   const clamped = await store.get();
   assert.deepEqual([clamped.styleId, clamped.creativity], ['studio', 5]);
 });
+
+test('style lock is saved only as a real true', async () => {
+  const { normalizeGraphicsStyle } = await import('./graphics-style-store.mjs');
+  assert.equal(normalizeGraphicsStyle({ styleLock: true }).styleLock, true);
+  assert.equal(normalizeGraphicsStyle({ styleLock: 'yes' }).styleLock, false);
+  assert.equal(normalizeGraphicsStyle(null).styleLock, false);
+});

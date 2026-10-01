@@ -5,7 +5,8 @@ import {
   Trash as PhosphorTrash,
 } from '@phosphor-icons/react';
 
-import type { GraphicField, TimelineGraphic } from '../../shared/motion-graphics.mjs';
+import { DEFAULT_GRAPHIC_LAYOUT, type GraphicEntrance, type GraphicField, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
+import { cancelGraphicJob, graphicJobProgress, graphicJobSecondsLeft, startGraphicJob, useGraphicJob, type GraphicJob } from './graphics-job';
 import { CREATIVITY_LEVELS, DEFAULT_CREATIVITY, DEFAULT_GRAPHICS_STYLE_ID, GRAPHIC_STYLES, normalizeCreativity, resolveGraphicStyle } from '../../shared/graphics-styles.mjs';
 
 export type GraphicsStyle = {
@@ -16,6 +17,7 @@ export type GraphicsStyle = {
   notes: string;
   styleId: string;
   creativity: number;
+  styleLock?: boolean;
 };
 
 export type GeneratedGraphic = {
@@ -24,9 +26,9 @@ export type GeneratedGraphic = {
   fields: GraphicField[];
   durationSec: number;
   startSec: number | null;
+  /** Which design direction Claude was given (kept so the next one differs). */
+  direction?: string | null;
 };
-
-type GenerateResult = { ok: true; graphic: GeneratedGraphic } | { ok: false; reason: string; errors?: string[]; cancelled?: boolean };
 
 type Busy = { kind: 'new' | 'change'; requestId: string } | null;
 
@@ -35,12 +37,6 @@ function formatClock(seconds: number) {
   const minutes = Math.floor(safe / 60);
   const secs = Math.floor(safe % 60);
   return `${minutes}:${String(secs).padStart(2, '0')}`;
-}
-
-let requestCounter = 0;
-function nextRequestId() {
-  requestCounter += 1;
-  return `graphic-request-${Date.now()}-${requestCounter}`;
 }
 
 /**
@@ -54,10 +50,11 @@ export function GraphicsPanel({
   canvas,
   disabled = false,
   onSelect,
-  onAdd,
-  onReplace,
   onFieldsChange,
   onAnimateChange,
+  onLayoutChange,
+  onReorder,
+  onTimingChange,
   onRemove,
 }: {
   graphics: readonly TimelineGraphic[];
@@ -66,26 +63,33 @@ export function GraphicsPanel({
   canvas: { width: number; height: number };
   disabled?: boolean;
   onSelect: (id: string | null) => void;
-  onAdd: (graphic: GeneratedGraphic, request: string) => void;
-  onReplace: (id: string, graphic: GeneratedGraphic, request: string) => void;
   onFieldsChange: (id: string, values: Record<string, string | number>) => void;
   onAnimateChange: (id: string, animate: boolean) => void;
+  /** `commit: false` is a live preview while dragging; `true` saves one undo step. */
+  onLayoutChange: (id: string, patch: Partial<GraphicLayout>, commit: boolean) => void;
+  /** Layer order where graphics overlap in time: front draws on top. */
+  onReorder: (id: string, where: 'front' | 'back') => void;
+  /** Hold the designed timing, or stretch the whole animation to the new length. */
+  onTimingChange: (id: string, timing: 'hold' | 'stretch') => void;
   onRemove: (id: string) => void;
 }) {
   const [request, setRequest] = React.useState('');
   const [changeRequest, setChangeRequest] = React.useState('');
-  const [busy, setBusy] = React.useState<Busy>(null);
-  const [problem, setProblem] = React.useState<{ reason: string; errors?: string[] } | null>(null);
+  // The generation lives outside this panel so switching tabs keeps it going.
+  const { job, problem } = useGraphicJob();
+  const busy: Busy = job ? { kind: job.kind, requestId: job.requestId } : null;
+  // Length for the next graphic: 0 = let Claude decide.
+  const [lengthSec, setLengthSec] = React.useState(0);
   // The look for the next generation; remembered across sessions.
-  const [look, setLook] = React.useState<{ styleId: string; creativity: number }>({ styleId: DEFAULT_GRAPHICS_STYLE_ID, creativity: DEFAULT_CREATIVITY });
+  const [look, setLook] = React.useState<{ styleId: string; creativity: number; styleLock: boolean }>({ styleId: DEFAULT_GRAPHICS_STYLE_ID, creativity: DEFAULT_CREATIVITY, styleLock: false });
   React.useEffect(() => {
     let cancelled = false;
     void window.roughCut?.getGraphicsStyle?.().then((saved: GraphicsStyle) => {
-      if (!cancelled && saved) setLook({ styleId: resolveGraphicStyle(saved.styleId).id, creativity: normalizeCreativity(saved.creativity) });
+      if (!cancelled && saved) setLook({ styleId: resolveGraphicStyle(saved.styleId).id, creativity: normalizeCreativity(saved.creativity), styleLock: saved.styleLock === true });
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
-  const changeLook = (patch: Partial<{ styleId: string; creativity: number }>) => {
+  const changeLook = (patch: Partial<{ styleId: string; creativity: number; styleLock: boolean }>) => {
     setLook((current) => ({ ...current, ...patch }));
     void window.roughCut?.setGraphicsStyle?.(patch).catch(() => undefined);
   };
@@ -96,41 +100,33 @@ export function GraphicsPanel({
     const text = (kind === 'new' ? request : changeRequest).trim();
     if (!text || busy || !available) return;
     if (kind === 'change' && !selected) return;
-    const requestId = nextRequestId();
-    setBusy({ kind, requestId });
-    setProblem(null);
-    try {
-      const result = (await window.roughCut.generateGraphic({
-        requestId,
-        request: text,
+    const ok = await startGraphicJob({
+      kind,
+      targetId: kind === 'change' && selected ? selected.id : null,
+      request: text,
+      payload: {
         canvas,
         fps,
         styleId: look.styleId,
         creativity: look.creativity,
+        styleLock: look.styleLock,
+        // What is already in the video, so a new graphic is a new idea, not a re-skin.
+        others: kind === 'new' ? graphics.map((graphic) => `${graphic.title}${graphic.request ? ` (asked: ${graphic.request.slice(0, 100)})` : ''}`) : [],
+        usedDirections: graphics.map((graphic) => graphic.direction).filter(Boolean),
+        lengthSec: kind === 'new' && lengthSec > 0 ? lengthSec : null,
         existing: kind === 'change' && selected
           ? { title: selected.title, html: selected.html, fields: selected.fields, durationSec: (selected.endFrame - selected.startFrame) / fps }
           : null,
-      })) as GenerateResult;
-      if (!result.ok) {
-        if (!result.cancelled) setProblem({ reason: result.reason, errors: result.errors });
-        return;
-      }
-      if (kind === 'new') {
-        onAdd(result.graphic, text);
-        setRequest('');
-      } else if (selected) {
-        onReplace(selected.id, result.graphic, text);
-        setChangeRequest('');
-      }
-    } catch (error) {
-      setProblem({ reason: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setBusy(null);
+      },
+    });
+    if (ok) {
+      if (kind === 'new') setRequest('');
+      else setChangeRequest('');
     }
   }
 
   function cancel() {
-    if (busy) void window.roughCut.cancelGraphic?.(busy.requestId);
+    cancelGraphicJob();
   }
 
   const controlsDisabled = disabled || !available;
@@ -197,6 +193,18 @@ export function GraphicsPanel({
               })}
             </div>
           </div>
+          <label className="toggleField inspectorToggle" title={look.styleLock ? 'Claude follows this style closely: same colours, type and feel every time' : 'The style only flavours each graphic; Claude picks its own look each time'}>
+            <span>Lock style</span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={look.styleLock}
+              disabled={controlsDisabled || busy !== null}
+              onChange={(event) => changeLook({ styleLock: event.currentTarget.checked })}
+              data-graphics-style-lock="true"
+            />
+          </label>
+          <LengthRange value={lengthSec} disabled={controlsDisabled || busy !== null} onChange={setLengthSec} />
           <div className="graphicsField" role="radiogroup" aria-label="Creativity">
             <span>Creativity <em className="graphicsLookValue">{CREATIVITY_LEVELS[look.creativity - 1]?.label}</em></span>
             <div className="graphicsCreativity">
@@ -221,7 +229,7 @@ export function GraphicsPanel({
         <div className="graphicsActions">
           {busy?.kind === 'new' ? (
             <>
-              <span className="graphicsWorking" role="status"><span className="graphicsWorkingDot" aria-hidden="true" />Claude is designing…</span>
+              <GraphicJobProgressBar job={job!} />
               <button type="button" className="secondary compact" onClick={cancel}>Cancel</button>
             </>
           ) : (
@@ -277,6 +285,8 @@ export function GraphicsPanel({
           <p className="eyebrow">{selected ? 'Selected graphic' : 'No graphic selected'}</p>
           {selected ? (
             <div className="inspectorSectionAction">
+              <button type="button" className="textButton" disabled={disabled} onClick={() => onReorder(selected.id, 'front')} title="Draw this graphic on top of graphics it overlaps" data-graphics-order="front">To front</button>
+              <button type="button" className="textButton" disabled={disabled} onClick={() => onReorder(selected.id, 'back')} title="Draw this graphic behind graphics it overlaps" data-graphics-order="back">To back</button>
               <button type="button" className="textButton graphicsDelete" disabled={disabled || busy !== null} onClick={() => onRemove(selected.id)}>
                 <PhosphorTrash size={14} weight="regular" aria-hidden /> Delete
               </button>
@@ -294,6 +304,22 @@ export function GraphicsPanel({
             data-graphics-animate="true"
           />
         </label>
+        {selected ? (
+          <GraphicTimingControl
+            graphic={selected}
+            fps={fps}
+            disabled={disabled || busy !== null}
+            onChange={(timing) => onTimingChange(selected.id, timing)}
+          />
+        ) : null}
+        {selected ? (
+          <GraphicLayoutControls
+            key={selected.id}
+            layout={selected.layout}
+            disabled={disabled || busy !== null}
+            onChange={(patch, commit) => onLayoutChange(selected.id, patch, commit)}
+          />
+        ) : null}
         <div className="graphicsFields" data-graphics-fields="true">
           {(selected?.fields ?? []).length > 0 ? selected!.fields.map((field) => (
             <GraphicFieldInput
@@ -327,7 +353,7 @@ export function GraphicsPanel({
         <div className="graphicsActions">
           {busy?.kind === 'change' ? (
             <>
-              <span className="graphicsWorking" role="status"><span className="graphicsWorkingDot" aria-hidden="true" />Claude is revising…</span>
+              <GraphicJobProgressBar job={job!} />
               <button type="button" className="secondary compact" onClick={cancel}>Cancel</button>
             </>
           ) : (
@@ -345,6 +371,215 @@ export function GraphicsPanel({
 
       <HouseStyle disabled={controlsDisabled} />
     </aside>
+  );
+}
+
+const ENTRANCE_OPTIONS: readonly { value: GraphicEntrance; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'fade', label: 'Fade' },
+  { value: 'rise', label: 'Rise' },
+  { value: 'pop', label: 'Pop' },
+  { value: 'slide', label: 'Slide' },
+];
+
+/**
+ * Size, position, opacity and the entrance of the whole graphic. Sliders
+ * preview live while dragged and save once on release (one undo step).
+ * The same move/resize also works by dragging the graphic on the viewer.
+ */
+function GraphicLayoutControls({ layout, disabled, onChange }: {
+  layout: GraphicLayout;
+  disabled: boolean;
+  onChange: (patch: Partial<GraphicLayout>, commit: boolean) => void;
+}) {
+  const isDefault = (Object.keys(DEFAULT_GRAPHIC_LAYOUT) as (keyof GraphicLayout)[])
+    .every((key) => layout[key] === DEFAULT_GRAPHIC_LAYOUT[key]);
+  return (
+    <div className="graphicsLayout" data-graphics-layout="true">
+      <div className="graphicsField">
+        <span>Entrance</span>
+        <div className="segmentedPicker" role="radiogroup" aria-label="Entrance">
+          {ENTRANCE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={layout.entrance === option.value}
+              disabled={disabled}
+              className={`segmentedOption${layout.entrance === option.value ? ' active' : ''}`}
+              onClick={() => onChange({ entrance: option.value }, true)}
+              data-graphic-entrance={option.value}
+            >
+              <span className="segmentedLabel">{option.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <LayoutRange label="Entrance length" value={layout.entranceSec} min={0.15} max={2} step={0.05} format={(v) => `${v.toFixed(2)}s`} disabled={disabled || layout.entrance === 'none'} onChange={(v, commit) => onChange({ entranceSec: v }, commit)} />
+      <LayoutRange label="Size" value={layout.scale} min={0.25} max={3} step={0.01} format={(v) => `${Math.round(v * 100)}%`} disabled={disabled} onChange={(v, commit) => onChange({ scale: v }, commit)} />
+      <LayoutRange label="Left / right" value={layout.x} min={-1} max={1} step={0.005} format={(v) => `${Math.round(v * 100)}%`} disabled={disabled} onChange={(v, commit) => onChange({ x: v }, commit)} />
+      <LayoutRange label="Up / down" value={layout.y} min={-1} max={1} step={0.005} format={(v) => `${Math.round(v * 100)}%`} disabled={disabled} onChange={(v, commit) => onChange({ y: v }, commit)} />
+      <LayoutRange label="Opacity" value={layout.opacity} min={0.1} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`} disabled={disabled} onChange={(v, commit) => onChange({ opacity: v }, commit)} />
+      <div className="graphicsActions">
+        <button type="button" className="textButton" disabled={disabled || isDefault} onClick={() => onChange({ ...DEFAULT_GRAPHIC_LAYOUT }, true)} data-graphics-layout-reset="true">
+          Reset size &amp; motion
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LayoutRange({ label, value, min, max, step, format, disabled, onChange }: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (value: number) => string;
+  disabled: boolean;
+  onChange: (value: number, commit: boolean) => void;
+}) {
+  const [draft, setDraft] = React.useState(value);
+  const editingRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!editingRef.current) setDraft(value);
+  }, [value]);
+  const progress = Math.max(0, Math.min(100, ((draft - min) / (max - min)) * 100));
+  const preview = (next: number) => {
+    setDraft(next);
+    onChange(next, false);
+  };
+  const commit = (next: number) => {
+    editingRef.current = false;
+    setDraft(next);
+    onChange(next, true);
+  };
+  return (
+    <label className="rangeField">
+      <span>{label}</span>
+      <span className="rangeControl" style={{ '--range-progress': `${progress}%` } as React.CSSProperties}>
+        <span className="rangeVisual" aria-hidden="true">
+          <span className="rangeFill" />
+          <span className="rangeThumb" />
+        </span>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={draft}
+          disabled={disabled}
+          onPointerDown={() => { editingRef.current = true; }}
+          onChange={(event) => preview(Number(event.currentTarget.value))}
+          onPointerUp={(event) => commit(Number(event.currentTarget.value))}
+          onKeyUp={(event) => commit(Number(event.currentTarget.value))}
+          onBlur={() => { if (editingRef.current) commit(draft); }}
+          onWheelCapture={(event) => { event.preventDefault(); event.currentTarget.blur(); }}
+        />
+      </span>
+      <output>{format(draft)}</output>
+    </label>
+  );
+}
+
+/**
+ * Progress tied to the real generation: the stage comes from the app (Claude
+ * writing, the safety check, a second try), the pace from how long answers
+ * have actually taken on this computer.
+ */
+function GraphicJobProgressBar({ job }: { job: GraphicJob }) {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, []);
+  const progress = graphicJobProgress(job, now);
+  const left = graphicJobSecondsLeft(job, now);
+  const label = job.stage === 'checking'
+    ? 'Checking the result…'
+    : job.attempt > 1
+      ? 'Second try — fixing a problem in the first answer…'
+      : job.kind === 'change' ? 'Claude is revising…' : 'Claude is designing…';
+  const hint = job.stage === 'checking' ? '' : left > 0 ? `about ${left}s left` : 'taking a little longer than usual…';
+  return (
+    <div className="graphicsJob" role="status" aria-live="polite" data-graphics-job={job.stage}>
+      <div className="graphicsJobText"><span>{label}</span><span className="graphicsJobHint">{hint}</span></div>
+      <div className="graphicsJobTrack" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+        <div className="graphicsJobFill" style={{ transform: `scaleX(${progress})` }} />
+      </div>
+    </div>
+  );
+}
+
+/** Length of the next graphic: Auto (Claude decides) or 2–60 s. */
+function LengthRange({ value, disabled, onChange }: { value: number; disabled: boolean; onChange: (value: number) => void }) {
+  const progress = (value / 60) * 100;
+  return (
+    <label className="rangeField" data-graphics-length="true" title="Up to one minute. Long graphics are built as several beats, not one stretched animation.">
+      <span>Length</span>
+      <span className="rangeControl" style={{ '--range-progress': `${progress}%` } as React.CSSProperties}>
+        <span className="rangeVisual" aria-hidden="true">
+          <span className="rangeFill" />
+          <span className="rangeThumb" />
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={60}
+          step={1}
+          value={value}
+          disabled={disabled}
+          aria-valuetext={value === 0 ? 'Auto' : `${value} seconds`}
+          onChange={(event) => {
+            const next = Number(event.currentTarget.value);
+            onChange(next > 0 && next < 2 ? 2 : next);
+          }}
+          onWheelCapture={(event) => { event.preventDefault(); event.currentTarget.blur(); }}
+        />
+      </span>
+      <output>{value === 0 ? 'Auto' : `${value} s`}</output>
+    </label>
+  );
+}
+
+/**
+ * What happens when a graphic is made longer or shorter on the timeline:
+ * Hold keeps its designed timing (the middle holds longer), Stretch plays the
+ * whole animation slower or faster to fill the new length.
+ */
+function GraphicTimingControl({ graphic, fps, disabled, onChange }: {
+  graphic: TimelineGraphic;
+  fps: number;
+  disabled: boolean;
+  onChange: (timing: 'hold' | 'stretch') => void;
+}) {
+  const now = (graphic.endFrame - graphic.startFrame) / fps;
+  const designed = graphic.designedSec;
+  const changed = designed !== null && Math.abs(designed - now) > 0.05;
+  return (
+    <div className="graphicsField graphicsTiming" data-graphics-timing="true">
+      <span>
+        When the length changes
+        <em className="graphicsLookValue">{designed === null ? `${now.toFixed(1)} s` : changed ? `made for ${designed.toFixed(1)} s · now ${now.toFixed(1)} s` : `${now.toFixed(1)} s`}</em>
+      </span>
+      <div className="segmentedPicker" role="radiogroup" aria-label="When the length changes">
+        {([['hold', 'Hold'], ['stretch', 'Stretch']] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={graphic.timing === value}
+            disabled={disabled || (value === 'stretch' && designed === null)}
+            className={`segmentedOption${graphic.timing === value ? ' active' : ''}`}
+            title={value === 'hold' ? 'Keep the designed timing; the middle holds for the extra time' : 'Play the whole animation slower or faster to fill the length'}
+            onClick={() => onChange(value)}
+            data-graphics-timing-option={value}
+          >
+            <span className="segmentedLabel">{label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

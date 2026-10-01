@@ -82,7 +82,8 @@ import { formatProjectName } from './library/project-name.mjs';
 import { AiShell } from './ai/ai-shell';
 import { GraphicsOverlay } from './graphics-overlay';
 import { GraphicsPanel, type GeneratedGraphic } from './graphics-panel';
-import { addGraphic, dragGraphicRange, listGraphics, moveGraphic, removeGraphic, replaceGraphicContent, requestMentionsTime, setGraphicAnimate, updateGraphicFields, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
+import { graphicJobHandlers } from './graphics-job';
+import { addGraphic, dragGraphicRange, graphicLaneRows, listGraphics, reorderGraphic, moveGraphic, removeGraphic, replaceGraphicContent, requestMentionsTime, setGraphicAnimate, setGraphicLayout, setGraphicTiming, updateGraphicFields, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
@@ -134,6 +135,7 @@ declare global {
       openEditor: (projectPath?: string | null) => Promise<void>;
       generateGraphic: (payload: Record<string, unknown>) => Promise<unknown>;
       cancelGraphic: (requestId: string) => Promise<unknown>;
+      onGraphicsProgress?: (callback: (progress: any) => void) => () => void;
       getGraphicsStyle: () => Promise<any>;
       setGraphicsStyle: (style: Record<string, unknown>) => Promise<any>;
       setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
@@ -305,6 +307,10 @@ type ProjectChangeOptions = {
   previous?: ProjectState;
   persist?: boolean;
 };
+// AI edits are real edits: saved to disk and one Undo step each. Before
+// 2026-10-01 they only changed the screen, so they were lost on reopen and
+// Undo could not reverse them.
+const AI_EDIT_CHANGE = (previous: ProjectState): ProjectChangeOptions => ({ history: true, previous, persist: true });
 type RecordingTemplateOverride = {
   templateId: string;
   aspectRatio: ProjectAspectRatio;
@@ -1631,7 +1637,7 @@ function App() {
                       (suggestion.startFrame as unknown as number),
                   },
                 );
-                applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] });
+                applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] }, AI_EDIT_CHANGE(project));
               }}
               onApplyCutRange={(suggestion) => {
                 if (!project) return;
@@ -1644,14 +1650,29 @@ function App() {
                   suggestion.endFrame as unknown as number,
                   project.document.composition.duration,
                 );
-                applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] });
+                applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] }, AI_EDIT_CHANGE(project));
+              }}
+              onApplyCutRanges={(suggestions) => {
+                if (!project) return;
+                const recordingAsset = project.document.assets?.find((a) => a.type === 'recording');
+                if (!recordingAsset?.id) return;
+                // All cuts land in ONE change, so one Undo brings them all back.
+                let next = project.document as unknown as ProjectDocument;
+                for (const suggestion of suggestions) {
+                  next = addCutRange(next, recordingAsset.id, suggestion.startFrame as unknown as number, suggestion.endFrame as unknown as number, project.document.composition.duration);
+                }
+                applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] }, AI_EDIT_CHANGE(project));
+              }}
+              onShowFrame={(frame) => {
+                setActiveAppView('editor');
+                updateSharedTimelineTimeSec(frame / (project?.recording?.fps ?? 30));
               }}
               onApplyTitle={(suggestion) => {
                 if (!project) return;
                 applyProjectChange({
                   ...project,
                   document: { ...project.document, name: suggestion.title },
-                });
+                }, AI_EDIT_CHANGE(project));
               }}
               onGoToProjects={() => setActiveAppView('projects')}
             />
@@ -4041,6 +4062,7 @@ function ProjectPreview({
   const [censorTrack, setCensorTrack] = React.useState<{ censorId: string; message: string } | null>(null);
   const [selectedCensorId, setSelectedCensorId] = React.useState<string | null>(null);
   const [selectedGraphicId, setSelectedGraphicId] = React.useState<string | null>(null);
+  const [graphicLayoutDraft, setGraphicLayoutDraft] = React.useState<{ id: string; layout: GraphicLayout } | null>(null);
   const graphicsStageRef = React.useRef<HTMLDivElement | null>(null);
   const [selectedFramingId, setSelectedFramingId] = React.useState<string | null>(null);
   // Always the newest document, for handlers that await something slow before
@@ -4838,7 +4860,22 @@ function ProjectPreview({
   }
 
   // Claude-made graphics: timeline-level layers over the whole composite.
-  const graphics = listGraphics(project.document as unknown as ProjectDocument);
+  // A size/position drag previews through `graphicLayoutDraft` and saves once.
+  const savedGraphics = listGraphics(project.document as unknown as ProjectDocument);
+  const graphics = graphicLayoutDraft
+    ? savedGraphics.map((graphic) => (graphic.id === graphicLayoutDraft.id ? { ...graphic, layout: graphicLayoutDraft.layout } : graphic))
+    : savedGraphics;
+  function changeGraphicLayout(id: string, patch: Partial<GraphicLayout>, commit: boolean) {
+    const base = savedGraphics.find((graphic) => graphic.id === id);
+    if (!base) return;
+    const layout = { ...(graphicLayoutDraft?.id === id ? graphicLayoutDraft.layout : base.layout), ...patch };
+    if (!commit) {
+      setGraphicLayoutDraft({ id, layout });
+      return;
+    }
+    setGraphicLayoutDraft(null);
+    void persistGraphics(setGraphicLayout(project.document as unknown as ProjectDocument, id, layout), 'layout');
+  }
   const graphicsFps = project.recording?.fps ?? 30;
   // The export canvas (default long edge), so a graphic lays out identically in
   // the scaled-down preview and the exported file.
@@ -4863,11 +4900,21 @@ function ProjectPreview({
       html: graphic.html,
       fields: graphic.fields,
       request,
+      direction: graphic.direction ?? null,
+      designedSec: graphic.durationSec,
       startFrame,
       endFrame: startFrame + Math.max(1, Math.round(graphic.durationSec * graphicsFps)),
       timelineFrames: recordingEditModel.timelineDurationFrames,
     }), 'add');
   }
+
+  // A generation finishing after a tab switch lands through these, so it uses
+  // this render's project, never the one from when the generation started.
+  graphicJobHandlers.add = (graphic, request) => void addGeneratedGraphic(graphic as GeneratedGraphic, request);
+  graphicJobHandlers.replace = (id, graphic, request) => {
+    const next = graphic as GeneratedGraphic;
+    void persistGraphics(replaceGraphicContent(project.document as unknown as ProjectDocument, id, { title: next.title, html: next.html, fields: next.fields, request, designedSec: next.durationSec }), 'replace');
+  };
 
   function selectGraphic(id: string | null) {
     setSelectedGraphicId(id);
@@ -4877,6 +4924,23 @@ function ProjectPreview({
   async function removeGraphicById(id: string) {
     if (selectedGraphicId === id) setSelectedGraphicId(null);
     await persistGraphics(removeGraphic(project.document as unknown as ProjectDocument, id), 'remove');
+  }
+
+  // Delete/Backspace removes the selected graphic wherever it was selected
+  // (timeline block, viewer box or list). Clicking a block leaves focus on the
+  // playhead slider, so this listens on the whole editor, and only real text
+  // fields (not sliders or buttons) keep the key for themselves.
+  function handleEditorKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    if (!selectedGraphicId || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target as HTMLElement | null;
+    const inputType = target instanceof HTMLInputElement ? target.type : '';
+    const textEntry = target instanceof HTMLTextAreaElement || target?.isContentEditable
+      || (target instanceof HTMLInputElement && !['range', 'checkbox', 'radio', 'button', 'color'].includes(inputType));
+    if (textEntry) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void removeGraphicById(selectedGraphicId);
   }
 
   // A framing range only means something while the screen is cropped.
@@ -5057,7 +5121,7 @@ function ProjectPreview({
   }
 
   return (
-    <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace" data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
+    <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace"  onKeyDown={handleEditorKeyDown} data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
       <ToolRail active={activeTool} onSelect={onActiveToolChange} panelOpen={setupBoardOpen} onTogglePanel={onSetupBoardToggle} />
       {activeTool === 'graphics' ? (
         <GraphicsPanel
@@ -5067,16 +5131,17 @@ function ProjectPreview({
           canvas={graphicsCanvas}
           disabled={isSaving}
           onSelect={selectGraphic}
-          onAdd={(graphic, request) => void addGeneratedGraphic(graphic, request)}
-          onReplace={(id, graphic, request) => void persistGraphics(replaceGraphicContent(project.document as unknown as ProjectDocument, id, { title: graphic.title, html: graphic.html, fields: graphic.fields, request }), 'replace')}
           onFieldsChange={(id, values) => void persistGraphics(updateGraphicFields(project.document as unknown as ProjectDocument, id, values), 'fields')}
           onAnimateChange={(id, animate) => void persistGraphics(setGraphicAnimate(project.document as unknown as ProjectDocument, id, animate), 'animate')}
+          onLayoutChange={changeGraphicLayout}
+          onTimingChange={(id, timing) => void persistGraphics(setGraphicTiming(project.document as unknown as ProjectDocument, id, timing), 'timing')}
+          onReorder={(id, where) => void persistGraphics(reorderGraphic(project.document as unknown as ProjectDocument, id, where), 'reorder')}
           onRemove={(id) => void removeGraphicById(id)}
         />
       ) : <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRestoreOriginal={restoreOriginalRecording} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} selectedCensorId={selectedCensorId} selectedCensorSoftness={resolveCensorSoftness(listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId))} onCensorSoftnessChange={updateCensorSoftness} selectedCensorFollows={Boolean((listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId)?.keyframes?.length ?? 0) > 1)} censorTrackBusy={censorTrackBusy} censorTrackStatus={censorTrackStatus} onCensorTrack={trackCensor} onCensorClearTrack={clearCensorTrack} framingHoldCount={framingAvailable ? listFramingRanges(project.document as unknown as ProjectDocument).length : 0} framingHoldSelected={Boolean(selectedFramingRange)} onAddFramingHold={addFramingHoldAtPlayhead} />}
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage" ref={graphicsStageRef}>
         <h2 className="srOnly">{project.document.name}</h2>
-        {project.mediaUrl ? <GraphicsOverlay stageRef={graphicsStageRef} graphics={graphics} currentTimeSec={currentTimeSec} fps={graphicsFps} canvasWidth={graphicsCanvas.width} canvasHeight={graphicsCanvas.height} selectedGraphicId={selectedGraphicId} /> : null}
+        {project.mediaUrl ? <GraphicsOverlay stageRef={graphicsStageRef} graphics={graphics} currentTimeSec={currentTimeSec} fps={graphicsFps} canvasWidth={graphicsCanvas.width} canvasHeight={graphicsCanvas.height} selectedGraphicId={selectedGraphicId} editable={!previewPlaying} onLayoutChange={changeGraphicLayout} onSelect={selectGraphic} /> : null}
         {project.mediaUrl ? (
           <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
         ) : (
@@ -6410,10 +6475,14 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   // source-frame mapping: the block follows the pointer directly.
   const graphicTotalFrames = Math.max(1, Math.round(model.durationSec * fps));
 
+  // Overlapping graphics stack in rows (row 0 at the bottom = furthest back),
+  // re-packed live while a block is dragged so it never hides another.
+  const graphicRows = graphicLaneRows(graphics.map((graphic) => (graphicDragPreview?.id === graphic.id ? { ...graphic, ...graphicDragPreview } : graphic)));
   function graphicRegionStyle(graphic: TimelineGraphic) {
     const range = graphicDragPreview?.id === graphic.id ? graphicDragPreview : graphic;
     const placement = frameRangeToPlacement(range.startFrame, range.endFrame, fps, model.durationSec);
-    return { left: `${placement.left}%`, width: `${placement.width}%` };
+    const rowFromTop = graphicRows.rows - 1 - (graphicRows.assignment[graphic.id] ?? 0);
+    return { left: `${placement.left}%`, width: `${placement.width}%`, top: `calc(0.25rem + ${rowFromTop} * var(--graphic-row-height))`, bottom: 'auto', height: 'calc(var(--graphic-row-height) - 0.25rem)' };
   }
 
   function beginGraphicDrag(graphic: TimelineGraphic, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
@@ -6422,6 +6491,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     event.stopPropagation();
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
+    // Focus the block (preventDefault above stops the browser doing it) so the
+    // Delete key and arrow keys act on this graphic.
+    (handle.closest(".graphicRegion") as HTMLElement | null)?.focus({ preventScroll: true });
     const startClientX = event.clientX;
     const initialFrame = timelineFrameFromClient(handle, event.clientX) ?? 0;
     const initial = { startFrame: graphic.startFrame, endFrame: graphic.endFrame };
@@ -6665,7 +6737,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               />
               <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
             </div>
-            <TimelineLane label="Graphics" className="graphicsLane" aria-label="Graphics" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+            <TimelineLane label="Graphics" className="graphicsLane" aria-label="Graphics" style={{ '--graphic-rows': graphicRows.rows } as React.CSSProperties} onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
           {graphics.length > 0
             ? graphics.map((graphic) => {
                 const selected = selectedGraphicId === graphic.id;
@@ -6943,9 +7015,9 @@ const TIMELINE_LANE_ICONS: Record<string, PhosphorIconType> = {
   graphics: PhosphorTextAa,
 };
 
-function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackPointerDown, onTrackPointerDownCapture, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; onTrackPointerDownCapture?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {
+function TimelineLane({ label, className, style, children, onTrackDoubleClick, onTrackPointerDown, onTrackPointerDownCapture, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; style?: React.CSSProperties; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; onTrackPointerDownCapture?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {
   return (
-    <div className={`timelineLane ${className}`} data-timeline-lane={label.toLowerCase()} aria-label={ariaLabel}>
+    <div className={`timelineLane ${className}`} style={style} data-timeline-lane={label.toLowerCase()} aria-label={ariaLabel}>
       <span className="laneLabel">{(() => { const LaneIcon = TIMELINE_LANE_ICONS[label.toLowerCase()]; return LaneIcon ? <LaneIcon size={15} weight="regular" aria-hidden /> : null; })()}{label}</span>
       <div className={`laneTrack ${trackClassName ?? ''}`} onDoubleClick={onTrackDoubleClick} onPointerDown={onTrackPointerDown} onPointerDownCapture={onTrackPointerDownCapture} title={trackTitle}>{children}</div>
     </div>

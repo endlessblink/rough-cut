@@ -64,6 +64,7 @@ const IPC_CHANNELS = {
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
   GRAPHICS_GENERATE: 'graphics:generate',
   GRAPHICS_CANCEL: 'graphics:cancel',
+  GRAPHICS_PROGRESS: 'graphics:progress',
   GRAPHICS_GET_STYLE: 'graphics:get-style',
   GRAPHICS_SET_STYLE: 'graphics:set-style',
   AI_ASSET_LIST: 'ai-asset:list',
@@ -134,6 +135,11 @@ contextBridge.exposeInMainWorld('roughCut', {
   analyzeProjectWithAi: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_PROJECT, payload),
   generateGraphic: (payload) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_GENERATE, payload),
   cancelGraphic: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_CANCEL, requestId),
+  onGraphicsProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.GRAPHICS_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.GRAPHICS_PROGRESS, listener);
+  },
   getGraphicsStyle: () => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_GET_STYLE),
   setGraphicsStyle: (style) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_SET_STYLE, style),
   listAiAssets: () => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_LIST),

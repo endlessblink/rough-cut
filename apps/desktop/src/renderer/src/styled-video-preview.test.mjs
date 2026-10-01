@@ -835,3 +835,18 @@ test('timeline playback locks the camera to the screen clock (face drifted off t
   assert.match(source, /timeMode === 'timeline' && activeTimelinePlayback && !cameraVideo\.seeking/);
   assert.match(source, /cameraSyncCorrection\(drift, timelineRateRef\.current, fps\)/);
 });
+
+test('a graphic can be clicked on the viewer from any tool panel, not only Graphics (regression 2026-10-01)', () => {
+  const main = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
+  assert.match(main, /<GraphicsOverlay[^>]*editable=\{!previewPlaying\}[^>]*onSelect=\{selectGraphic\}/);
+  assert.match(main, /function selectGraphic\(id: string \| null\) \{\s*setSelectedGraphicId\(id\);\s*if \(id\) onActiveToolChange\('graphics'\);/);
+});
+
+test('AI edits are saved and undoable — every apply in the AI view goes through AI_EDIT_CHANGE (regression 2026-10-01)', () => {
+  const main = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
+  const block = main.slice(main.indexOf('<AiShell'), main.indexOf('onGoToProjects={() => setActiveAppView', main.indexOf('<AiShell')));
+  const calls = block.match(/applyProjectChange\(/g) ?? [];
+  assert.ok(calls.length >= 4);
+  assert.equal((block.match(/AI_EDIT_CHANGE\(project\)/g) ?? []).length, calls.length);
+  assert.match(main, /const AI_EDIT_CHANGE = \(previous: ProjectState\): ProjectChangeOptions => \(\{ history: true, previous, persist: true \}\)/);
+});

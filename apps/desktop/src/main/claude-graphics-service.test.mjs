@@ -153,3 +153,40 @@ test('right-to-left never mirrors non-directional icons, and kinetic type surviv
   assert.match(prompt, /rc:fields/);
   assert.match(prompt, /--rc-duration/);
 });
+
+test('each new graphic gets a design direction, avoiding ones already used; the style fixes only the look', async () => {
+  const { pickDesignDirection, DESIGN_DIRECTIONS, buildGraphicsUserPrompt, buildGraphicsSystemPrompt } = await import('./claude-graphics-service.mjs');
+  const used = DESIGN_DIRECTIONS.slice(0, -1).map((direction) => direction.id);
+  assert.equal(pickDesignDirection({ used, random: () => 0.5 }).id, DESIGN_DIRECTIONS.at(-1).id, 'only the unused direction remains');
+  const picks = new Set([0, 0.3, 0.6, 0.95].map((r) => pickDesignDirection({ random: () => r }).id));
+  assert.ok(picks.size >= 3, 'different rolls give different directions');
+  const prompt = buildGraphicsUserPrompt({ request: 'explain what a skill is', direction: DESIGN_DIRECTIONS[0], others: ['מה זה סקיל? — כרטיס פתיחה'] });
+  assert.match(prompt, /Design direction for this one/);
+  assert.match(prompt, /do NOT repeat their composition/);
+  assert.match(prompt, /מה זה סקיל/);
+  assert.doesNotMatch(buildGraphicsUserPrompt({ request: 'lower third: Noam', direction: DESIGN_DIRECTIONS[0] }), /Design direction/, 'text graphics keep their form');
+  const system = buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: { styleId: 'maximal' } });
+  assert.match(system, /LIGHT INFLUENCE ONLY/);
+  assert.doesNotMatch(system, /<b>\/<\/b>/, 'no copyable tape example');
+  assert.match(system, /never put overflow:hidden on the outer wrapper/);
+});
+
+test('the style is only a light hint by default, and followed closely when locked', async () => {
+  const { buildGraphicsSystemPrompt } = await import('./claude-graphics-service.mjs');
+  const loose = buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: { styleId: 'maximal' } });
+  const locked = buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: { styleId: 'maximal', styleLock: true } });
+  assert.match(loose, /LIGHT INFLUENCE ONLY/);
+  assert.doesNotMatch(loose, /STYLE LOCKED/);
+  assert.match(locked, /STYLE LOCKED/);
+  assert.doesNotMatch(locked, /LIGHT INFLUENCE ONLY/);
+});
+
+test('a chosen length goes to Claude, long ones ask for beats, and the result keeps that length', async () => {
+  const { buildGraphicsUserPrompt, generateGraphic } = await import('./claude-graphics-service.mjs');
+  assert.match(buildGraphicsUserPrompt({ request: 'x', lengthSec: 30 }), /exactly 30 seconds[\s\S]*multi-beat scene/);
+  assert.doesNotMatch(buildGraphicsUserPrompt({ request: 'x', lengthSec: 5 }), /multi-beat/);
+  const runOnce = async () => ({ ok: true, stdout: JSON.stringify({ type: 'result', subtype: 'success', structured_output: { title: 't', durationSec: 4, html: '<div>x</div>', fields: [] } }) });
+  const result = await generateGraphic({ request: 'x', lengthSec: 30, binary: '/bin/true', runOnce });
+  assert.equal(result.ok, true);
+  assert.equal(result.graphic.durationSec, 30);
+});

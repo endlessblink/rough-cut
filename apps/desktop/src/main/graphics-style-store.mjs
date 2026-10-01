@@ -28,6 +28,8 @@ export function normalizeGraphicsStyle(raw) {
     notes: typeof input.notes === 'string' ? input.notes.slice(0, 400) : '',
     styleId: resolveGraphicStyle(input.styleId).id,
     creativity: normalizeCreativity(input.creativity ?? DEFAULT_GRAPHICS_STYLE.creativity),
+    // Off: the style only flavours a graphic. On: follow the style closely.
+    styleLock: input.styleLock === true,
   };
 }
 

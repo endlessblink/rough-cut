@@ -16,6 +16,40 @@ export interface GraphicSpec {
   readonly durationSec: number;
 }
 
+export type GraphicEntrance = 'none' | 'fade' | 'rise' | 'pop' | 'slide';
+
+export interface GraphicLayout {
+  readonly scale: number;
+  readonly x: number;
+  readonly y: number;
+  readonly opacity: number;
+  readonly entrance: GraphicEntrance;
+  readonly entranceSec: number;
+}
+
+export const GRAPHIC_ENTRANCES: readonly GraphicEntrance[];
+export const DEFAULT_GRAPHIC_LAYOUT: GraphicLayout;
+export function normalizeGraphicLayout(raw: unknown): GraphicLayout;
+export function graphicLayerStateAt(
+  layout: GraphicLayout,
+  t: number,
+  durationSec: number,
+  width: number,
+  height: number,
+  rtl?: boolean,
+): { opacity: number; tx: number; ty: number; scale: number };
+export type GraphicHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
+export function resizeGraphicLayout(options: {
+  layout: GraphicLayout;
+  box: { x: number; y: number; w: number; h: number };
+  handle: GraphicHandle;
+  dx: number;
+  dy: number;
+  width: number;
+  height: number;
+}): GraphicLayout;
+export function setGraphicLayout(document: ProjectDocument, id: string, patch: Partial<GraphicLayout>): ProjectDocument;
+
 export interface TimelineGraphic {
   readonly id: string;
   readonly effectId: string;
@@ -23,7 +57,11 @@ export interface TimelineGraphic {
   readonly html: string;
   readonly fields: readonly GraphicField[];
   readonly request: string;
+  readonly direction: string | null;
   readonly animate: boolean;
+  readonly layout: GraphicLayout;
+  readonly timing: 'hold' | 'stretch';
+  readonly designedSec: number | null;
   readonly startFrame: number;
   readonly endFrame: number;
   readonly enabled: boolean;
@@ -47,9 +85,14 @@ export function buildGraphicDocument(options: {
   readonly animate?: boolean;
   readonly holdSec?: number;
   readonly durationSec?: number;
+  readonly layout?: GraphicLayout;
+  readonly timing?: 'hold' | 'stretch';
+  readonly designedSec?: number | null;
 }): string;
 
 export function listGraphics(document: ProjectDocument): readonly TimelineGraphic[];
+export function graphicLaneRows(graphics: readonly Pick<TimelineGraphic, 'id' | 'startFrame' | 'endFrame'>[]): { rows: number; assignment: Record<string, number> };
+export function reorderGraphic(document: ProjectDocument, id: string, where: 'front' | 'back' | 'forward' | 'backward'): ProjectDocument;
 export function graphicsAtFrame(document: ProjectDocument, frame: number): readonly TimelineGraphic[];
 
 export function addGraphic(document: ProjectDocument, options: {
@@ -58,6 +101,8 @@ export function addGraphic(document: ProjectDocument, options: {
   readonly html: string;
   readonly fields?: readonly GraphicField[];
   readonly request?: string;
+  readonly direction?: string | null;
+  readonly designedSec?: number | null;
   readonly startFrame: number;
   readonly endFrame: number;
   readonly timelineFrames?: number;
@@ -76,7 +121,10 @@ export function replaceGraphicContent(document: ProjectDocument, id: string, con
   readonly html: string;
   readonly fields?: readonly GraphicField[];
   readonly request?: string;
+  readonly designedSec?: number | null;
 }): ProjectDocument;
+
+export function setGraphicTiming(document: ProjectDocument, id: string, timing: 'hold' | 'stretch'): ProjectDocument;
 
 export function removeGraphic(document: ProjectDocument, id: string): ProjectDocument;
 

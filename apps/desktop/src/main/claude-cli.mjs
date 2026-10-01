@@ -157,6 +157,8 @@ export async function askClaudeForJson({
   label = 'claude',
   debugDir = null,
   log = (message) => console.info(message),
+  /** Real stages for a progress bar: writing (per attempt), checking. */
+  onProgress = () => {},
 }) {
   if (!binary) {
     log(`[claude:${label}] not installed — no claude binary found`);
@@ -170,6 +172,7 @@ export async function askClaudeForJson({
       const prompt = buildPrompt(errors);
       const startedAt = Date.now();
       log(`[claude:${label}] attempt ${attempt + 1} started (model ${model})`);
+      onProgress({ stage: 'writing', attempt: attempt + 1, retryReason: errors[0] ?? null, startedAt });
       const run = await runOnce({ binary, args, prompt, signal, cwd });
       const ms = Date.now() - startedAt;
       if (!run.ok) {
@@ -184,6 +187,7 @@ export async function askClaudeForJson({
         errors = [parsed.reason];
         continue;
       }
+      onProgress({ stage: 'checking', attempt: attempt + 1 });
       const checked = validate(parsed.value);
       await writeDebugRecord(debugDir, { label, attempt: attempt + 1, ms, model, prompt, outcome: checked.ok ? 'accepted' : 'rejected', errors: checked.ok ? [] : checked.errors, answer: parsed.value });
       if (checked.ok) {
@@ -196,5 +200,31 @@ export async function askClaudeForJson({
     return { ok: false, reason: 'Claude\'s answer did not pass the format checks.', errors };
   } finally {
     await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Typical time for one Claude answer of this kind, from the local debug
+ * records (median of the last few completed answers). Drives the pace of the
+ * progress bar; falls back to a sensible default with no history.
+ */
+export async function typicalClaudeAnswerMs(debugDir, label, { fallbackMs = 75_000, sample = 8 } = {}) {
+  if (!debugDir) return fallbackMs;
+  try {
+    const { readFile } = await import('node:fs/promises');
+    const names = (await readdir(debugDir)).filter((name) => name.endsWith(`-${label}.json`)).sort().slice(-sample * 2);
+    const times = [];
+    for (const name of names) {
+      try {
+        const record = JSON.parse(await readFile(join(debugDir, name), 'utf8'));
+        if ((record.outcome === 'accepted' || record.outcome === 'rejected') && Number(record.ms) > 1000) times.push(Number(record.ms));
+      } catch {
+        // A half-written record is skipped.
+      }
+    }
+    const recent = times.slice(-sample).sort((a, b) => a - b);
+    return recent.length > 0 ? recent[Math.floor(recent.length / 2)] : fallbackMs;
+  } catch {
+    return fallbackMs;
   }
 }

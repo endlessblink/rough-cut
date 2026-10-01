@@ -151,6 +151,7 @@ export const IPC_CHANNELS = {
   AI_ANALYZE_CAPTIONS: 'ai:analyze-captions',
   GRAPHICS_GENERATE: 'graphics:generate',
   GRAPHICS_CANCEL: 'graphics:cancel',
+  GRAPHICS_PROGRESS: 'graphics:progress',
   GRAPHICS_GET_STYLE: 'graphics:get-style',
   GRAPHICS_SET_STYLE: 'graphics:set-style',
   AI_TRANSCRIBE_LIBRARY_SOURCE: 'ai:transcribe-library-source',
