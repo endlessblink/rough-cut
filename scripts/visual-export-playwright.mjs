@@ -180,8 +180,8 @@ async function createFixtureProject() {
 
 function buildFixtureChecks(videoPath) {
   return {
-    topLeftMarker: sampleAverage(videoPath, { x: 210, y: 136, width: 28, height: 28 }),
-    bottomRightMarker: sampleAverage(videoPath, { x: 1660, y: 900, width: 28, height: 28 }),
+    topLeftMarker: sampleAverage(videoPath, { x: 303, y: 191, width: 28, height: 28 }),
+    bottomRightMarker: sampleAverage(videoPath, { x: 1587, y: 859, width: 28, height: 28 }),
     centerCursor: sampleBrightDark(videoPath, { x: 940, y: 514, width: 120, height: 120 }),
   };
 }
