@@ -852,3 +852,16 @@ test('AI edits are saved and undoable — every apply in the AI view goes throug
   assert.equal((block.match(/AI_EDIT_CHANGE\(project\)/g) ?? []).length, calls.length);
   assert.match(main, /const AI_EDIT_CHANGE = \(previous: ProjectState\): ProjectChangeOptions => \(\{ history: true, previous, persist: true \}\)/);
 });
+
+test('preview holds the last decodable frame instead of seeking to the exact trim end (no black frame)', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  assert.match(source, /const lastVisibleSourceSec = Math\.max\(trimStartSec, effectiveTrimEndSec - 1 \/ Math\.max\(1, fps\)\)/);
+  assert.match(source, /Math\.min\(lastVisibleSourceSec, maxTime\)/);
+  assert.match(source, /video\.currentTime = lastVisibleSourceSec;/);
+  assert.doesNotMatch(source, /video\.currentTime = effectiveTrimEndSec;/);
+});
+
+test('parked timeline playhead past a trimmed end holds the last visible frame, not a blank gap', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  assert.match(source, /Math\.max\(0, Math\.round\(timelineDuration \* fps\) - 1\)/);
+});

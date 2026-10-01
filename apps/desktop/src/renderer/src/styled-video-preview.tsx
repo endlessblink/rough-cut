@@ -760,6 +760,9 @@ export function StyledVideoPreview({
     : null;
   const sourceDurationSec = Math.max(0.1, Math.min(metadataSourceDurationSec, sourceMediaDuration ?? metadataSourceDurationSec, cameraTimelineDurationSec ?? metadataSourceDurationSec));
   const effectiveTrimEndSec = Math.min(trimEndSec ?? sourceDurationSec, sourceDurationSec);
+  // Last frame the decoder can actually present: seeking to exactly the end of the
+  // media yields no frame (black canvas), so parked/clamped seeks hold one frame short.
+  const lastVisibleSourceSec = Math.max(trimStartSec, effectiveTrimEndSec - 1 / Math.max(1, fps));
   const trimDurationFrames = Math.max(1, Math.round((effectiveTrimEndSec - trimStartSec) * fps));
   const visibleDuration = Math.max(0.1, visibleDurationFrames(cutRanges, trimDurationFrames) / fps);
   const timelineDurationFrames = Math.max(
@@ -1275,7 +1278,7 @@ export function StyledVideoPreview({
       previewInteractionDirtyRef.current = true;
       return;
     }
-    const nextTime = Math.max(trimStartSec, Math.min(requestedSourceTime, Math.min(effectiveTrimEndSec, maxTime)));
+    const nextTime = Math.max(trimStartSec, Math.min(requestedSourceTime, Math.min(lastVisibleSourceSec, maxTime)));
     if (Math.abs(video.currentTime - nextTime) < 0.05) {
       const nextDisplayTime = timeMode === 'timeline' ? Math.max(0, requestedTime) : sourceTimeToVisibleTime(nextTime);
       updateCurrentTime(nextDisplayTime, { immediate: true });
@@ -1802,7 +1805,11 @@ export function StyledVideoPreview({
         expectedDisplaySampleCount += 1;
       }
       const parkedTimelineFrame = timeMode === 'timeline' && !isPlaying
-        ? Math.max(0, Math.round(currentTimeRef.current * fps))
+        ? Math.max(0, Math.min(
+            Math.round(currentTimeRef.current * fps),
+            // A playhead left past a trimmed end holds the last visible frame instead of a blank gap.
+            Math.max(0, Math.round(timelineDuration * fps) - 1),
+          ))
         : null;
       const parkedTimelinePreviewFrame = parkedTimelineFrame !== null ? resolveCurrentFrame(parkedTimelineFrame) : null;
       const parkedTimelineGap = Boolean(
@@ -1975,7 +1982,7 @@ export function StyledVideoPreview({
         ((window as unknown as Record<string, number>).__roughCutCanvasDrawCount ?? 0) + 1;
       if (timeMode !== 'timeline' && Number.isFinite(effectiveTrimEndSec) && video.currentTime > effectiveTrimEndSec + 0.02) {
         pausePreviewVideo(video);
-        video.currentTime = effectiveTrimEndSec;
+        video.currentTime = lastVisibleSourceSec;
         const clampedVisibleTime = Math.max(0, effectiveTrimEndSec - trimStartSec);
         updateCurrentTime(clampedVisibleTime, { immediate: true });
       }
