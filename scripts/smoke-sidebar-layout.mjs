@@ -90,6 +90,7 @@ function runLayoutSmoke({ name, projectPath }) {
     env: {
       ...process.env,
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+      ROUGH_CUT_STARTUP_VIEW: 'editor',
       ROUGH_CUT_UI_SMOKE_FORCE_EDITOR: '1',
       ROUGH_CUT_UI_SMOKE_LAYOUT_ONLY: '1',
       ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH: '900',

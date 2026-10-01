@@ -1829,7 +1829,7 @@ async function runRendererSidebarLayoutSmoke(options = {}) {
   const snapshots = [];
   const toolAssertions = {};
   const projectLoaded = Boolean(document.querySelector('video'));
-  const expectedTools = ['Background', 'Timeline', 'Cursor', 'Camera'];
+  const expectedTools = ['Background', 'Zoom', 'Cursor', 'Camera'];
   for (const label of expectedTools) {
     document.querySelector(`button[aria-label="${label}"]`)?.click();
     await waitFor(() => document.querySelector(`[aria-label="${label} board"]`), `${label} board`);
@@ -1872,24 +1872,24 @@ async function runRendererSidebarLayoutSmoke(options = {}) {
 
   async function collectToolAssertion(label) {
     if (label === 'Background') {
+      Array.from(document.querySelectorAll('[aria-label="Background type"] button')).find((button) => button.textContent === 'Wallpaper')?.click();
       const preset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background soft blur preset');
+      await waitFor(() => !preset.disabled, 'background soft blur preset enabled');
       preset.click();
       await waitFor(() => preset.getAttribute('aria-pressed') === 'true', 'background preset mutates selected state');
       return Boolean(
-        document.querySelector('[data-inspector-group="templates"]')
-          && document.querySelector('[data-inspector-group="canvas-background"]')
-          && document.querySelector('[data-inspector-group="screen-frame"]')
+        document.querySelector('[data-inspector-group="canvas-background"]')
           && preset.getAttribute('aria-pressed') === 'true'
       );
     }
-    if (label === 'Timeline') {
+    if (label === 'Zoom') {
       if (!projectLoaded) return Boolean(document.body.textContent?.includes('No timeline yet'));
-      const clearButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Clear hidden ranges');
+      const clearButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Restore all hidden ranges');
       return Boolean(
         document.querySelector('[data-ui-region="timeline-zoom-control-panel"]')
           && document.querySelector('[data-cut-range-panel="true"]')
           && clearButton
-          && document.body.textContent?.includes('Restorable hidden ranges')
+          && document.body.textContent?.includes('Removed parts')
       );
     }
     if (label === 'Cursor') {
@@ -1901,16 +1901,12 @@ async function runRendererSidebarLayoutSmoke(options = {}) {
     if (label === 'Camera') {
       const cameraControls = document.querySelector('[data-camera-pip-controls="true"]');
       if (!cameraControls) return Boolean(document.body.textContent?.includes('No camera yet'));
-      const shapeSelect = await waitFor(() => {
-        const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes('Shape'));
-        return label?.querySelector('select') ?? null;
-      }, 'camera shape control');
-      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
-      valueSetter?.call(shapeSelect, 'circle');
-      shapeSelect.dispatchEvent(new Event('input', { bubbles: true }));
-      shapeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      await waitFor(() => shapeSelect.value === 'circle', 'camera shape mutates selected state');
-      return Boolean(cameraControls && shapeSelect.value === 'circle');
+      const shapeTile = (name) => Array.from(document.querySelectorAll('[aria-label="Camera shape"] button')).find((button) => button.textContent?.trim() === name);
+      const circleTile = await waitFor(() => shapeTile('Circle'), 'camera shape control');
+      await waitFor(() => !circleTile.disabled, 'camera shape control enabled');
+      circleTile.click();
+      await waitFor(() => shapeTile('Circle')?.getAttribute('aria-pressed') === 'true', 'camera shape mutates selected state');
+      return Boolean(cameraControls);
     }
     return false;
   }
@@ -2444,10 +2440,10 @@ async function runRendererUiSmoke() {
   await new Promise((resolve) => setTimeout(resolve, 150));
   const hasRecordingInspectorContext = Boolean(document.querySelector('[aria-label="Zoom board"]'));
   const hasInspectorContext = hasZoomInspectorContext || hasRecordingInspectorContext;
-  // Cut controls live on the Zoom tab.
+  // Removed-range list lives on the Zoom tab; the range-cut toggle lives on the timeline.
   const hasCutControls = Boolean(
     document.querySelector('[data-cut-range-panel="true"]')
-      && document.querySelector('button[aria-label="Cut tool"]')
+      && document.querySelector('button[aria-label="Range cut mode"]')
       && document.querySelector('[data-timeline-lane="screen"]'),
   );
   // Tool-switch stability: Cursor -> Background -> Cursor.
@@ -2591,6 +2587,7 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board for presets');
   Array.from(document.querySelectorAll('[aria-label="Background type"] button')).find((button) => button.textContent === 'Wallpaper')?.click();
   const backgroundPreset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background preset');
+  await waitForEnabled(backgroundPreset, 'background preset');
   backgroundPreset.click();
   await waitFor(() => document.querySelector('button[aria-label="Soft blur"]')?.getAttribute('aria-pressed') === 'true', 'background preset selected', 15000);
   const hasBackgroundPresetSelection = true;
@@ -2615,7 +2612,7 @@ async function runRendererUiSmoke() {
       && rangeThumb
       && rangeControl.contains(paddingInput)
       && rangeVisualStyle
-      && rangeVisualStyle.backgroundColor !== 'rgba(0, 0, 0, 0)'
+      && (rangeVisualStyle.backgroundColor !== 'rgba(0, 0, 0, 0)' || rangeVisualStyle.backgroundImage !== 'none')
       && rangeVisualStyle.borderRadius !== '0px',
   );
   setControlValue(paddingInput, 96);
