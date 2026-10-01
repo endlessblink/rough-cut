@@ -53,7 +53,7 @@ try {
   await page.locator('[data-ui-region="export-popover-toggle"][aria-pressed="false"]').click().catch(() => {});
   await page.waitForSelector('[data-export-format="styled"]', { timeout: 10000 });
   await captureElectronPage(app, page, appBeforePath);
-  await page.locator('[data-export-format="styled"]').click();
+  await page.locator('button.exportFormat[data-export-format="styled"]').click();
   await page.locator('[data-export-action="export"]').click();
   await page.waitForFunction(() => document.body.textContent?.includes('Exported to:'), null, { timeout: 180000 });
   await captureElectronPage(app, page, appAfterPath).catch(async (err) => {

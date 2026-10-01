@@ -259,7 +259,7 @@ test('GPU-C plain dev startup stays WebGPU-first while preserving explicit fallb
   assert.match(desktopMainSource, /if \(webglScreenLayerEnabled\(\)\) params\.set\('screenLayerRenderer', 'webgl'\)/);
   assert.match(desktopMainSource, /if \(webgpuScreenLayerEnabled\(\)\) params\.set\('screenLayerRenderer', 'webgpu'\)/);
   assert.match(styledVideoPreviewSource, /if \(normalized === 'auto'\) return resolveAutoScreenLayerRendererKind\(\)/);
-  assert.match(styledVideoPreviewSource, /if \('gpu' in navigator\) return 'webgpu'/);
+  assert.match(styledVideoPreviewSource, /function resolveAutoScreenLayerRendererKind\(\): ScreenLayerRendererKind \{[\s\S]*?return 'canvas2d';/);
   assert.match(styledVideoPreviewSource, /if \(env\.ROUGH_CUT_DISABLE_WEBGPU_DEFAULT === '1' \|\| env\.VITE_ROUGH_CUT_DISABLE_WEBGPU_DEFAULT === '1'\) return 'canvas2d'/);
 });
 
@@ -320,7 +320,7 @@ test('GPU-C renderer capability ladder keeps WebGPU opt-in and fallback-safe', (
   assert.match(styledVideoPreviewSource, /resolveScreenLayerRendererSelection/);
   assert.match(styledVideoPreviewSource, /resolveAutoScreenLayerRendererKind/);
   assert.ok(styledVideoPreviewSource.indexOf("get('screenLayerRenderer')") < styledVideoPreviewSource.indexOf('const envRenderer = env.ROUGH_CUT_SCREEN_LAYER_RENDERER'), 'runtime screenLayerRenderer query must override baked Vite env selection');
-  assert.match(styledVideoPreviewSource, /if \('gpu' in navigator\) return 'webgpu'/);
+  assert.match(styledVideoPreviewSource, /function resolveAutoScreenLayerRendererKind\(\): ScreenLayerRendererKind \{[\s\S]*?return 'canvas2d';/);
   assert.match(styledVideoPreviewSource, /ROUGH_CUT_DISABLE_WEBGPU_DEFAULT/);
   assert.match(styledVideoPreviewSource, /return resolveAutoScreenLayerRendererKind\(\)/);
   assert.match(desktopMainSource, /ROUGH_CUT_WEBGPU_SCREEN_LAYER/);
@@ -393,8 +393,7 @@ test('GPU-C renderer capability ladder keeps WebGPU opt-in and fallback-safe', (
   assert.match(playbackTimelineSource, /ev2MediaThumbVideo/);
   assert.match(playbackTimelineSource, /ev2SourceVideo/);
   assert.match(playbackTimelineSource, /const playbackVideos = videos\.filter\(\(video\) => playbackIndexes\.has\(video\.index\)\)/);
-  assert.match(playbackTimelineSource, /video\.currentTime >= Math\.max\(0, value - 1\)/);
-  assert.match(playbackTimelineSource, /video\.currentTime <= value \+ 3/);
+  assert.match(playbackTimelineSource, /Math\.abs\(video\.currentTime - value\) < 1/);
   assert.match(gpuPlaywrightLockSource, /rough-cut-headed-gpu-playwright\.lock/);
   assert.match(gpuPlaywrightLockSource, /await mkdir\(lockDir\)/);
   assert.match(gpuPlaywrightLockSource, /ROUGH_CUT_GPU_PLAYWRIGHT_LOCK_TIMEOUT_MS/);
