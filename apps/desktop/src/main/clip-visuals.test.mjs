@@ -82,3 +82,18 @@ test('ensureClipVisual short-circuits on cache hit and runs ffmpeg once otherwis
     /Unknown clip visual kind/,
   );
 });
+
+test('ensureClipVisual skips the waveform ffmpeg run for sources without audio, and remembers it', async () => {
+  const statImpl = async (path) => {
+    if (path === '/silent.mp4') return { mtimeMs: 7 };
+    throw new Error('missing');
+  };
+  let probes = 0;
+  const probeAudio = async () => { probes += 1; return false; };
+  const runner = async () => { throw new Error('ffmpeg must not run for a source without audio'); };
+  const request = () => ensureClipVisual({ projectPath: '/tmp/p/x.roughcut', sourcePath: '/silent.mp4', kind: 'waveform', durationSec: 5, runner, statImpl, probeAudio });
+
+  await assert.rejects(request, /no audio stream/);
+  await assert.rejects(request, /no audio stream/);
+  assert.equal(probes, 1, 'the no-audio result is remembered instead of re-probed');
+});

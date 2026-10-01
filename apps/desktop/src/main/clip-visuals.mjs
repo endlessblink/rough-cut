@@ -92,12 +92,27 @@ function runFfmpeg(args) {
   });
 }
 
+function probeHasAudio(sourcePath) {
+  return new Promise((resolve) => {
+    const child = spawn('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', sourcePath], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    child.stdout.on('data', (chunk) => { out += String(chunk); });
+    // If ffprobe itself is unavailable, assume audio and let ffmpeg decide.
+    child.on('error', () => resolve(true));
+    child.on('close', () => resolve(out.trim().length > 0));
+  });
+}
+
+// Sources already probed as having no audio (path + mtime), so the timeline does not
+// respawn a doomed waveform ffmpeg on every render.
+const noAudioSources = new Set();
+
 const inFlight = new Map();
 
 // Returns { path, kind, tiles?, intervalSec?, stripSeconds?, widthPx?, durationSec }.
 // Cache hit = the keyed PNG already exists; concurrent requests for the same
 // visual share one ffmpeg run.
-export async function ensureClipVisual({ projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, runner = runFfmpeg, statImpl = stat }) {
+export async function ensureClipVisual({ projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, runner = runFfmpeg, statImpl = stat, probeAudio = probeHasAudio }) {
   if (kind !== 'filmstrip' && kind !== 'waveform') throw new Error(`Unknown clip visual kind: ${kind}`);
   const sourceInfo = await statImpl(sourcePath);
   const plan = kind === 'filmstrip' ? filmstripPlan(durationSec, targetTiles) : null;
@@ -115,6 +130,14 @@ export async function ensureClipVisual({ projectPath, sourcePath, kind, duration
     return meta; // cache hit
   } catch {
     // not cached yet
+  }
+
+  if (kind === 'waveform') {
+    const audioKey = `${sourcePath}:${sourceInfo.mtimeMs}`;
+    if (noAudioSources.has(audioKey) || !(await probeAudio(sourcePath))) {
+      noAudioSources.add(audioKey);
+      throw new Error('clip-visuals: source has no audio stream, no waveform to draw');
+    }
   }
 
   const flightKey = outPath;
