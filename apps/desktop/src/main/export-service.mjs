@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { probeVideoStreamStartOffsets } from './media-probe.mjs';
@@ -59,6 +59,11 @@ export function normalizeExportMode(mode = EXPORT_MODES.RAW) {
 export function normalizeExportScope(scope = EXPORT_SCOPES.TIMELINE) {
   if (scope === EXPORT_SCOPES.TIMELINE || scope === EXPORT_SCOPES.USED_CONTENT) return scope;
   throw new Error(`Unsupported export scope: ${scope}`);
+}
+
+/** A hidden working file next to the real one, on the same disk so finishing is one atomic rename. */
+export function workingExportPath(outputPath, tag = 'rendering') {
+  return join(dirname(outputPath), `.${basename(outputPath, '.mp4')}.${tag}.mp4`);
 }
 
 /** The styled video exists but the animated graphics pass failed: keep the video and carry the reason. */
@@ -141,10 +146,13 @@ export async function exportProjectToMp4({
       .filter((item) => item.frameCount > 0);
     // Graphics get the last slice of the progress bar; the styled pass the rest.
     const styledShare = graphicsPlan.length > 0 ? 0.8 : 1;
+    // With graphics the styled video is only a stepping stone: it is built under a hidden working name so the
+    // real file name never shows a half-finished export (a complete-looking video without the animations).
+    const styledTarget = graphicsPlan.length > 0 ? workingExportPath(outputPath, 'rendering') : outputPath;
     const styledResult = await exportStyledProjectToMp4({
       project,
       recording: exportRecording,
-      outputPath,
+      outputPath: styledTarget,
       onProgress: (event) => {
         if (graphicsPlan.length === 0) return onProgress(event);
         // The export is not complete until the graphics pass has run.
@@ -159,6 +167,7 @@ export async function exportProjectToMp4({
     try {
       const overlaid = await overlayGraphicsOnExport({
         styledResult,
+        inputPath: styledTarget,
         outputPath,
         items: graphicsPlan,
         fps: graphicsPlan[0].fps,
@@ -167,13 +176,15 @@ export async function exportProjectToMp4({
         signal,
         renderGraphicFrames,
       });
-      return { ...overlaid, graphicsExpected: graphicsPlan.length };
+      await rm(styledTarget, { force: true });
+      return { ...overlaid, outputPath, graphicsExpected: graphicsPlan.length };
     } catch (error) {
-      // The styled video is already on disk and complete. Keep it, but never pass it off as finished: the
-      // caller shows this reason, and it is written to the log.
+      // The styled video is complete on disk. Keep it under the real name, but never pass it off as finished:
+      // the caller shows this reason, and it is written to the log.
       console.error('[export] the animated graphics could not be added; the export has none', error);
+      await rename(styledTarget, outputPath);
       onProgress({ phase: 'complete', progress: 1 });
-      return buildGraphicsFailureResult({ styledResult, error, expected: graphicsPlan.length });
+      return buildGraphicsFailureResult({ styledResult: { ...styledResult, outputPath }, error, expected: graphicsPlan.length });
     }
   }
 
@@ -2873,9 +2884,9 @@ export function memoryCappedCommand(command, args) {
  * to PNG frames with the preview's own page, then one ffmpeg overlay per
  * graphic. Replaces the output file only when the pass succeeds.
  */
-async function overlayGraphicsOnExport({ styledResult, outputPath, items, fps, onProgress, onComplete = () => undefined, signal, renderGraphicFrames }) {
+async function overlayGraphicsOnExport({ styledResult, outputPath, inputPath = outputPath, items, fps, onProgress, onComplete = () => undefined, signal, renderGraphicFrames }) {
   const render = renderGraphicFrames ?? (await import('./graphics-frame-renderer.mjs')).renderGraphicFrames;
-  const size = await probeVideoSize(outputPath, signal);
+  const size = await probeVideoSize(inputPath, signal);
   if (!size) throw new Error('Could not read the exported video size to place graphics.');
   const workDir = await mkdtemp(join(tmpdir(), 'rough-cut-graphics-'));
   const totalFrames = items.reduce((sum, item) => sum + item.frameCount, 0);
@@ -2894,13 +2905,14 @@ async function overlayGraphicsOnExport({ styledResult, outputPath, items, fps, o
         },
       });
       if (!rendered?.ok) {
+        await rm(inputPath, { force: true });
         await rm(outputPath, { force: true });
         return createCancelledExportResult({ outputPath, sourcePath: styledResult?.sourcePath });
       }
     }
     const overlaidPath = join(workDir, 'with-graphics.mp4');
-    const durationSeconds = await probeDurationSeconds(outputPath, signal);
-    const result = await run('ffmpeg', buildGraphicsOverlayArgs({ inputPath: outputPath, outputPath: overlaidPath, items, framesRoot: workDir, fps }), {
+    const durationSeconds = await probeDurationSeconds(inputPath, signal);
+    const result = await run('ffmpeg', buildGraphicsOverlayArgs({ inputPath, outputPath: overlaidPath, items, framesRoot: workDir, fps }), {
       signal,
       onStdout: (chunk) => {
         const progress = parseFfmpegProgress(chunk, durationSeconds);
@@ -2908,11 +2920,15 @@ async function overlayGraphicsOnExport({ styledResult, outputPath, items, fps, o
       },
     });
     if (result.cancelled) {
+      await rm(inputPath, { force: true });
       await rm(outputPath, { force: true });
       return createCancelledExportResult({ outputPath, sourcePath: styledResult?.sourcePath });
     }
     if (result.code !== 0) throw new Error(`Adding graphics to the export failed: ${result.stderr.trim()}`);
-    await copyFile(overlaidPath, outputPath);
+    // Appears under the real name only when complete: copy beside it, then one atomic rename.
+    const finishing = workingExportPath(outputPath, 'finishing');
+    await copyFile(overlaidPath, finishing);
+    await rename(finishing, outputPath);
     const exported = await stat(outputPath);
     onProgress(1);
     onComplete();

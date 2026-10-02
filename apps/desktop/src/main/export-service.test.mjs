@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForImport, createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildGraphicsFailureResult, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildGraphicsFailureResult, workingExportPath, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
   const previous = {
@@ -1565,6 +1565,13 @@ test('styled export draws the faint background grid behind everything only when 
 
   const simple = buildSimpleStyledExportArgs({ ...base, backgroundGrid: true });
   assert.ok(filterOf(simple).includes('mod(X+0.5'));
+});
+
+test('the in-progress video lives under a hidden name beside the real file, never under the real name', () => {
+  assert.equal(workingExportPath('/home/me/Videos/Demo 2026-10-02_1335.mp4'), '/home/me/Videos/.Demo 2026-10-02_1335.rendering.mp4');
+  assert.equal(workingExportPath('/x/out.mp4', 'finishing'), '/x/.out.finishing.mp4');
+  assert.notEqual(workingExportPath('/x/out.mp4'), '/x/out.mp4');
+  assert.equal(workingExportPath('/x/out.mp4').startsWith('/x/.'), true);
 });
 
 test('a failed graphics pass keeps the finished styled video and carries the reason', () => {

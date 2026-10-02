@@ -8,6 +8,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { buildGraphicDocument } from '../shared/motion-graphics.mjs';
+import { captureFrameWithRetry } from './graphics-capture.mjs';
 
 const SETTLE_SCRIPT = 'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))';
 
@@ -33,6 +34,8 @@ export async function renderGraphicFrames({ item, width, height, framesDir, sign
       nodeIntegration: false,
       javascript: true,
       partition,
+      // A hidden window must keep painting at full speed, or captured frames can come back empty.
+      backgroundThrottling: false,
     },
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -46,8 +49,7 @@ export async function renderGraphicFrames({ item, width, height, framesDir, sign
       if (signal?.aborted) return { ok: false, cancelled: true };
       const t = frame / item.fps;
       await win.webContents.executeJavaScript(`window.RC.seek(${t}); ${SETTLE_SCRIPT}`);
-      win.webContents.invalidate();
-      const image = await win.webContents.capturePage();
+      const image = await captureFrameWithRetry(win.webContents, { width, height });
       const size = image.getSize();
       const png = size.width === width && size.height === height ? image.toPNG() : image.resize({ width, height }).toPNG();
       await writeFile(join(framesDir, `${String(frame).padStart(6, '0')}.png`), png);
