@@ -43,3 +43,25 @@ test('without an expected length only the picture and sound are judged', () => {
   assert.equal(result.ok, true);
   assert.equal(evaluateExportVerification({ probe: { format: {}, streams: [] } }).ok, false);
 });
+
+test('animated graphics missing from the export are reported plainly, with the reason', () => {
+  const none = evaluateExportVerification({ probe: probeOf(), expectedDurationSec: 349, sourceHasAudio: true, graphics: { expected: 4, included: 0, error: 'capturePage failed' } });
+  assert.equal(none.ok, false);
+  assert.deepEqual(none.problems.map((problem) => problem.id), ['graphics-missing']);
+  assert.match(none.summary, /The project has 4 animated graphics, but none are in this export\. Reason: capturePage failed/);
+
+  const some = evaluateExportVerification({ probe: probeOf(), expectedDurationSec: 349, sourceHasAudio: true, graphics: { expected: 4, included: 3 } });
+  assert.deepEqual(some.problems.map((problem) => problem.id), ['graphics-partial']);
+
+  const single = evaluateExportVerification({ probe: probeOf(), expectedDurationSec: 349, sourceHasAudio: true, graphics: { expected: 1, included: 0 } });
+  assert.match(single.summary, /1 animated graphic, but none/);
+});
+
+test('with all animations present the check says so; with none expected it stays quiet about them', () => {
+  const all = evaluateExportVerification({ probe: probeOf(), expectedDurationSec: 349, sourceHasAudio: true, graphics: { expected: 4, included: 4 } });
+  assert.equal(all.ok, true);
+  assert.match(all.summary, /picture, sound, animations and length look right/);
+  const raw = evaluateExportVerification({ probe: probeOf(), expectedDurationSec: 349, sourceHasAudio: true, graphics: { expected: 0, included: 0 } });
+  assert.equal(raw.ok, true);
+  assert.doesNotMatch(raw.summary, /animations/);
+});

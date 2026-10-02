@@ -8,7 +8,7 @@ import { buildCutFrameRemap, resolveTimelineExportRecording } from './export-ser
 import { getPrimaryRecording } from './project-files.mjs';
 
 /** Pure: judge an ffprobe result against what the project says the export must be. */
-export function evaluateExportVerification({ probe, expectedDurationSec = null, sourceHasAudio = false } = {}) {
+export function evaluateExportVerification({ probe, expectedDurationSec = null, sourceHasAudio = false, graphics = null } = {}) {
   const problems = [];
   const streams = Array.isArray(probe?.streams) ? probe.streams : [];
   const video = streams.find((stream) => stream.codec_type === 'video');
@@ -36,8 +36,21 @@ export function evaluateExportVerification({ probe, expectedDurationSec = null, 
     }
   }
 
+  // Animated graphics: if the project has them and the export does not, say so plainly (and why).
+  const expectedGraphics = Number(graphics?.expected) || 0;
+  const includedGraphics = Number(graphics?.included) || 0;
+  if (expectedGraphics > 0 && includedGraphics < expectedGraphics) {
+    const reason = graphics?.error ? ` Reason: ${graphics.error}` : '';
+    problems.push({
+      id: includedGraphics === 0 ? 'graphics-missing' : 'graphics-partial',
+      message: includedGraphics === 0
+        ? `The project has ${expectedGraphics} animated graphic${expectedGraphics === 1 ? '' : 's'}, but none are in this export.${reason}`
+        : `Only ${includedGraphics} of ${expectedGraphics} animated graphics made it into this export.${reason}`,
+    });
+  }
+
   const summary = problems.length === 0
-    ? `Checked: picture${audio ? ', sound' : ''} and length look right${Number.isFinite(duration) ? ` (${duration.toFixed(1)} s)` : ''}.`
+    ? `Checked: picture${audio ? ', sound' : ''}${expectedGraphics > 0 ? ', animations' : ''} and length look right${Number.isFinite(duration) ? ` (${duration.toFixed(1)} s)` : ''}.`
     : `Problem found: ${problems.map((problem) => problem.message).join(' ')}`;
   return { ok: problems.length === 0, problems, summary, durationSec: Number.isFinite(duration) ? duration : null, hasAudio: Boolean(audio) };
 }
@@ -59,12 +72,12 @@ export async function expectedExportFacts({ project, exportScope = 'timeline', m
   };
 }
 
-export async function verifyExportedFile({ outputPath, project, exportScope = 'timeline', mode = 'styled', probe = probeFile } = {}) {
+export async function verifyExportedFile({ outputPath, project, exportScope = 'timeline', mode = 'styled', graphics = null, probe = probeFile } = {}) {
   const [probed, facts] = await Promise.all([
     probe(outputPath),
     expectedExportFacts({ project, exportScope, mode, probe }),
   ]);
-  return evaluateExportVerification({ probe: probed, ...facts });
+  return evaluateExportVerification({ probe: probed, ...facts, graphics });
 }
 
 function probeFile(path) {

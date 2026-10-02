@@ -1,6 +1,6 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect } from './region-selector.mjs';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,9 @@ import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mj
 import { exportProjectToMp4 } from './export-service.mjs';
 import { verifyExportedFile } from './export-verify.mjs';
 import { createAppSettingsStore, defaultAppSettingsPath } from './app-settings-store.mjs';
+import { pickDirectory, pickSavePath } from './file-picker.mjs';
+import { projectFolderName } from './project-folders.mjs';
+import { listGraphics } from '../shared/motion-graphics.mjs';
 import { trackCensorRegion } from './censor-tracking.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveBlankProject, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
@@ -177,7 +180,9 @@ const appSettingsStore = createAppSettingsStore({
 // Where projects live. Chosen in the Projects view and applied on the next start, because
 // the recorder and the path checks are created once at launch.
 const recordingsDir = appSettingsStore.getProjectsDir() ?? defaultRecordingsDir;
-const exportsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'exports');
+const defaultExportsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'exports');
+// The export folder can change at any time (Export panel > Save to), so read it when it is needed.
+const currentExportsDir = () => appSettingsStore.getExportsDir() ?? defaultExportsDir;
 
 function quitSmokeApp(exitCode = process.exitCode ?? 0) {
   app.quit();
@@ -770,16 +775,41 @@ function describeProjectsDir() {
 }
 ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_PROJECTS_DIR, () => describeProjectsDir());
 ipcMain.handle(IPC_CHANNELS.SETTINGS_CHOOSE_PROJECTS_DIR, async (event) => {
-  const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender) ?? undefined, {
+  const chosen = await pickDirectory({
     title: 'Choose where projects live',
     defaultPath: recordingsDir,
-    properties: ['openDirectory', 'createDirectory'],
+    electronDialog: dialog,
+    parentWindow: BrowserWindow.fromWebContents(event.sender) ?? undefined,
   });
-  if (result.canceled || !result.filePaths?.[0]) return describeProjectsDir();
-  const chosen = result.filePaths[0];
+  if (!chosen) return describeProjectsDir();
   await mkdir(chosen, { recursive: true });
   appSettingsStore.setProjectsDir(chosen);
   return describeProjectsDir();
+});
+function describeExportsDir() {
+  const saved = appSettingsStore.getExportsDir();
+  return { current: saved ?? defaultExportsDir, isDefault: saved === null, defaultDir: defaultExportsDir };
+}
+ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_EXPORTS_DIR, async () => {
+  await mkdir(currentExportsDir(), { recursive: true }).catch(() => undefined); // so "Open folder" always has somewhere to open
+  return describeExportsDir();
+});
+ipcMain.handle(IPC_CHANNELS.SETTINGS_CHOOSE_EXPORTS_DIR, async (event) => {
+  await mkdir(currentExportsDir(), { recursive: true });
+  const chosen = await pickDirectory({
+    title: 'Choose where exports are saved',
+    defaultPath: currentExportsDir(),
+    electronDialog: dialog,
+    parentWindow: BrowserWindow.fromWebContents(event.sender) ?? undefined,
+  });
+  if (!chosen) return describeExportsDir();
+  await mkdir(chosen, { recursive: true });
+  appSettingsStore.setExportsDir(chosen);
+  return describeExportsDir();
+});
+ipcMain.handle(IPC_CHANNELS.SETTINGS_RESET_EXPORTS_DIR, () => {
+  appSettingsStore.resetExportsDir();
+  return describeExportsDir();
 });
 ipcMain.handle(IPC_CHANNELS.SETTINGS_RESET_PROJECTS_DIR, () => {
   appSettingsStore.resetProjectsDir();
@@ -1361,22 +1391,29 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER, async () => {
 ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS, (_event, options = {}) => {
   return dismissRecovery({ markerPath, deleteFiles: Boolean(options?.deleteFiles) });
 });
-ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName = 'rough-cut-export') => {
+ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (event, projectName = 'rough-cut-export') => {
   if (process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH) return process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH;
 
-  // One regular place for every export: exports/<project>/<project>-<date_time>.mp4
+  // One regular place for every export: <exports folder>/<project>/<date_time> <project>.mp4
   const safeName = String(projectName).replace(/[\\/:*?"<>|]+/g, '-').trim().slice(0, 80) || 'rough-cut-export';
-  const stamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '');
-  const exportFolder = join(exportsDir, safeName);
+  const exportFolder = join(currentExportsDir(), safeName);
   await mkdir(exportFolder, { recursive: true });
-  const result = await dialog.showSaveDialog({
+  // The KDE file dialog on KDE, the standard one elsewhere; null means the person cancelled.
+  return pickSavePath({
     title: 'Export MP4',
-    defaultPath: join(exportFolder, `${safeName}-${stamp}.mp4`),
-    filters: [{ name: 'MP4 Video', extensions: ['mp4'] }],
+    defaultPath: join(exportFolder, `${projectFolderName(new Date(), safeName)}.mp4`),
+    electronDialog: dialog,
+    parentWindow: BrowserWindow.fromWebContents(event.sender) ?? undefined,
   });
-  if (result.canceled || !result.filePath) return null;
-  return result.filePath;
 });
+async function countGraphicsInSavedProject(projectPath) {
+  try {
+    const saved = JSON.parse(await readFile(projectPath, 'utf8'));
+    return listGraphics(saved).filter((graphic) => graphic.enabled && graphic.html).length;
+  } catch {
+    return -1; // unreadable or unsaved: only a diagnostic, never a reason to stop
+  }
+}
 ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, {
   document,
   projectPath,
@@ -1399,6 +1436,12 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, {
           : 0.5 + progress.progress * 0.5,
       }),
     });
+    // What the project says it contains, so a missing piece can never go unnoticed (and can be diagnosed from the log).
+    const graphicsInDocument = mode === 'styled'
+      ? listGraphics(document).filter((graphic) => graphic.enabled && graphic.html).length
+      : 0;
+    const graphicsInSavedFile = await countGraphicsInSavedProject(projectPath);
+    console.info(`[export] start mode=${mode} scope=${exportScope} output=${outputPath} graphicsInEditor=${graphicsInDocument} graphicsInSavedProject=${graphicsInSavedFile}`);
     const result = await exportProjectToMp4({
       project: document,
       outputPath,
@@ -1408,11 +1451,20 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, {
       preparedStabilizationTransforms,
       onProgress: (progress) => event.sender.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, progress),
     });
-    if (result?.cancelled || !result?.outputPath) return result;
-    // Every export is checked the moment it lands, so a silent or frozen file is flagged
+    if (result?.cancelled || !result?.outputPath) {
+      console.info('[export] cancelled');
+      return result;
+    }
+    // Every export is checked the moment it lands, so a silent, frozen or animation-less file is flagged
     // here instead of being found by watching it. A failing check never fails the export.
-    const verification = await verifyExportedFile({ outputPath: result.outputPath, project: document, exportScope, mode })
-      .catch((error) => ({ ok: true, problems: [], summary: '', unavailable: String(error?.message ?? error) }));
+    const verification = await verifyExportedFile({
+      outputPath: result.outputPath,
+      project: document,
+      exportScope,
+      mode,
+      graphics: { expected: graphicsInDocument, included: result.graphicsCount ?? 0, error: result.graphicsError ?? null },
+    }).catch((error) => ({ ok: true, problems: [], summary: '', unavailable: String(error?.message ?? error) }));
+    console.info(`[export] finished ok=${verification.ok} graphicsIncluded=${result.graphicsCount ?? 0}/${graphicsInDocument} ${verification.summary}`);
     return { ...result, verification };
   } finally {
     if (activeExportController === controller) activeExportController = null;

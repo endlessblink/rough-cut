@@ -45,3 +45,17 @@ test('a relative or corrupt value is never used', async () => {
     assert.equal(store.getProjectsDir(), null);
   });
 });
+
+test('the exports folder is saved, read back, reset, and kept apart from the projects folder', async () => {
+  await withStore(async ({ store, filePath }) => {
+    assert.equal(store.getExportsDir(), null);
+    store.setProjectsDir('/data/projects');
+    assert.equal(store.setExportsDir('/data/My Exports'), '/data/My Exports');
+    assert.equal(store.getExportsDir(), '/data/My Exports');
+    assert.equal(store.getProjectsDir(), '/data/projects');
+    assert.throws(() => store.setExportsDir('relative'), /full path/);
+    store.resetExportsDir();
+    assert.equal(store.getExportsDir(), null);
+    assert.equal(JSON.parse(await readFile(filePath, 'utf8')).projectsDir, '/data/projects');
+  });
+});

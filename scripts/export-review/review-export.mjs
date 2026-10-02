@@ -64,6 +64,7 @@ function checkBackgroundGrid() {
 
 let spikes = [];
 let parity = [];
+let appSelfCheck = null;
 const checks = [];
 const check = (id, status, detail) => { checks.push({ id, status, detail }); log(`${status.toUpperCase().padEnd(4)} ${id}: ${detail}`); };
 function log(message) { console.log(message); }
@@ -97,6 +98,11 @@ check('duration', durOk ? 'pass' : 'fail', `${duration.toFixed(2)}s, expected ${
 
 // A step that throws must show up in the report, never end the run silently.
 const step = async (name, fn) => { try { await fn(); } catch (error) { check(name, 'fail', `the review step crashed: ${String(error?.stack || error).split('\n').slice(0, 3).join(' | ')}`); } };
+if (appSelfCheck !== null) {
+  const problem = /Problem found/i.test(appSelfCheck);
+  const animationsOk = plan.graphics.length === 0 || /animations/i.test(appSelfCheck);
+  check('app-self-check', problem || !animationsOk ? 'fail' : 'pass', appSelfCheck.slice(0, 280) || 'the app showed no check line');
+}
 await step('audio-analysis', analyseAudio);
 await step('video-analysis', analyseVideo);
 await step('contact-sheets', buildSheets);
@@ -208,6 +214,7 @@ async function runApp({ doExport, doShots }) {
       const started = Date.now();
       await page.waitForFunction(() => document.body.textContent?.includes('Exported to:'), null, { timeout: Number(args.flags['export-timeout-ms'] || 3000000) });
       log(`export finished in ${((Date.now() - started) / 1000).toFixed(0)}s`);
+      appSelfCheck = (await page.locator('[data-ui-region="export-result"]').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
     }
     await page.screenshot({ path: join(outDir, 'app-final.png') }).catch(() => {});
   } finally {

@@ -61,6 +61,16 @@ export function normalizeExportScope(scope = EXPORT_SCOPES.TIMELINE) {
   throw new Error(`Unsupported export scope: ${scope}`);
 }
 
+/** The styled video exists but the animated graphics pass failed: keep the video and carry the reason. */
+export function buildGraphicsFailureResult({ styledResult, error, expected }) {
+  return {
+    ...styledResult,
+    graphicsCount: 0,
+    graphicsExpected: expected,
+    graphicsError: String(error?.message ?? error ?? 'unknown error').replace(/\s+/g, ' ').slice(0, 300),
+  };
+}
+
 export async function exportProjectToMp4({
   project,
   outputPath,
@@ -145,17 +155,26 @@ export async function exportProjectToMp4({
       sourceStabilization,
       cameraStabilization,
     });
-    if (styledResult?.cancelled || graphicsPlan.length === 0) return styledResult;
-    return overlayGraphicsOnExport({
-      styledResult,
-      outputPath,
-      items: graphicsPlan,
-      fps: graphicsPlan[0].fps,
-      onProgress: (progress) => onProgress({ phase: 'rendering-graphics', progress: styledShare + progress * (1 - styledShare) }),
-      onComplete: () => onProgress({ phase: 'complete', progress: 1 }),
-      signal,
-      renderGraphicFrames,
-    });
+    if (styledResult?.cancelled || graphicsPlan.length === 0) return { ...styledResult, graphicsExpected: 0, graphicsCount: 0 };
+    try {
+      const overlaid = await overlayGraphicsOnExport({
+        styledResult,
+        outputPath,
+        items: graphicsPlan,
+        fps: graphicsPlan[0].fps,
+        onProgress: (progress) => onProgress({ phase: 'rendering-graphics', progress: styledShare + progress * (1 - styledShare) }),
+        onComplete: () => onProgress({ phase: 'complete', progress: 1 }),
+        signal,
+        renderGraphicFrames,
+      });
+      return { ...overlaid, graphicsExpected: graphicsPlan.length };
+    } catch (error) {
+      // The styled video is already on disk and complete. Keep it, but never pass it off as finished: the
+      // caller shows this reason, and it is written to the log.
+      console.error('[export] the animated graphics could not be added; the export has none', error);
+      onProgress({ phase: 'complete', progress: 1 });
+      return buildGraphicsFailureResult({ styledResult, error, expected: graphicsPlan.length });
+    }
   }
 
   if (canExportRawTimeline) {

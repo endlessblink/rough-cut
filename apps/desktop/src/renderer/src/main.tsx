@@ -84,6 +84,7 @@ import { GraphicsOverlay } from './graphics-overlay';
 import { GraphicsPanel, type GeneratedGraphic } from './graphics-panel';
 import { graphicJobHandlers } from './graphics-job';
 import { isBackgroundGridOn } from '../../shared/background-grid.mjs';
+import { ExportDestination } from './export-destination';
 import { addGraphic, dragGraphicRange, graphicLaneRows, listGraphics, reorderGraphic, moveGraphic, removeGraphic, replaceGraphicContent, requestMentionsTime, setGraphicAnimate, setGraphicLayout, setGraphicTiming, updateGraphicFields, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
@@ -142,6 +143,9 @@ declare global {
       setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
       writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
       showItemInFolder: (path: string) => Promise<void>;
+      getExportsDir: () => Promise<{ current: string; isDefault: boolean; defaultDir: string }>;
+      chooseExportsDir: () => Promise<{ current: string; isDefault: boolean; defaultDir: string }>;
+      resetExportsDir: () => Promise<{ current: string; isDefault: boolean; defaultDir: string }>;
       getProjectsDir: () => Promise<{ current: string; saved: string; isDefault: boolean; defaultDir: string; restartRequired: boolean }>;
       chooseProjectsDir: () => Promise<{ current: string; saved: string; isDefault: boolean; defaultDir: string; restartRequired: boolean }>;
       resetProjectsDir: () => Promise<{ current: string; saved: string; isDefault: boolean; defaultDir: string; restartRequired: boolean }>;
@@ -3974,6 +3978,7 @@ function PostRecordingReview({ project, recording, exportProgress, exportScope, 
           <button type="button" className={exportScope === 'used-content' ? 'active' : ''} aria-pressed={exportScope === 'used-content'} onClick={() => onExportScopeChange('used-content')} disabled={Boolean(exportProgress)}>Used parts</button>
         </div>
       </div>
+      <ExportDestination disabled={Boolean(exportProgress)} />
       <div className="exportFooter">
         <small>{exportFooterLabel}</small>
         {exportProgress ? (

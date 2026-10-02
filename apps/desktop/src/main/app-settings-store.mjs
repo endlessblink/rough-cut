@@ -39,5 +39,19 @@ export function createAppSettingsStore({ filePath, onLog = () => undefined } = {
       const { projectsDir: _removed, ...rest } = read();
       write(rest);
     },
+    /** Where exports are offered to be saved. Applies immediately (no restart). */
+    getExportsDir() {
+      const value = read().exportsDir;
+      return typeof value === 'string' && isAbsolute(value) ? normalize(value) : null;
+    },
+    setExportsDir(dir) {
+      if (typeof dir !== 'string' || !isAbsolute(dir)) throw new Error('The exports folder must be a full path.');
+      write({ ...read(), exportsDir: normalize(dir) });
+      return normalize(dir);
+    },
+    resetExportsDir() {
+      const { exportsDir: _removed, ...rest } = read();
+      write(rest);
+    },
   };
 }

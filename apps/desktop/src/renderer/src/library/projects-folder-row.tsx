@@ -1,13 +1,8 @@
 import * as React from 'react';
 import { FolderOpen as PhosphorFolderOpen } from '@phosphor-icons/react';
+import { shortenPath } from '../path-label';
 
 type ProjectsDirInfo = { current: string; saved: string; isDefault: boolean; defaultDir: string; restartRequired: boolean };
-
-/** `/home/me/Documents/Rough Cut MVP/recordings` -> `…/Documents/Rough Cut MVP/recordings` (full path stays in the tooltip). */
-function shortenPath(path: string) {
-  const parts = path.split('/').filter(Boolean);
-  return parts.length > 3 ? `…/${parts.slice(-3).join('/')}` : path;
-}
 
 /**
  * Where projects live. Quiet by design: one line under the Projects header, with

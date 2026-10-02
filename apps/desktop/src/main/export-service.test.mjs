@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForImport, createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildGraphicsFailureResult, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
   const previous = {
@@ -1565,6 +1565,18 @@ test('styled export draws the faint background grid behind everything only when 
 
   const simple = buildSimpleStyledExportArgs({ ...base, backgroundGrid: true });
   assert.ok(filterOf(simple).includes('mod(X+0.5'));
+});
+
+test('a failed graphics pass keeps the finished styled video and carries the reason', () => {
+  const styled = { outputPath: '/tmp/out.mp4', sourcePath: '/tmp/src.mp4', bytes: 52_000_000, byteEqualCandidate: false };
+  const result = buildGraphicsFailureResult({ styledResult: styled, error: new Error('Could not   render\nframe 12 of graphic abc'), expected: 4 });
+  assert.equal(result.outputPath, '/tmp/out.mp4');
+  assert.equal(result.bytes, 52_000_000);
+  assert.equal(result.graphicsCount, 0);
+  assert.equal(result.graphicsExpected, 4);
+  assert.equal(result.graphicsError, 'Could not render frame 12 of graphic abc');
+  assert.equal(buildGraphicsFailureResult({ styledResult: styled, error: 'x'.repeat(500), expected: 1 }).graphicsError.length, 300);
+  assert.equal(buildGraphicsFailureResult({ styledResult: styled, error: null, expected: 1 }).graphicsError, 'unknown error');
 });
 
 test('styled export args stay silent for cut ranges when the source has no audio', () => {

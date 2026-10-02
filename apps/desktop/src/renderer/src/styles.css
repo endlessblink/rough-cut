@@ -1066,6 +1066,30 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   gap: var(--space-1-5);
   grid-template-columns: auto minmax(0, 1fr);
 }
+.exportDestination {
+  align-items: baseline;
+  color: var(--muted);
+  display: grid;
+  font-size: var(--text-sm);
+  gap: var(--space-1) var(--space-1-5);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.exportDestinationPath { color: var(--text); overflow-wrap: anywhere; }
+.exportDestinationActions { display: flex; flex-wrap: wrap; gap: var(--space-1); grid-column: 2; margin-left: calc(var(--space-2) * -1); }
+.exportDestinationActions button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  gap: var(--space-1-5);
+  min-height: 1.75rem;
+  padding: 0 var(--space-2);
+}
+.exportDestinationActions button:hover:not(:disabled) { background: rgb(255 255 255 / 0.05); color: var(--text); }
 .exportScopeButtons {
   background: var(--panel-alt);
   border: 1px solid var(--line);
