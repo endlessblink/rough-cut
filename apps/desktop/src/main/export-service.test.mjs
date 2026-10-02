@@ -218,8 +218,8 @@ test('raw timeline export args compact canonical edit segments with aligned audi
   });
   const joined = args.join(' ');
 
-  assert(joined.includes('[0:v]trim=start_frame=0:end_frame=30'));
-  assert(joined.includes('[0:v]trim=start_frame=60:end_frame=120'));
+  assert(joined.includes('[0:v]fps=30,trim=start_frame=0:end_frame=30'));
+  assert(joined.includes('[0:v]fps=30,trim=start_frame=60:end_frame=120'));
   assert(joined.includes('[base_seg_0][base_seg_1]concat=n=2:v=1:a=0[base_unpadded]'));
   // a source whose video stops early holds its last frame up to the planned length (3 s = 90 frames)
   assert(joined.includes('[base_unpadded]tpad=stop_mode=clone:stop_duration=3,trim=end_frame=90,setpts=PTS-STARTPTS[base]'));
@@ -1287,6 +1287,25 @@ test('trimmed timeline export does not pad to the stale full recording length', 
   assert.equal(recording.timelineDurationFrames, 313);
 });
 
+test('segment branches land on an even frame grid before counting frames (uneven-timing recordings keep their length)', () => {
+  const args = buildRawTimelineExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/out.mp4',
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+    durationFrames: 467,
+    segments: [
+      { timelineIn: 0, timelineOut: 137, sourceIn: 0, sourceOut: 137 },
+      { timelineIn: 137, timelineOut: 467, sourceIn: 160, sourceOut: 490 },
+    ],
+  });
+  const filter = args[args.indexOf('-filter_complex') + 1];
+
+  assert(filter.includes('[0:v]fps=30,trim=start_frame=0:end_frame=137'));
+  assert(filter.includes('[0:v]fps=30,trim=start_frame=160:end_frame=490'));
+});
+
 test('zoom markers are source frames: export moves them through the clips like the preview does', () => {
   const project = createProjectForRecording({
     recording: {
@@ -1363,7 +1382,7 @@ test('styled export args compose canonical timeline segments over real gaps', ()
   assert(!args.includes('-ss'));
   assert(!args.includes('-t'));
   assert(joined.includes('color=c=black:s=1280x720:r=30:d=1,format=rgba[base_gap_0]'));
-  assert(joined.includes('[0:v]trim=start_frame=15:end_frame=75,setpts=PTS-STARTPTS,format=rgba[base_seg_0]'));
+  assert(joined.includes('[0:v]fps=30,trim=start_frame=15:end_frame=75,setpts=PTS-STARTPTS,format=rgba[base_seg_0]'));
   assert(joined.includes('[base_gap_0][base_seg_0]concat=n=2:v=1:a=0[base_unpadded]'));
   assert(/\[base_unpadded\]tpad=stop_mode=clone:stop_duration=[\d.]+,trim=end_frame=\d+,setpts=PTS-STARTPTS\[base\]/.test(joined));
   assert(args.includes('-an'));
@@ -1455,7 +1474,7 @@ test('styled export args can render linked camera timeline segments', () => {
   const joined = args.join(' ');
 
   assert(joined.includes('color=c=black@0:s=640x480:r=30:d=1,format=rgba[camera_base_gap_0]'));
-  assert(joined.includes('[1:v]trim=start_frame=45:end_frame=105,setpts=PTS-STARTPTS,format=rgba[camera_base_seg_0]'));
+  assert(joined.includes('[1:v]fps=30,trim=start_frame=45:end_frame=105,setpts=PTS-STARTPTS,format=rgba[camera_base_seg_0]'));
   assert(joined.includes('[camera_base_gap_0][camera_base_seg_0]concat=n=2:v=1:a=0[camera_base]'));
   assert(joined.includes('[camera_base]scale='));
 });
@@ -1490,8 +1509,8 @@ test('styled export args give each camera timeline segment its own seeked input'
   assert.equal(args.filter((arg, index) => args[index - 1] === '-i' && arg === '/tmp/camera.mp4').length, 3);
   assert(joined.includes('-ss 0.5 -t 2.267 -i /tmp/camera.mp4'));
   assert(joined.includes('-ss 300.5 -t 2.267 -i /tmp/camera.mp4'));
-  assert(joined.includes('[4:v]setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[camera_base_seg_0]'));
-  assert(joined.includes('[5:v]setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[camera_base_seg_1]'));
+  assert(joined.includes('[4:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[camera_base_seg_0]'));
+  assert(joined.includes('[5:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[camera_base_seg_1]'));
   assert(!joined.includes('camera_base_seg_0]') || !joined.includes('[1:v]trim=start_frame=9000'));
 });
 
@@ -1519,7 +1538,7 @@ test('styled export args keep stabilized camera on the single-input trim path', 
   const joined = args.join(' ');
 
   assert.equal(args.filter((arg, index) => args[index - 1] === '-i' && arg === '/tmp/camera.mp4').length, 1);
-  assert(joined.includes('[camera_stabilized]trim=start_frame=120:end_frame=180'));
+  assert(joined.includes('[camera_stabilized]fps=30,trim=start_frame=120:end_frame=180'));
 });
 
 test('styled export args remove middle cut ranges from output video', () => {
@@ -2806,6 +2825,6 @@ test('styled export args read each seeked screen segment a few frames long and t
 
   assert(joined.includes('-ss 0 -t 2.267 -i /tmp/source.mp4'));
   assert(joined.includes('-ss 10 -t 2.267 -i /tmp/source.mp4'));
-  assert(joined.includes('[1:v]setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[base_seg_0]'));
-  assert(joined.includes('[2:v]setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[base_seg_1]'));
+  assert(joined.includes('[1:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[base_seg_0]'));
+  assert(joined.includes('[2:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[base_seg_1]'));
 });

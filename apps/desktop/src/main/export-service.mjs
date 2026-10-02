@@ -2140,15 +2140,18 @@ function buildTimelineVideoBaseFilters({
     filters.push(`color=c=${transparent ? 'black@0' : 'black'}:s=${safeWidth}x${safeHeight}:r=${fps}:d=${formatFilterNumber(frames / fps)},format=rgba[${label}]`);
     labels.push(`[${label}]`);
   };
+  // Screen recordings can have uneven frame timing (a 15.6 s clip with 461 frames). Frame numbers are
+  // what the timeline counts, so each branch first lands on an even grid; otherwise `trim` counts
+  // frames that are further apart than 1/fps and the output runs long (15.57 s planned, 15.83 s out).
   segments.forEach((segment, index) => {
     pushGap(segment.timelineIn - cursor);
     const segmentLabel = `${outputLabel}_seg_${index}`;
     if (segmentInputLabels) {
       // The input is already seeked to this segment, so there is nothing left to trim
       // and — crucially — nothing for this branch to buffer while concat drains another.
-      filters.push(`${segmentInputLabels[index]}setpts=PTS-STARTPTS,trim=end_frame=${Math.max(1, segment.sourceOut - segment.sourceIn)},format=rgba[${segmentLabel}]`);
+      filters.push(`${segmentInputLabels[index]}fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS,trim=end_frame=${Math.max(1, segment.sourceOut - segment.sourceIn)},format=rgba[${segmentLabel}]`);
     } else {
-      filters.push(`${sourceLabel}trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+      filters.push(`${sourceLabel}fps=${formatFilterNumber(fps)},trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
     }
     labels.push(`[${segmentLabel}]`);
     cursor = segment.timelineOut;
