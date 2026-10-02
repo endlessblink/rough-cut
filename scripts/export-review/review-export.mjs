@@ -4,6 +4,7 @@
 //
 //   node scripts/export-review/review-export.mjs <project.roughcut>
 //   node scripts/export-review/review-export.mjs <project.roughcut> --reuse <export.mp4>   (no new export)
+//   --format raw  export in Raw mode instead of Styled (default styled)
 //   --no-editor   skip the editor-vs-export comparison (no app launch when combined with --reuse)
 //   --out-root D  default: ~/Documents/Rough Cut MVP/export-reviews
 //
@@ -209,7 +210,7 @@ async function runApp({ doExport, doShots }) {
     if (doExport) {
       await page.evaluate(() => window.__roughCutSetPreviewTimeSec(0)).catch(() => {});
       await page.locator('[data-ui-region="export-popover-toggle"][aria-pressed="false"]').click().catch(() => {});
-      await page.locator('button.exportFormat[data-export-format="styled"]').click();
+      await page.locator(`button.exportFormat[data-export-format="${args.flags.format === 'raw' ? 'raw' : 'styled'}"]`).click();
       await page.locator('[data-export-action="export"]').click();
       const started = Date.now();
       await page.waitForFunction(() => document.body.textContent?.includes('Exported to:'), null, { timeout: Number(args.flags['export-timeout-ms'] || 3000000) });
