@@ -139,7 +139,8 @@ async function buildPlan(path) {
     mapFrame, invert, visibleStartFrame,
     zoomMarkers: (exportRecording.zoomMarkers ?? []).map((m) => ({ startFrame: m.startFrame, endFrame: m.endFrame })),
     graphics, sourceAudioPath: recording.filePath, sourceDuration: null,
-    cameraFrame: exportRecording.presentation?.cameraFrame && recording.camera?.filePath ? exportRecording.presentation.cameraFrame : null,
+    // A Raw export is the screen picture alone: there is no camera corner to check.
+    cameraFrame: args.flags.format !== 'raw' && exportRecording.presentation?.cameraFrame && recording.camera?.filePath ? exportRecording.presentation.cameraFrame : null,
     backgroundGrid: isBackgroundGridOn(exportRecording.presentation?.background),
     screenFrame: exportRecording.presentation?.screenFrame ?? null,
     canvas: resolution?.width && resolution?.height ? { width: resolution.width, height: resolution.height } : null,

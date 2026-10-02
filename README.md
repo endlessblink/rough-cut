@@ -7,6 +7,8 @@ A screen recorder and editor for Linux (X11), built for tutorials, demos and pro
 - Add animated graphics drawn over the video.
 - Export a finished MP4: background, rounded frame, camera, zooms, animations and sound. Every export is checked when it finishes, and each video lives in its own dated project folder.
 
+![Rough Cut: the Recording edit view with screen, camera, zoom and timeline](docs/assets/demo.gif)
+
 Useful commands:
 
 - `pnpm dev` starts the Electron app in development mode.
