@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
+import { verifyExportedFile } from './export-verify.mjs';
+import { createAppSettingsStore, defaultAppSettingsPath } from './app-settings-store.mjs';
 import { trackCensorRegion } from './censor-tracking.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveBlankProject, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
@@ -167,7 +169,15 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const recordingsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'recordings');
+const defaultRecordingsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'recordings');
+const appSettingsStore = createAppSettingsStore({
+  filePath: defaultAppSettingsPath(app.getPath('userData')),
+  onLog: (msg) => console.warn(msg),
+});
+// Where projects live. Chosen in the Projects view and applied on the next start, because
+// the recorder and the path checks are created once at launch.
+const recordingsDir = appSettingsStore.getProjectsDir() ?? defaultRecordingsDir;
+const exportsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'exports');
 
 function quitSmokeApp(exitCode = process.exitCode ?? 0) {
   app.quit();
@@ -176,7 +186,8 @@ function quitSmokeApp(exitCode = process.exitCode ?? 0) {
 }
 
 function buildAllowedProjectRoots() {
-  const roots = [recordingsDir];
+  // The default folder stays allowed so projects made before a folder change still open.
+  const roots = [...new Set([recordingsDir, defaultRecordingsDir])];
   // Tests / smokes write fixtures to a tmp dir and pass it via ROUGH_CUT_UI_SMOKE_PROJECT_PATH.
   // Without including its parent dir, validateProjectPath rejects the fixture as outside-root.
   const smokeProject = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH;
@@ -753,6 +764,31 @@ ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_PATH, (_event, itemPath) => {
   if (typeof itemPath !== 'string' || itemPath.length === 0) return 'Missing path.';
   return shell.openPath(itemPath);
 });
+function describeProjectsDir() {
+  const saved = appSettingsStore.getProjectsDir();
+  return { current: recordingsDir, saved: saved ?? defaultRecordingsDir, isDefault: saved === null, defaultDir: defaultRecordingsDir, restartRequired: (saved ?? defaultRecordingsDir) !== recordingsDir };
+}
+ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_PROJECTS_DIR, () => describeProjectsDir());
+ipcMain.handle(IPC_CHANNELS.SETTINGS_CHOOSE_PROJECTS_DIR, async (event) => {
+  const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender) ?? undefined, {
+    title: 'Choose where projects live',
+    defaultPath: recordingsDir,
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) return describeProjectsDir();
+  const chosen = result.filePaths[0];
+  await mkdir(chosen, { recursive: true });
+  appSettingsStore.setProjectsDir(chosen);
+  return describeProjectsDir();
+});
+ipcMain.handle(IPC_CHANNELS.SETTINGS_RESET_PROJECTS_DIR, () => {
+  appSettingsStore.resetProjectsDir();
+  return describeProjectsDir();
+});
+ipcMain.handle(IPC_CHANNELS.APP_RELAUNCH, () => {
+  app.relaunch();
+  app.exit(0);
+});
 ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
@@ -1328,9 +1364,14 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS, (_event, options = {}) =
 ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName = 'rough-cut-export') => {
   if (process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH) return process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH;
 
+  // One regular place for every export: exports/<project>/<project>-<date_time>.mp4
+  const safeName = String(projectName).replace(/[\\/:*?"<>|]+/g, '-').trim().slice(0, 80) || 'rough-cut-export';
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '');
+  const exportFolder = join(exportsDir, safeName);
+  await mkdir(exportFolder, { recursive: true });
   const result = await dialog.showSaveDialog({
     title: 'Export MP4',
-    defaultPath: `${projectName}-export.mp4`,
+    defaultPath: join(exportFolder, `${safeName}-${stamp}.mp4`),
     filters: [{ name: 'MP4 Video', extensions: ['mp4'] }],
   });
   if (result.canceled || !result.filePath) return null;
@@ -1358,7 +1399,7 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, {
           : 0.5 + progress.progress * 0.5,
       }),
     });
-    return await exportProjectToMp4({
+    const result = await exportProjectToMp4({
       project: document,
       outputPath,
       mode,
@@ -1367,6 +1408,12 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, {
       preparedStabilizationTransforms,
       onProgress: (progress) => event.sender.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, progress),
     });
+    if (result?.cancelled || !result?.outputPath) return result;
+    // Every export is checked the moment it lands, so a silent or frozen file is flagged
+    // here instead of being found by watching it. A failing check never fails the export.
+    const verification = await verifyExportedFile({ outputPath: result.outputPath, project: document, exportScope, mode })
+      .catch((error) => ({ ok: true, problems: [], summary: '', unavailable: String(error?.message ?? error) }));
+    return { ...result, verification };
   } finally {
     if (activeExportController === controller) activeExportController = null;
   }
@@ -3012,7 +3059,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const hasPostRecordingActions = Boolean(document.querySelector('[data-ui-region="post-recording-actions"]'));
   const hasReviewExportActions = Boolean(document.querySelector('[data-export-format="styled"]') && document.querySelector('[data-export-format="raw"]') && document.querySelector('[data-export-action="export"]'));
   const reviewLinkText = document.querySelector('[data-ui-region="post-recording-review"] .exportLinks')?.textContent ?? '';
-  const hasReviewNextActions = ['Show folder', 'Diagnostics', 'Project file', 'New take'].every((label) => reviewLinkText.includes(label));
+  const hasReviewNextActions = ['Recording folder', 'Diagnostics', 'Project file', 'New take'].every((label) => reviewLinkText.includes(label));
   const reviewCameraWarningText = document.querySelector('[data-review-warning="camera"]')?.textContent ?? '';
   const hasReviewCameraWarning = reviewCameraWarningText.includes('Screen recording preserved') && reviewCameraWarningText.includes('without webcam PiP');
   const hasStateCameraWarning = document.body.textContent?.includes('Camera was unavailable') ?? false;
@@ -3125,7 +3172,7 @@ async function runRendererEditorLoadedSmoke() {
     hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
     hasPostRecordingActions: Boolean(document.querySelector('[data-ui-region="post-recording-actions"]')),
     hasReviewExportActions: Boolean(document.querySelector('[data-export-format="styled"]') && document.querySelector('[data-export-format="raw"]') && document.querySelector('[data-export-action="export"]')),
-    hasReviewNextActions: ['Show folder', 'Diagnostics', 'Project file', 'New take'].every((label) => (document.querySelector('[data-ui-region="post-recording-review"] .exportLinks')?.textContent ?? '').includes(label)),
+    hasReviewNextActions: ['Recording folder', 'Diagnostics', 'Project file', 'New take'].every((label) => (document.querySelector('[data-ui-region="post-recording-review"] .exportLinks')?.textContent ?? '').includes(label)),
     hasReviewCameraWarning: reviewCameraWarningText.includes('Screen recording preserved') && reviewCameraWarningText.includes('without webcam PiP'),
     hasVisibleReviewWorkspace,
     reviewWorkspaceGeometry: {

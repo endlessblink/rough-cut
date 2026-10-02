@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   createBlankProject,
@@ -1055,11 +1055,13 @@ test("saveBlankProject writes a unique .roughcut and round-trips through openPro
   try {
     const recordingsDir = join(root, "recordings");
     const first = await saveBlankProject({ recordingsDir, name: "Untitled" });
-    assert.match(first.path, /Untitled\.roughcut$/);
+    // One dated folder per project: <date_time> Untitled/Untitled.roughcut
+    assert.match(first.path, /\/\d{4}-\d{2}-\d{2}_\d{4} Untitled\/Untitled\.roughcut$/);
     assert.equal(existsSync(first.path), true);
 
     const second = await saveBlankProject({ recordingsDir, name: "Untitled" });
-    assert.match(second.path, /Untitled \(2\)\.roughcut$/);
+    assert.match(second.path, /\/\d{4}-\d{2}-\d{2}_\d{4} Untitled \(2\)\/Untitled\.roughcut$/);
+    assert.notEqual(dirname(second.path), dirname(first.path));
 
     const reopened = await openProjectFile(first.path);
     assert.equal(reopened.document.assets.length, 0);

@@ -4,6 +4,7 @@ import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture,
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
 import { probeVideoStreamStartOffsets } from '../media-probe.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
+import { createProjectFolder } from '../project-folders.mjs';
 
 const DEFAULT_FPS = 30;
 
@@ -117,12 +118,14 @@ export function createRecordingSession({
     const displayInfo = resolveCaptureDisplayInfo(getDisplayInfo(), options.captureRegion);
     const stampDate = now();
     const stamp = stampDate.toISOString().replace(/[:.]/g, '-');
-    const rawPath = join(recordingsDir, `rough-cut-${stamp}.mkv`);
-    const outputPath = join(recordingsDir, `rough-cut-${stamp}.mp4`);
-    const cameraRawPath = cameraDevicePath ? join(recordingsDir, `rough-cut-${stamp}-camera.mkv`) : null;
-    const cameraOutputPath = cameraDevicePath ? join(recordingsDir, `rough-cut-${stamp}-camera.mp4`) : null;
-    const cursorTelemetryPath = join(recordingsDir, `rough-cut-${stamp}.cursor.json`);
-    const eventsLogPath = join(recordingsDir, `rough-cut-${stamp}.events.log`);
+    // One folder per video: the recording, camera, cursor data, logs and project all live in it.
+    const recordingFolder = await createProjectFolder(recordingsDir, { date: stampDate, name: 'Recording' });
+    const rawPath = join(recordingFolder, `rough-cut-${stamp}.mkv`);
+    const outputPath = join(recordingFolder, `rough-cut-${stamp}.mp4`);
+    const cameraRawPath = cameraDevicePath ? join(recordingFolder, `rough-cut-${stamp}-camera.mkv`) : null;
+    const cameraOutputPath = cameraDevicePath ? join(recordingFolder, `rough-cut-${stamp}-camera.mp4`) : null;
+    const cursorTelemetryPath = join(recordingFolder, `rough-cut-${stamp}.cursor.json`);
+    const eventsLogPath = join(recordingFolder, `rough-cut-${stamp}.events.log`);
     const eventLogger =
       enableDiagnosticLogging && typeof eventLoggerFactory === 'function'
         ? eventLoggerFactory({ path: eventsLogPath })

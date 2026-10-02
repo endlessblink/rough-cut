@@ -36,6 +36,7 @@ import { resolveCensorRectAtFrame } from '../../shared/censor-regions.mjs';
 import { canvasPointToSourceNormalized, sourceRectToCanvasRect, type CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
 import { moveCensorRect, resizeCensorRect } from '../../shared/censor-regions.mjs';
 import { timelineJoinGain } from '../../shared/timeline-audio-envelope.mjs';
+import { drawBackgroundGrid, isBackgroundGridOn } from '../../shared/background-grid.mjs';
 import { CUT_PREROLL_EARLY_FRAMES, cutPrerollKey, planCutPreroll, standbyAlignedForCut } from './timeline-cut-preroll.mjs';
 import { shouldPublishTimelinePlayhead } from './timeline-playhead-publish.mjs';
 import {
@@ -1078,31 +1079,66 @@ export function StyledVideoPreview({
     onSourceMediaDurationChange?.(sourceDurationSec);
   }, [sourceDurationSec, onSourceMediaDurationChange]);
 
+  // The background layer is a wallpaper and/or the faint grid, baked into one image so every
+  // renderer (2D, WebGL, WebGPU) draws it behind the screen exactly like the export does.
+  const backgroundGridOn = isBackgroundGridOn(background);
   React.useEffect(() => {
     const parityTarget = typeof window === 'undefined'
       ? null
       : window as unknown as Record<string, unknown>;
-    if (parityTarget) parityTarget.__roughCutBackgroundImageReady = !background.bgImage;
-    if (!background.bgImage) {
+    const wallpaperUrl = background.bgImage ?? null;
+    if (!wallpaperUrl && !backgroundGridOn) {
       backgroundImageRef.current = null;
+      if (parityTarget) parityTarget.__roughCutBackgroundImageReady = true;
       return undefined;
     }
-    const image = new Image();
-    image.src = background.bgImage;
-    image.onload = () => {
+    if (parityTarget) parityTarget.__roughCutBackgroundImageReady = false;
+    let cancelled = false;
+    let published: HTMLImageElement | null = null;
+    const publish = (image: HTMLImageElement) => {
+      if (cancelled) return;
+      published = image;
       backgroundImageRef.current = image;
       if (parityTarget) parityTarget.__roughCutBackgroundImageReady = true;
       screenLayerRendererRef.current?.prepareBackgroundImage?.(image);
     };
-    image.onerror = () => {
-      backgroundImageRef.current = null;
-      if (parityTarget) parityTarget.__roughCutBackgroundImageReady = false;
+    const bake = (wallpaper: HTMLImageElement | null) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1920;
+      canvas.height = 1080;
+      const bakeCtx = canvas.getContext('2d');
+      if (!bakeCtx) {
+        if (wallpaper) publish(wallpaper);
+        return;
+      }
+      if (wallpaper) bakeCtx.drawImage(wallpaper, 0, 0, canvas.width, canvas.height);
+      drawBackgroundGrid(bakeCtx, canvas.width, canvas.height);
+      const baked = new Image();
+      baked.onload = () => publish(baked);
+      baked.src = canvas.toDataURL('image/png');
     };
+    if (!wallpaperUrl) {
+      bake(null);
+    } else {
+      const image = new Image();
+      image.onload = () => {
+        if (cancelled) return;
+        if (backgroundGridOn) bake(image);
+        else publish(image);
+      };
+      image.onerror = () => {
+        if (cancelled) return;
+        backgroundImageRef.current = null;
+        if (parityTarget) parityTarget.__roughCutBackgroundImageReady = false;
+      };
+      image.src = wallpaperUrl;
+    }
     return () => {
-      if (backgroundImageRef.current === image) backgroundImageRef.current = null;
+      cancelled = true;
+      if (published && backgroundImageRef.current === published) backgroundImageRef.current = null;
       if (parityTarget) parityTarget.__roughCutBackgroundImageReady = false;
     };
-  }, [background.bgImage]);
+  }, [background.bgImage, backgroundGridOn]);
 
   React.useEffect(() => {
     if (!Number.isFinite(seekTimeSec)) return;
@@ -2046,10 +2082,11 @@ export function StyledVideoPreview({
         });
         publishScreenLayerRendererStats(backgroundLayerStats);
       }
-      // The grid stays up while playing: the viewer must not change look on
-      // every play/pause. It is an editing guide and never reaches the export.
+      // The faint grid is part of the background layer (see the background image above) and
+      // is exported. Only the cyan centre/third guides are an editing aid: they stay up while
+      // playing so the viewer does not change look on every play/pause, and never reach the export.
       if (editablePreview && alignmentGridVisibleRef.current && !parityCapture) {
-        drawAlignmentGrid(ctx, canvasWidth, canvasHeight);
+        drawAlignmentGuides(ctx, canvasWidth, canvasHeight);
       }
       markDrawPhase('background');
       // Empty timeline position: no clip covers the playhead, so there is no
@@ -3140,12 +3177,12 @@ export function StyledVideoPreview({
           <button
             type="button"
             className={alignmentGridVisible ? 'isActive' : ''}
-            title={alignmentGridVisible ? 'Hide alignment grid' : 'Show alignment grid'}
+            title={alignmentGridVisible ? 'Hide alignment guides' : 'Show alignment guides'}
             aria-pressed={alignmentGridVisible}
             onClick={() => setAlignmentGridVisible((visible) => !visible)}
           >
             <PhosphorGridFour size={15} weight="duotone" />
-            <span className="visuallyHidden">{alignmentGridVisible ? 'Hide alignment grid' : 'Show alignment grid'}</span>
+            <span className="visuallyHidden">{alignmentGridVisible ? 'Hide alignment guides' : 'Show alignment guides'}</span>
           </button>
           <div className="previewAlignmentDivider" aria-hidden="true" />
           <div className="previewAlignmentActions" role="group" aria-label={`Align ${selectedAlignmentLabel.toLowerCase()}`}>
@@ -3497,24 +3534,9 @@ function alignRectInCanvas(
   };
 }
 
-function drawAlignmentGrid(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number) {
+function drawAlignmentGuides(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number) {
   ctx.save();
   ctx.lineWidth = 1;
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
-  const columns = 12;
-  const rows = 12;
-  ctx.beginPath();
-  for (let i = 1; i < columns; i += 1) {
-    const x = (canvasWidth / columns) * i;
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvasHeight);
-  }
-  for (let i = 1; i < rows; i += 1) {
-    const y = (canvasHeight / rows) * i;
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvasWidth, y);
-  }
-  ctx.stroke();
   ctx.strokeStyle = 'rgba(56, 189, 248, 0.32)';
   ctx.beginPath();
   ctx.moveTo(canvasWidth / 2, 0);

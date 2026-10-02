@@ -132,6 +132,10 @@ export const IPC_CHANNELS = {
   APP_WRITE_PLAYBACK_DEBUG_REPORT: 'app:write-playback-debug-report',
   SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
   SHELL_OPEN_PATH: 'shell:open-path',
+  SETTINGS_GET_PROJECTS_DIR: 'settings:get-projects-dir',
+  SETTINGS_CHOOSE_PROJECTS_DIR: 'settings:choose-projects-dir',
+  SETTINGS_RESET_PROJECTS_DIR: 'settings:reset-projects-dir',
+  APP_RELAUNCH: 'app:relaunch',
 
   // Auto-save
   PROJECT_AUTO_SAVE: 'project:auto-save',

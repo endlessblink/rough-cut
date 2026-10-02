@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRecordingSession, getPrimaryX11DisplayInfo, normalizeCaptureRegion, normalizeCursorPoint, resolveCaptureDisplayInfo } from './recording-session.mjs';
 import { createXinputEventParser } from './xinput-button-listener.mjs';
@@ -51,6 +51,13 @@ test('recording session starts capture, writes marker, stops capture, and clears
   assert.equal(marker.rawPath, captureCalls[0].outputPath);
   assert.equal(marker.outputPath, started.outputPath);
   assert.equal(marker.cursorTelemetryPath.endsWith('.cursor.json'), true);
+
+  // One folder per video: the recording, its cursor data and its project all live in <date_time> Recording/.
+  const folder = dirname(started.outputPath);
+  assert.equal(dirname(folder), recordingsDir);
+  assert.match(basename(folder), /^\d{4}-\d{2}-\d{2}_\d{4} Recording$/);
+  assert.equal(dirname(captureCalls[0].outputPath), folder);
+  assert.equal(dirname(marker.cursorTelemetryPath), folder);
 
   const stopped = await session.stop();
   assert.equal(stopped.state, 'saved');

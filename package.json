@@ -47,6 +47,7 @@
     "guard:timeline": "node scripts/guard-canonical-timeline.mjs",
     "test:regression-lab": "pnpm --filter @rough-cut/project-model build && node scripts/rough-cut-regression-lab.mjs",
     "report:regression": "pnpm --filter @rough-cut/project-model build && ROUGH_CUT_DURABLE_REPORT_PATH=docs/rough-cut-issue-report.md node scripts/rough-cut-regression-lab.mjs",
+    "review:export": "node scripts/export-review/review-export.mjs",
     "visual:real-editor": "node scripts/visual-real-editor-playwright.mjs",
     "playback:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/playback-timeline-playwright.mjs",
     "dev:playback-debug": "ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH=/tmp/rough-cut-playback-debug.json pnpm dev",

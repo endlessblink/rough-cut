@@ -535,7 +535,9 @@ test('styled video preview exposes edit-only alignment grid and frame align cont
   assert.match(source, /type PreviewAlignmentTarget = 'screen' \| 'camera'/);
   assert.match(source, /type PreviewAlignmentMode = 'left' \| 'horizontal-center' \| 'right' \| 'top' \| 'vertical-center' \| 'bottom'/);
   assert.match(source, /const \[alignmentGridVisible, setAlignmentGridVisible\] = React\.useState\(true\)/);
-  assert.match(source, /drawAlignmentGrid\(ctx, canvasWidth, canvasHeight\)/);
+  assert.match(source, /drawAlignmentGuides\(ctx, canvasWidth, canvasHeight\)/);
+  // The faint grid is background, drawn into the background image layer and exported.
+  assert.match(source, /drawBackgroundGrid\(bakeCtx, canvas\.width, canvas\.height\)/);
   assert.match(source, /function alignRectInCanvas/);
   assert.match(source, /onCameraFrameChange\?\.\(rectToNormalizedFrame\(aligned, canvas\.width, canvas\.height\)\)/);
   assert.match(source, /onScreenFrameChange\?\.\(rectToNormalizedFrame\(aligned, canvas\.width, canvas\.height\)\)/);

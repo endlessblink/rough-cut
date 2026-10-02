@@ -83,6 +83,7 @@ import { AiShell } from './ai/ai-shell';
 import { GraphicsOverlay } from './graphics-overlay';
 import { GraphicsPanel, type GeneratedGraphic } from './graphics-panel';
 import { graphicJobHandlers } from './graphics-job';
+import { isBackgroundGridOn } from '../../shared/background-grid.mjs';
 import { addGraphic, dragGraphicRange, graphicLaneRows, listGraphics, reorderGraphic, moveGraphic, removeGraphic, replaceGraphicContent, requestMentionsTime, setGraphicAnimate, setGraphicLayout, setGraphicTiming, updateGraphicFields, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
@@ -141,6 +142,10 @@ declare global {
       setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
       writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
       showItemInFolder: (path: string) => Promise<void>;
+      getProjectsDir: () => Promise<{ current: string; saved: string; isDefault: boolean; defaultDir: string; restartRequired: boolean }>;
+      chooseProjectsDir: () => Promise<{ current: string; saved: string; isDefault: boolean; defaultDir: string; restartRequired: boolean }>;
+      resetProjectsDir: () => Promise<{ current: string; saved: string; isDefault: boolean; defaultDir: string; restartRequired: boolean }>;
+      relaunchApp: () => Promise<void>;
       openPath: (path: string) => Promise<string>;
       getMicSources: () => Promise<MicSource[]>;
       getSystemAudioSources: () => Promise<AudioSource[]>;
@@ -329,7 +334,8 @@ type RecordingTemplateOverrideInput = {
 };
 
 type ExportProgress = { phase: string; progress: number; fallback?: { active: boolean; from: string | null; to: string | null; reason: string | null }; experimentalBackend?: string };
-type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean; cancelled?: boolean; experimentalBackend?: string; fallback?: { active: boolean; from: string | null; to: string | null; reason: string | null } };
+type ExportVerification = { ok: boolean; problems: Array<{ id: string; message: string }>; summary: string };
+type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean; cancelled?: boolean; verification?: ExportVerification; experimentalBackend?: string; fallback?: { active: boolean; from: string | null; to: string | null; reason: string | null } };
 type ExportMode = 'raw' | 'styled' | 'experimental-headless';
 type ExportScope = 'timeline' | 'used-content';
 const TIMELINE_LABEL_WIDTH_PX = 76.8;
@@ -3846,7 +3852,7 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
   );
   return (
     <aside className="setupBoard studioPane" aria-label="Background board">
-      <PaneTitle title="Background" subtitle="What sits behind your recording" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.(DEFAULT_RECORDING_BACKGROUND)} />
+      <PaneTitle title="Background" subtitle="What sits behind your recording" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ ...DEFAULT_RECORDING_BACKGROUND, bgGrid: true })} />
       <BackgroundKindTabs value={backgroundKind} disabled={disabled} onChange={(kind) => {
         if (kind === 'wallpaper') onBackgroundChange?.(applyRecordingBackgroundPreset(bg, activeBackgroundPreset ?? RECORDING_BACKGROUND_PRESETS[0]?.id ?? ''));
         else if (kind === 'gradient') onBackgroundChange?.({ bgImage: null, bgGradient: RECORDING_BACKGROUND_PRESETS.find((preset) => preset.id === activeBackgroundPreset)?.style.bgGradient ?? RECORDING_BACKGROUND_PRESETS[0]?.style.bgGradient ?? null, bgColor: bg.bgColor });
@@ -3883,6 +3889,9 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
             </label>
           </div>
         )}
+      </InspectorSection>
+      <InspectorSection id="canvas-grid" title="Grid">
+        <InspectorToggle label="Grid lines" checked={isBackgroundGridOn(bg)} disabled={disabled} onChange={(checked) => onBackgroundChange?.({ bgGrid: checked })} />
       </InspectorSection>
     </aside>
   );
@@ -3976,7 +3985,7 @@ function PostRecordingReview({ project, recording, exportProgress, exportScope, 
         )}
       </div>
       <div className="exportLinks">
-        <button type="button" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}><Icon name="folder" /> Show folder</button>
+        <button type="button" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}><Icon name="folder" /> Recording folder</button>
         <button type="button" onClick={onOpenProject}><Icon name="folder" /> Project file</button>
         <button type="button" onClick={onOpenDiagnostics} disabled={!diagnosticsAvailable}><Icon name="settings" /> Diagnostics</button>
         <button type="button" onClick={onRetake}><Icon name="record" /> New take</button>
@@ -5185,7 +5194,22 @@ function ProjectPreview({
           <ExportPresetDetails mode={exportMode} exportScope={exportScope} aspectRatio={aspectRatio} />
           <InspectorActionRow region="export-status-area">
             {exportProgress ? <ExportProgressMeter progress={exportProgress} /> : null}
-            {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
+            {exportResult ? (
+              <div className="exportResult" data-ui-region="export-result">
+                <p className="saved" title={exportResult.outputPath}>
+                  Exported to: <strong className="exportFileName">{exportResult.outputPath.split('/').pop()}</strong>{' '}
+                  <span className="exportSize">{(exportResult.bytes / 1_000_000).toFixed(1)} MB</span>
+                </p>
+                {exportResult.verification?.summary ? (
+                  <p className={`exportCheck${exportResult.verification.ok ? '' : ' hasProblem'}`} role={exportResult.verification.ok ? 'status' : 'alert'}>
+                    {exportResult.verification.summary}
+                  </p>
+                ) : null}
+                <button type="button" className="exportReveal" data-export-action="reveal" onClick={() => onShowItemInFolder(exportResult.outputPath)}>
+                  <Icon name="folder" /> Show export
+                </button>
+              </div>
+            ) : null}
             {exportResult?.fallback?.active ? <p className="inspectorNotice">Fallback: {exportResult.fallback.from} to {exportResult.fallback.to} ({exportResult.fallback.reason}).</p> : null}
           </InspectorActionRow>
         </InspectorSection>

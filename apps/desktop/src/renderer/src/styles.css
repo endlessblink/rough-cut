@@ -12,6 +12,7 @@
   --surface: #101015;
   --line: #282832;
   --strong-line: #33333f;
+  --problem: #fb7185;
   --shadow: 0 24px 82px rgb(0 0 0 / 0.45);
   /* Censor pills read as a blackout cut into the lane, not a second accent hue. */
   /* Graphics pills read as a pale layer sitting on the program, not an accent. */
@@ -5578,6 +5579,27 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 }
 .exportLinks button:hover:not(:disabled) { background: rgb(255 255 255 / 0.05); color: var(--text); }
 .exportLinks .icon { height: 1rem; width: 1rem; }
+.exportResult { display: grid; gap: var(--space-1); }
+.exportResult .saved { font-size: var(--text-sm); overflow-wrap: anywhere; }
+.exportFileName { color: var(--text); font-weight: var(--weight-medium); }
+.exportSize { color: var(--subtle); white-space: nowrap; }
+.exportCheck { color: var(--muted); font-size: var(--text-sm); line-height: 1.4; margin: 0; }
+.exportCheck.hasProblem { color: var(--problem); }
+.exportResult .exportReveal {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  justify-content: flex-start;
+  margin-top: var(--space-1);
+  min-height: 2rem;
+  padding: 0 var(--space-2);
+  width: fit-content;
+}
+.exportResult .exportReveal:hover:not(:disabled) { background: rgb(255 255 255 / 0.05); color: var(--text); }
+.exportResult .exportReveal .icon { height: 1rem; width: 1rem; }
 .projectEditor > .inspector .inspectorSection { border-top: 1px solid var(--line); gap: var(--space-2); padding-top: var(--space-3); }
 .projectEditor > .inspector .inspectorSectionHead > .eyebrow { color: var(--subtle); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: 0; text-transform: none; }
 .exportSummary { display: grid; font-size: var(--text-sm); gap: var(--space-1-5) var(--space-4); grid-template-columns: auto 1fr; margin: 0; }
@@ -5785,6 +5807,32 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .libraryHeaderTitle { display: flex; align-items: baseline; gap: var(--space-3); }
 .libraryHeaderTitle h2 { font-size: var(--text-2xl); letter-spacing: -0.02em; }
 .libraryHeaderCount { color: var(--subtle); font-size: var(--text-md); margin: 0; }
+.libraryFolderRow {
+  align-items: center;
+  color: var(--subtle);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  gap: var(--space-1-5) var(--space-2);
+  padding: 0 0 var(--space-2);
+}
+.libraryFolderLabel { color: var(--muted); }
+.libraryFolderPath { color: var(--text); overflow-wrap: anywhere; }
+.libraryFolderPending { color: var(--muted); }
+.libraryFolderAction {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  min-height: 1.75rem;
+  padding: 0 var(--space-2);
+}
+.libraryFolderAction:hover:not(:disabled) { background: rgb(255 255 255 / 0.05); color: var(--text); }
+.libraryFolderAction.isPrimary { color: var(--text); }
+.libraryFolderAction.isPrimary:hover:not(:disabled) { background: var(--accent); }
 .libraryHeaderControls .libraryOpenFile {
   background: var(--studio-raise);
   border: 1px solid var(--strong-line);

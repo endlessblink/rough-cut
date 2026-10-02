@@ -16,6 +16,7 @@ import {
 } from '../shared/censor-regions.mjs';
 import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
 import { buildGraphicsOverlayArgs, planGraphicsOverlay } from './graphics-export.mjs';
+import { buildBackgroundGridFilter, isBackgroundGridOn } from '../shared/background-grid.mjs';
 import {
   canonicalizeProjectDocument,
   createDefaultCameraPresentation,
@@ -117,11 +118,17 @@ export async function exportProjectToMp4({
   }
 
   if (exportMode === EXPORT_MODES.STYLED) {
+    const graphicsCutRemap = buildCutFrameRemap(exportRecording);
+    const exportTimelineFrames = exportRecording.timelineDurationFrames ?? exportRecording.duration;
     const graphicsPlan = planGraphicsOverlay({
       document: project,
       fps: Number.isFinite(exportRecording.fps) && exportRecording.fps > 0 ? exportRecording.fps : 30,
-      durationFrames: exportRecording.timelineDurationFrames ?? exportRecording.duration,
-    });
+      durationFrames: exportTimelineFrames,
+    })
+      // The styled pass drops the cut frames, so a graphic's timeline start lands earlier.
+      .map((item) => ({ ...item, startFrame: graphicsCutRemap.mapFrame(item.startFrame) }))
+      .map((item) => ({ ...item, frameCount: Math.min(item.frameCount, exportTimelineFrames - graphicsCutRemap.removedFrames - item.startFrame) }))
+      .filter((item) => item.frameCount > 0);
     // Graphics get the last slice of the progress bar; the styled pass the rest.
     const styledShare = graphicsPlan.length > 0 ? 0.8 : 1;
     const styledResult = await exportStyledProjectToMp4({
@@ -512,12 +519,21 @@ export async function exportStyledProjectToMp4({
   const presentationStyle = normalizePresentationStyle(recording.presentation?.background);
   const [backgroundStart, backgroundEnd] = getRecordingBackgroundColors(recording.presentation?.background);
   const backgroundImagePath = resolveRendererPublicAsset(recording.presentation?.background?.bgImage);
+  const cutRemap = buildCutFrameRemap(recording);
+  const cutAwareCursorEvents = cutRemap.active && Array.isArray(recording.cursorEvents)
+    ? recording.cursorEvents.map((event) => (Number.isFinite(event?.frame) ? { ...event, frame: cutRemap.mapFrame(Math.round(event.frame)) } : event))
+    : recording.cursorEvents;
+  const cutAwareZoomMarkers = cutRemap.active && Array.isArray(recording.zoomMarkers)
+    ? recording.zoomMarkers
+      .map((marker) => ({ ...marker, startFrame: cutRemap.mapFrame(marker.startFrame), endFrame: cutRemap.mapFrame(marker.endFrame) }))
+      .filter((marker) => marker.endFrame > marker.startFrame)
+    : recording.zoomMarkers;
   const cursorLayer = await createCursorSubtitleLayer({
-    cursorEvents: recording.cursorEvents,
+    cursorEvents: cutAwareCursorEvents,
     width: recording.width,
     height: recording.height,
     fps: recording.fps,
-    durationFrames: recording.timelineDurationFrames ?? recording.duration,
+    durationFrames: (recording.timelineDurationFrames ?? recording.duration) - cutRemap.removedFrames,
     onDownsampleNotice: (info) => {
       // Send a non-progressive notice through the existing progress channel so
       // renderer can show a "Cursor detail reduced" toast without us defining
@@ -531,7 +547,7 @@ export async function exportStyledProjectToMp4({
       });
     },
   });
-  const exportTotalFrames = recording.timelineDurationFrames ?? recording.duration;
+  const exportTotalFrames = (recording.timelineDurationFrames ?? recording.duration) - cutRemap.removedFrames;
   // Story · 9:16: the screen crop follows the cursor and/or holds framing
   // ranges. Resolved per exported frame with the preview's own math.
   const screenCropTrack = buildScreenCropTrack({
@@ -550,8 +566,8 @@ export async function exportStyledProjectToMp4({
     }],
   });
   const zoomLayer = await createZoomSendcmdLayer({
-    markers: Array.isArray(recording.zoomMarkers) ? recording.zoomMarkers : [],
-    cursorEvents: recording.cursorEvents,
+    markers: Array.isArray(cutAwareZoomMarkers) ? cutAwareZoomMarkers : [],
+    cursorEvents: cutAwareCursorEvents,
     sourceWidth: recording.width,
     sourceHeight: recording.height,
     fps: recording.fps,
@@ -576,9 +592,10 @@ export async function exportStyledProjectToMp4({
         }),
       })
     : null;
+  const sourceHasAudio = await sourceHasAudioStream(recording.filePath, signal);
   const includeTimelineAudio = Array.isArray(recording.timelineSegments)
     && recording.timelineSegments.length > 0
-    && await sourceHasAudioStream(recording.filePath, signal);
+    && sourceHasAudio;
   // Needed only to place the camera's per-segment seeks on the same frame the
   // old frame-count trim picked; a failed probe just means "assume 0".
   const cameraSourceStartSeconds = recording.camera?.filePath
@@ -587,7 +604,7 @@ export async function exportStyledProjectToMp4({
   let useSimpleFastPath = false;
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
-    const durationSeconds = (recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration) / fps;
+    const durationSeconds = ((recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration) - cutRemap.removedFrames) / fps;
     const videoEncoder = await resolveStyledVideoEncoder(signal);
     const styledArgsInput = {
       inputPath: recording.filePath,
@@ -604,6 +621,7 @@ export async function exportStyledProjectToMp4({
       backgroundStart,
       backgroundEnd,
       backgroundImagePath,
+      backgroundGrid: isBackgroundGridOn(recording.presentation?.background),
       cursorAssPath: cursorLayer?.path,
       sourceWidth: recording.width,
       sourceHeight: recording.height,
@@ -613,6 +631,7 @@ export async function exportStyledProjectToMp4({
       timelineSegments: recording.timelineSegments ?? [],
       timelineDurationFrames: recording.timelineDurationFrames ?? null,
       timelineAudioSegments: includeTimelineAudio ? recording.timelineSegments ?? [] : [],
+      sourceHasAudio,
       zoomCropFilter: zoomLayer?.filterFragment ?? null,
       zoomSendcmdPath: zoomLayer?.path ?? null,
       screenCropPanFilter: cropPanLayer?.filterFragment ?? null,
@@ -1401,6 +1420,7 @@ export function buildStyledExportArgs({
   timelineSegments = [],
   timelineDurationFrames = null,
   timelineAudioSegments = [],
+  sourceHasAudio = false,
   screenPadding = 96,
   screenCornerRadius = 32,
   screenShadowEnabled = true,
@@ -1411,6 +1431,7 @@ export function buildStyledExportArgs({
   backgroundStart = '#e8ebf0',
   backgroundEnd = '#f0e8e8',
   backgroundImagePath = null,
+  backgroundGrid = false,
   censorRegions = [],
   zoomCropFilter = null,
   zoomSendcmdPath = null,
@@ -1444,13 +1465,15 @@ export function buildStyledExportArgs({
   const backgroundExpression = buildBackgroundExpression(backgroundStart, backgroundEnd);
   const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
   const staticLoop = buildStaticLoopFilter(fps, outputDurationSeconds);
+  // The faint grid is part of the background (behind the screen, shadow and camera), exactly as in the viewer.
+  const gridStep = backgroundGrid ? `,${buildBackgroundGridFilter()}` : '';
   const backgroundFilter = backgroundImagePath
       ? [
         `nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba[bg_base]`,
         `movie=${escapeFilterPath(backgroundImagePath)},scale=${width}:${height},format=rgba[bg_image]`,
-        `[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2,${staticLoop}[bg]`,
+        `[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2${gridStep},${staticLoop}[bg]`,
       ]
-    : [`nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba,${staticLoop}[bg]`];
+    : [`nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba${gridStep},${staticLoop}[bg]`];
   const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
   const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
   const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
@@ -1589,13 +1612,18 @@ export function buildStyledExportArgs({
       strength: cameraStabilizationTransform.strength,
     })}[camera_stabilized]`
     : null;
+  // Hidden ranges on a single un-split clip cut the video with `select`; the audio
+  // must be cut over the same spans or it would drift (or, as before, vanish).
+  const useCutAudio = !useTimelineAudio && !useTimelineSegments && normalizedCutRanges.length > 0 && Boolean(sourceHasAudio);
   const audioFilters = useTimelineAudio
     ? buildTimelineAudioFilters({
         segments: normalizedTimelineAudioSegments,
         fps,
         durationFrames: timelineDuration,
       })
-    : [];
+    : useCutAudio
+      ? [buildCutAudioFilter(normalizedCutRanges, trimStartFrame, fps)]
+      : [];
   const screenCompositeFilters = [
     `${screenInput}${screenStep}[screen]`,
     `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=gray,geq=lum='${screenAlpha}',${staticLoop}[screen_mask]`,
@@ -1642,7 +1670,7 @@ export function buildStyledExportArgs({
     filter,
     '-map',
     '[v]',
-    ...(useTimelineAudio ? ['-map', '[a]'] : normalizedCutRanges.length === 0 && !useTimelineSegments ? ['-map', '0:a?'] : ['-an']),
+    ...(useTimelineAudio || useCutAudio ? ['-map', '[a]'] : normalizedCutRanges.length === 0 && !useTimelineSegments ? ['-map', '0:a?'] : ['-an']),
     ...buildStyledVideoOutputArgs(videoEncoder),
     ...(useTimelineAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-c:a', 'aac', '-b:a', '192k', '-ar', '48000']),
     '-movflags',
@@ -1655,6 +1683,7 @@ export function buildStyledExportArgs({
 
 export function canUseSimpleStyledExportFastPath({
   backgroundImagePath = null,
+  backgroundGrid = false,
   censorRegions = [],
   zoomCropFilter = null,
   zoomSendcmdPath = null,
@@ -1692,6 +1721,7 @@ export function buildSimpleStyledExportArgs({
   width = 1920,
   height = 1080,
   cursorAssPath = null,
+  backgroundGrid = false,
   sourceWidth = null,
   sourceHeight = null,
   sourceFps = null,
@@ -1728,7 +1758,7 @@ export function buildSimpleStyledExportArgs({
   const screenAlpha = buildRoundedAlphaExpression(screenRadius);
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
   const filters = [
-    `nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba,${staticLoop}[bg]`,
+    `nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba${backgroundGrid ? `,${buildBackgroundGridFilter()}` : ''},${staticLoop}[bg]`,
     `[0:v]setpts=PTS-STARTPTS[base]`,
     ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
     `${screenInput}scale=${screenRenderSize.w}:${screenRenderSize.h}:force_original_aspect_ratio=decrease,pad=${screenRenderSize.w}:${screenRenderSize.h}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba[screen]`,
@@ -1928,6 +1958,40 @@ function normalizeCutRanges(ranges, trimStartFrame, trimEndFrame) {
     .sort((left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame);
 }
 
+/**
+ * Hidden ranges on a single un-split clip are removed from the video with `select`,
+ * so everything built on timeline frames (cursor, zoom, graphics, output length)
+ * must be moved to where that frame lands once the cut frames are gone. Frames
+ * inside a cut collapse onto the cut's start. Segmented timelines already map
+ * their frames, so they get the identity.
+ */
+export function buildCutFrameRemap(recording) {
+  const identity = { active: false, removedFrames: 0, mapFrame: (frame) => frame };
+  const hasSegments = Array.isArray(recording?.timelineSegments) && recording.timelineSegments.length > 0;
+  if (hasSegments) return identity;
+  const trimStart = Math.max(0, Math.round(Number(recording?.sourceIn) || 0));
+  const trimEnd = Number.isFinite(recording?.sourceOut) ? recording.sourceOut : (Number.isFinite(recording?.duration) ? recording.duration : null);
+  const merged = [];
+  for (const range of normalizeCutRanges(recording?.cutRanges, trimStart, trimEnd)) {
+    const start = range.startFrame - trimStart;
+    const end = range.endFrame - trimStart;
+    const last = merged[merged.length - 1];
+    if (last && start <= last.end) last.end = Math.max(last.end, end);
+    else merged.push({ start, end });
+  }
+  if (merged.length === 0) return identity;
+  const removedFrames = merged.reduce((sum, range) => sum + (range.end - range.start), 0);
+  const mapFrame = (frame) => {
+    let shift = 0;
+    for (const range of merged) {
+      if (frame >= range.end) shift += range.end - range.start;
+      else if (frame > range.start) shift += frame - range.start;
+    }
+    return Math.max(0, frame - shift);
+  };
+  return { active: true, removedFrames, mapFrame };
+}
+
 function buildCutSelectFilter(cutRanges, trimStartFrame) {
   if (!cutRanges.length) return '';
   const expressions = cutRanges.map((range) => {
@@ -1936,6 +2000,17 @@ function buildCutSelectFilter(cutRanges, trimStartFrame) {
     return `between(n\\,${start}\\,${end})`;
   });
   return `,select='not(${expressions.join('+')})',setpts=N/FRAME_RATE/TB`;
+}
+
+// Audio twin of buildCutSelectFilter: `t` is relative to the trimmed input, the
+// same origin the video's frame index `n` counts from.
+function buildCutAudioFilter(cutRanges, trimStartFrame, fps) {
+  const expressions = cutRanges.map((range) => {
+    const start = formatFilterNumber(Math.max(0, range.startFrame - trimStartFrame) / fps);
+    const end = formatFilterNumber(Math.max(0, range.endFrame - trimStartFrame) / fps);
+    return `gte(t\\,${start})*lt(t\\,${end})`;
+  });
+  return `[0:a]aselect='not(${expressions.join('+')})',asetpts=N/SR/TB[a]`;
 }
 
 function normalizeTimelineSegments(segments) {

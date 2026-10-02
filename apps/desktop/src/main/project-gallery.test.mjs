@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
@@ -237,4 +237,50 @@ test('ensureProjectThumbnail skips when source video is missing', async () => {
   const project = createProjectForRecording({ recording: { ...makeRecording(), outputPath: '/nope/missing.mp4' } });
   const result = await ensureProjectThumbnail({ projectPath: '/tmp/x.roughcut', document: project, extract: async () => { throw new Error('should not be called'); } });
   assert.equal(result, null);
+});
+
+test('projects are found loose in the folder and inside one folder per video, but not in hidden folders', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-folders-list-'));
+  try {
+    await writeFile(join(root, 'old-loose.roughcut'), '{}');
+    await mkdir(join(root, '2026-10-02_1405 Demo'));
+    await writeFile(join(root, '2026-10-02_1405 Demo', 'Demo.roughcut'), '{}');
+    await writeFile(join(root, '2026-10-02_1405 Demo', 'Demo.roughcut.bak'), '{}');
+    await mkdir(join(root, '.roughcut-visuals'));
+    await writeFile(join(root, '.roughcut-visuals', 'cache.roughcut'), '{}');
+    const found = (await listRecordingProjectPaths(root)).map((path) => path.slice(root.length + 1)).sort();
+    assert.deepEqual(found, ['2026-10-02_1405 Demo/Demo.roughcut', 'old-loose.roughcut']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('deleting a project also removes its per-video folder once it is empty', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-folders-delete-'));
+  try {
+    const folder = join(root, '2026-10-02_1405 Demo');
+    await mkdir(folder);
+    const projectPath = join(folder, 'Demo.roughcut');
+    await writeFile(projectPath, '{}');
+    await deleteProjectFiles(projectPath);
+    assert.deepEqual(await readdir(root), []);
+
+    // The video's other files go with it (camera, logs) when it is the only project in the folder...
+    const solo = join(root, '2026-10-02_1406 Solo');
+    await mkdir(solo);
+    await writeFile(join(solo, 'Solo.roughcut'), '{}');
+    await writeFile(join(solo, 'rough-cut-x-camera.mp4'), 'camera');
+    await deleteProjectFiles(join(solo, 'Solo.roughcut'));
+    assert.deepEqual(await readdir(root), []);
+
+    // ...but a folder that holds another project is left alone.
+    const keep = join(root, '2026-10-02_1407 Keep');
+    await mkdir(keep);
+    await writeFile(join(keep, 'Keep.roughcut'), '{}');
+    await writeFile(join(keep, 'Second.roughcut'), '{}');
+    await deleteProjectFiles(join(keep, 'Keep.roughcut'));
+    assert.deepEqual(await readdir(keep), ['Second.roughcut']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

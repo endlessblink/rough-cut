@@ -4,6 +4,7 @@ import { openProjectFile, PROJECT_FILE_EXTENSION, saveProjectFile } from './proj
 import { toMediaUrl } from './media-protocol.mjs';
 import { buildThumbnailPath, extractThumbnail, fileExists } from './thumbnail-service.mjs';
 import { PROJECT_SIBLING_SPECS, siblingPathFor } from './project-sibling-specs.mjs';
+import { removeProjectFolderIfSolo } from './project-folders.mjs';
 
 // Re-export the table so existing consumers don't need to update their imports.
 export { PROJECT_SIBLING_SPECS } from './project-sibling-specs.mjs';
@@ -35,6 +36,7 @@ export async function deleteProjectFiles(projectPath, { onError } = {}) {
     }
   }
 
+  await removeProjectFolderIfSolo(projectPath);
   return { removed };
 }
 
@@ -47,10 +49,25 @@ export async function listRecordingProjectPaths(dir) {
     throw err;
   }
   const paths = [];
+  const folders = [];
   for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    if (!entry.name.toLowerCase().endsWith(PROJECT_FILE_EXTENSION)) continue;
-    paths.push(join(dir, entry.name));
+    if (entry.isFile() && entry.name.toLowerCase().endsWith(PROJECT_FILE_EXTENSION)) {
+      paths.push(join(dir, entry.name)); // projects made before folders: loose in the projects folder
+    } else if (entry.isDirectory() && !entry.name.startsWith('.')) {
+      folders.push(entry.name);
+    }
+  }
+  // One folder per video: look one level down for the project files inside.
+  for (const folder of folders) {
+    let inner;
+    try {
+      inner = await readdir(join(dir, folder), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of inner) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith(PROJECT_FILE_EXTENSION)) paths.push(join(dir, folder, entry.name));
+    }
   }
   return paths;
 }

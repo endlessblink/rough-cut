@@ -15,6 +15,7 @@ import type { ProjectAspectRatio } from '@rough-cut/project-model';
 import { CaretDown as PhosphorCaretDown, Clock as PhosphorClock, MagnifyingGlass as PhosphorMagnifyingGlass, Plus as PhosphorPlus, VideoCamera as PhosphorVideoCamera } from '@phosphor-icons/react';
 import { formatDuration, formatRelativeTime } from './format';
 import { formatProjectName } from './project-name.mjs';
+import { ProjectsFolderRow } from './projects-folder-row';
 
 const SIZE_STEPS: ReadonlyArray<SizeStep> = ['S', 'M', 'L'];
 
@@ -489,6 +490,7 @@ export function LibraryShell({
           ) : null}
         </div>
       </header>
+      <ProjectsFolderRow />
       {importError ? (
         <div
           role="alert"

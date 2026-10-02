@@ -195,6 +195,8 @@ export interface RecordingBackgroundStyle {
   readonly bgShadowOpacity: number;
   readonly bgShadowOffsetY?: number;
   readonly bgShadowOffsetX?: number;
+  /** Faint 12x12 grid behind the recording. Unset = on for a plain colour, off for wallpapers and gradients. */
+  readonly bgGrid?: boolean;
 }
 
 export type CropAspectRatio = 'free' | '16:9' | '9:16' | '1:1' | '4:3';

@@ -11,6 +11,7 @@ import {
 import { migrate } from '../../../../packages/project-model/dist/migrations.js';
 import { PROJECT_SIBLING_SPECS } from './project-sibling-specs.mjs';
 import { alignCursorEvents, deriveCursorAnchorsFromEventsLog } from '../shared/cursor-alignment.mjs';
+import { createProjectFolder } from './project-folders.mjs';
 
 export function createProjectForRecording({ recording, now = new Date() }) {
   const fps = recording.fps || 30;
@@ -793,9 +794,10 @@ export function createBlankProject({ name = 'Untitled', aspectRatio, now = new D
   return validateProject(merged);
 }
 
-export async function pickBlankProjectPath({ recordingsDir, baseName = 'Untitled' }) {
-  await mkdir(recordingsDir, { recursive: true });
-  return firstAvailableSuffixedPath(recordingsDir, baseName);
+export async function pickBlankProjectPath({ recordingsDir, baseName = 'Untitled', now = new Date() }) {
+  // A new project gets its own dated folder, like a recording does.
+  const folder = await createProjectFolder(recordingsDir, { date: now, name: baseName });
+  return firstAvailableSuffixedPath(folder, baseName);
 }
 
 export async function saveBlankProject({

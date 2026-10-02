@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForImport, createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCensorSourceFilters, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
   const previous = {
@@ -1498,6 +1498,87 @@ test('styled export args remove middle cut ranges from output video', () => {
   assert(joined.includes('setpts=N/FRAME_RATE/TB[base]'));
   assert(!args.includes('0:a?'));
   assert(args.includes('-an'));
+});
+
+test('styled export args cut the audio over the same ranges as the video instead of dropping it', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceFps: 30,
+    sourceTrimStartFrame: 0,
+    sourceTrimEndFrame: 300,
+    cutRanges: [{ startFrame: 0, endFrame: 90 }, { startFrame: 240, endFrame: 300 }],
+    sourceHasAudio: true,
+  });
+  const joined = args.join(' ');
+
+  assert(!args.includes('-an'));
+  assert(joined.includes("[0:a]aselect='not(gte(t\\,0)*lt(t\\,3)+gte(t\\,8)*lt(t\\,10))',asetpts=N/SR/TB[a]"));
+  assert.equal(args[args.indexOf('[a]') - 1], '-map');
+  assert(args.includes('aac'));
+});
+
+test('cut frame remap moves overlay frames past removed ranges and shortens the output', () => {
+  const remap = buildCutFrameRemap({
+    sourceIn: 0,
+    sourceOut: 10676,
+    cutRanges: [{ startFrame: 0, endFrame: 90 }, { startFrame: 10560, endFrame: 10676 }],
+  });
+
+  assert.equal(remap.active, true);
+  assert.equal(remap.removedFrames, 206);
+  assert.equal(remap.mapFrame(900), 810);
+  assert.equal(remap.mapFrame(30), 0);
+  assert.equal(remap.mapFrame(10600), 10470);
+});
+
+test('cut frame remap merges overlapping ranges and is the identity without cuts or with timeline segments', () => {
+  const merged = buildCutFrameRemap({ sourceIn: 0, sourceOut: 1000, cutRanges: [{ startFrame: 100, endFrame: 200 }, { startFrame: 150, endFrame: 250 }] });
+  assert.equal(merged.removedFrames, 150);
+  assert.equal(merged.mapFrame(300), 150);
+  assert.equal(merged.mapFrame(175), 100);
+
+  assert.equal(buildCutFrameRemap({ sourceIn: 0, sourceOut: 1000, cutRanges: [] }).active, false);
+  const segmented = buildCutFrameRemap({
+    sourceIn: 0,
+    sourceOut: 1000,
+    cutRanges: [{ startFrame: 100, endFrame: 200 }],
+    timelineSegments: [{ timelineIn: 0, timelineOut: 100, sourceIn: 0, sourceOut: 100 }],
+  });
+  assert.equal(segmented.active, false);
+  assert.equal(segmented.mapFrame(500), 500);
+});
+
+test('styled export draws the faint background grid behind everything only when asked', () => {
+  const base = { inputPath: '/tmp/source.mp4', outputPath: '/tmp/export.mp4', sourceFps: 30, sourceTrimEndFrame: 300 };
+  const filterOf = (args) => args[args.indexOf('-filter_complex') + 1];
+
+  const withGrid = filterOf(buildStyledExportArgs({ ...base, backgroundGrid: true }));
+  const backgroundLine = withGrid.split(';').find((part) => part.endsWith('[bg]'));
+  assert.match(backgroundLine, /geq=r='r\(X,Y\)\+\(148-r\(X,Y\)\)\*0\.18\*max\(/);
+  // The grid is part of [bg], before the screen, shadow and camera are laid over it.
+  assert.ok(withGrid.indexOf('mod(X+0.5') < withGrid.indexOf('[with_screen]'));
+
+  const withoutGrid = filterOf(buildStyledExportArgs({ ...base, backgroundGrid: false }));
+  assert.ok(!withoutGrid.includes('mod(X+0.5'));
+  assert.ok(!filterOf(buildStyledExportArgs(base)).includes('mod(X+0.5'));
+
+  const simple = buildSimpleStyledExportArgs({ ...base, backgroundGrid: true });
+  assert.ok(filterOf(simple).includes('mod(X+0.5'));
+});
+
+test('styled export args stay silent for cut ranges when the source has no audio', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceFps: 30,
+    sourceTrimEndFrame: 300,
+    cutRanges: [{ startFrame: 0, endFrame: 90 }],
+    sourceHasAudio: false,
+  });
+
+  assert(args.includes('-an'));
+  assert(!args.join(' ').includes('aselect'));
 });
 
 test('ffmpeg progress parser maps out_time to normalized export progress', () => {
