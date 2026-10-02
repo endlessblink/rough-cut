@@ -1287,6 +1287,42 @@ test('trimmed timeline export does not pad to the stale full recording length', 
   assert.equal(recording.timelineDurationFrames, 313);
 });
 
+test('zoom markers are source frames: export moves them through the clips like the preview does', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:01:44.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  const cut = withPrimaryTimelineClips(project, [
+    { id: 'screen-a', timelineIn: 0, timelineOut: 154, sourceIn: 409, sourceOut: 563 },
+    { id: 'screen-b', timelineIn: 154, timelineOut: 313, sourceIn: 2900, sourceOut: 3059 },
+  ], 3120);
+  const linkedGroupId = `linked:${project.assets[0].id}`;
+  const zoom = (id, startFrame, endFrame) => ({ id, kind: 'zoom', startFrame, endFrame, linkedGroupId, params: { marker: { id, startFrame, endFrame, strength: 0.5 } } });
+  const withZooms = {
+    ...cut,
+    timeline: {
+      ...cut.timeline,
+      markers: [
+        zoom('before-footage', 17, 394), // entirely before the first visible source frame (409)
+        zoom('inside-a', 439, 500), // source 439-500 → timeline 30-91
+        zoom('across-cut', 540, 2950), // runs over the removed middle → timeline 131-204
+      ],
+    },
+  };
+  const recording = resolveTimelineExportRecording(withZooms, getPrimaryRecording(withZooms));
+
+  assert.deepEqual(
+    recording.zoomMarkers.map((marker) => [marker.id, marker.startFrame, marker.endFrame]),
+    [['inside-a', 30, 91], ['across-cut', 131, 204]],
+  );
+});
+
 test('used-content export scope trims timeline gaps without changing source ranges', () => {
   const project = createProjectForRecording({
     recording: {

@@ -868,7 +868,18 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
         sourceOut: clip.sourceOut,
       }))
     : [];
-  const zoomMarkers = shiftMarkersForExport(timelineModel.zoomMarkers, timelineOffset, timelineDurationFrames);
+  // Zoom markers live in source-recording frames (the preview resolves them from the source
+  // frame under the playhead), so they are moved onto the timeline through the clips before
+  // anything on the timeline is built from them. A zoom whose footage was cut away is dropped,
+  // exactly as the preview never shows it.
+  const zoomMarkers = shiftMarkersForExport(
+    mapSourceMarkersToTimeline(
+      timelineModel.zoomMarkers.length > 0 ? timelineModel.zoomMarkers : recording.zoomMarkers,
+      timingSegments,
+    ),
+    timelineOffset,
+    timelineDurationFrames,
+  );
   const cutRanges = shiftMarkersForExport(timelineModel.cutRanges, timelineOffset, timelineDurationFrames);
 
   return {
@@ -886,7 +897,7 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
     camera: recording.camera && cameraClips[0]
       ? { ...recording.camera, sourceInFrames: cameraClips[0].sourceIn, timelineSegments: cameraTimelineSegments }
       : recording.camera,
-    zoomMarkers: zoomMarkers.length > 0 ? zoomMarkers : recording.zoomMarkers,
+    zoomMarkers,
     cutRanges: cutRanges.length > 0 ? cutRanges : recording.cutRanges,
   };
 }
@@ -914,7 +925,8 @@ function selectPrimaryTimelineModel(project, assetId) {
     cameraClips,
     timelineDurationFrames,
     cutRanges: markersForKind(document.timeline.markers, 'cut', linkedGroupId, timelineDurationFrames),
-    zoomMarkers: markersForKind(document.timeline.markers, 'zoom', linkedGroupId, timelineDurationFrames)
+    // Not clamped to the timeline: these are source frames and may lie past (or before) it.
+    zoomMarkers: markersForKind(document.timeline.markers, 'zoom', linkedGroupId, Number.MAX_SAFE_INTEGER)
       .map((marker) => marker.params?.marker && typeof marker.params.marker === 'object'
         ? { ...marker.params.marker, id: marker.id, startFrame: marker.startFrame, endFrame: marker.endFrame }
         : { id: marker.id, startFrame: marker.startFrame, endFrame: marker.endFrame }),
@@ -966,6 +978,27 @@ function mapCursorEventsToTimeline(cursorEvents, segments) {
     return [{
       ...event,
       frame: segment.timelineIn + (frame - segment.sourceIn),
+    }];
+  });
+}
+
+/**
+ * Source-frame ranges → timeline-frame ranges through the clips (`segments` carry
+ * timelineIn/Out and sourceIn/Out). A range spanning removed footage runs from its first
+ * visible frame to its last; a range with no visible footage disappears.
+ */
+export function mapSourceMarkersToTimeline(markers, segments) {
+  const ordered = [...(Array.isArray(segments) ? segments : [])].sort((a, b) => a.timelineIn - b.timelineIn);
+  return (Array.isArray(markers) ? markers : []).flatMap((marker) => {
+    if (!Number.isFinite(marker?.startFrame) || !Number.isFinite(marker?.endFrame)) return [];
+    const visible = ordered.filter((segment) => marker.endFrame > segment.sourceIn && marker.startFrame < segment.sourceOut);
+    if (visible.length === 0) return [];
+    const first = visible[0];
+    const last = visible[visible.length - 1];
+    return [{
+      ...marker,
+      startFrame: first.timelineIn + Math.max(0, marker.startFrame - first.sourceIn),
+      endFrame: last.timelineIn + (Math.min(marker.endFrame, last.sourceOut) - last.sourceIn),
     }];
   });
 }
