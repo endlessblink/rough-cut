@@ -1,16 +1,11 @@
-# Rough Cut MVP
+# Rough Cut
 
-Fresh MVP focused on reliable Linux/X11 screen recording.
+A screen recorder and editor for Linux (X11), built for tutorials, demos and product walkthroughs.
 
-MVP scope:
-
-- Capture screen-only MP4 via FFmpeg `x11grab`
-- Save recording metadata as a versioned `.roughcut` project file
-- Reopen project files
-- Play the recording in a basic editor view
-- Export to MP4
-
-Deferred until after the MVP is stable: camera, audio, cursor overlay, cursor zoom, effects, multi-track timeline, transitions, motion templates, AI, and recovery markers.
+- Record the screen, with optional camera and microphone, plus cursor and click data.
+- Trim, cut and zoom on one shared timeline; the viewer shows exactly what you will export.
+- Add animated graphics drawn over the video.
+- Export a finished MP4: background, rounded frame, camera, zooms, animations and sound. Every export is checked when it finishes, and each video lives in its own dated project folder.
 
 Useful commands:
 
@@ -54,3 +49,9 @@ The gate requires at least 60 minutes by default, rejects transcript fixtures,
 and records transcription, suggestion, finalize/reopen, memory, and export
 parity evidence. `--skip-export` and `--allow-short` are development-only
 shortcuts and do not satisfy the complete gate.
+
+## License
+
+Rough Cut is free software, released under the [GNU Affero General Public License v3.0](LICENSE). Everything in this repository is free to use, study, change and share under that licence.
+
+A paid Pro edition with new features may come later.

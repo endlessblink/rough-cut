@@ -1,6 +1,7 @@
 {
   "name": "rough-cut-mvp",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "build": "pnpm -r --sort build",
