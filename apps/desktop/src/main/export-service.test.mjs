@@ -220,7 +220,9 @@ test('raw timeline export args compact canonical edit segments with aligned audi
 
   assert(joined.includes('[0:v]trim=start_frame=0:end_frame=30'));
   assert(joined.includes('[0:v]trim=start_frame=60:end_frame=120'));
-  assert(joined.includes('[base_seg_0][base_seg_1]concat=n=2:v=1:a=0[base]'));
+  assert(joined.includes('[base_seg_0][base_seg_1]concat=n=2:v=1:a=0[base_unpadded]'));
+  // a source whose video stops early holds its last frame up to the planned length (3 s = 90 frames)
+  assert(joined.includes('[base_unpadded]tpad=stop_mode=clone:stop_duration=3,trim=end_frame=90,setpts=PTS-STARTPTS[base]'));
   assert(joined.includes('[0:a]atrim=start=0:end=1'));
   assert(joined.includes('[0:a]atrim=start=2:end=4'));
   assert(joined.includes('-map [base] -map [a]'));
@@ -998,7 +1000,7 @@ test('headless frame export args can mux timeline audio segments over rendered f
 
   assert(joined.includes('anullsrc=channel_layout=stereo:sample_rate=48000:d=3[audio_blank]'));
   assert(joined.includes('[1:a]atrim=start=0.5:end=2.5,asetpts=PTS-STARTPTS,adelay=1000:all=1[audio_seg_0]'));
-  assert(joined.includes('[audio_blank][audio_seg_0]amix=inputs=2:duration=first:dropout_transition=0[a]'));
+  assert(joined.includes('[audio_blank][audio_seg_0]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]'));
   assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '0:v', '-map', '[a]']);
   assert(!args.includes('-shortest'));
   assert(args.includes('aac'));
@@ -1326,7 +1328,8 @@ test('styled export args compose canonical timeline segments over real gaps', ()
   assert(!args.includes('-t'));
   assert(joined.includes('color=c=black:s=1280x720:r=30:d=1,format=rgba[base_gap_0]'));
   assert(joined.includes('[0:v]trim=start_frame=15:end_frame=75,setpts=PTS-STARTPTS,format=rgba[base_seg_0]'));
-  assert(joined.includes('[base_gap_0][base_seg_0]concat=n=2:v=1:a=0[base]'));
+  assert(joined.includes('[base_gap_0][base_seg_0]concat=n=2:v=1:a=0[base_unpadded]'));
+  assert(/\[base_unpadded\]tpad=stop_mode=clone:stop_duration=[\d.]+,trim=end_frame=\d+,setpts=PTS-STARTPTS\[base\]/.test(joined));
   assert(args.includes('-an'));
 });
 
@@ -1394,7 +1397,7 @@ test('styled export args can render timeline audio segments through filter audio
 
   assert(joined.includes('anullsrc=channel_layout=stereo:sample_rate=48000:d=3[audio_blank]'));
   assert(joined.includes('[0:a]atrim=start=0.5:end=2.5,asetpts=PTS-STARTPTS,adelay=1000:all=1[audio_seg_0]'));
-  assert(joined.includes('[audio_blank][audio_seg_0]amix=inputs=2:duration=first:dropout_transition=0[a]'));
+  assert(joined.includes('[audio_blank][audio_seg_0]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]'));
   assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '[v]', '-map', '[a]']);
   assert(args.includes('aac'));
 });

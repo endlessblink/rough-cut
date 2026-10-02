@@ -344,17 +344,22 @@ function compareWithEditor() {
   if (withShots.length === 0) { check('editor-parity', 'warn', 'no editor shots were taken'); return; }
   const norm = (src, dst) => run('convert', [src, '-resize', '640x360!', '-colorspace', 'Gray', dst]);
   const offsets = []; for (let o = -3; o <= 3.001; o += 0.5) offsets.push(Number(o.toFixed(1)));
-  const inRange = (s, o) => s.exportSec + o >= 0 && s.exportSec + o <= duration - 0.1;
+  // A sample planned past the real end (an export shorter than planned) is looked up at the last
+  // frame instead, so the compare never has an empty candidate list; the length check reports the gap.
+  const at = (s) => Math.max(0, Math.min(s.exportSec, duration - 0.15));
+  const inRange = (s, o) => at(s) + o >= 0 && at(s) + o <= duration - 0.1;
   const rows = []; const pairs = [];
   for (const s of withShots) {
     const ed = join(workDir, `ed_${sampleFile(s)}.png`); norm(s.editorShot, ed);
     const scores = offsets.filter((o) => inRange(s, o)).map((o) => {
       const f = join(workDir, `ex_${sampleFile(s)}_${o}.png`);
-      run('ffmpeg', ['-v', 'error', '-y', '-ss', String(Math.max(0, s.exportSec + o)), '-i', exportPath, '-frames:v', '1', f]);
+      run('ffmpeg', ['-v', 'error', '-y', '-ss', String(Math.max(0, at(s) + o)), '-i', exportPath, '-frames:v', '1', f]);
       const n = f.replace('.png', '_n.png'); norm(f, n);
       return { o, ssim: ssim(ed, n), file: f };
     });
-    const at0 = scores.find((x) => x.o === 0); const best = scores.reduce((a, b) => (b.ssim > a.ssim ? b : a));
+    const at0 = scores.find((x) => x.o === 0);
+    if (!at0) { rows.push({ label: s.label, exportSec: s.exportSec, timelineSec: s.timelineSec, ssimAtExpected: 0, bestOffsetSec: 0, bestSsim: 0, aligned: false }); continue; }
+    const best = scores.reduce((a, b) => (b.ssim > a.ssim ? b : a));
     const aligned = at0.ssim >= best.ssim - 0.05;
     rows.push({ label: s.label, exportSec: s.exportSec, timelineSec: s.timelineSec, ssimAtExpected: at0.ssim, bestOffsetSec: best.o, bestSsim: best.ssim, aligned });
     pairs.push([[`EDITOR ${s.label} (timeline ${s.timelineSec.toFixed(1)}s)`, s.editorShot], [`EXPORT ${s.exportSec.toFixed(1)}s ssim ${at0.ssim.toFixed(2)}${aligned ? '' : ` BEST ${best.o >= 0 ? '+' : ''}${best.o}s`}`, at0.file]]);

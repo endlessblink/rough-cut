@@ -2112,10 +2112,17 @@ function buildTimelineVideoBaseFilters({
     cursor = segment.timelineOut;
   });
   pushGap(totalFrames - cursor);
+  // A source whose video is shorter than the project says (recordings whose video stream stops a
+  // few frames before the audio) would end the picture before the sound. Hold the last frame up
+  // to the planned length; `trim` caps it, so a source that is long enough is untouched.
+  const joinedLabel = transparent ? outputLabel : `${outputLabel}_unpadded`;
   if (labels.length === 1) {
-    filters.push(`${labels[0]}copy[${outputLabel}]`);
+    filters.push(`${labels[0]}copy[${joinedLabel}]`);
   } else {
-    filters.push(`${labels.join('')}concat=n=${labels.length}:v=1:a=0[${outputLabel}]`);
+    filters.push(`${labels.join('')}concat=n=${labels.length}:v=1:a=0[${joinedLabel}]`);
+  }
+  if (!transparent) {
+    filters.push(`[${joinedLabel}]tpad=stop_mode=clone:stop_duration=${formatFilterNumber(totalFrames / fps)},trim=end_frame=${totalFrames},setpts=PTS-STARTPTS[${outputLabel}]`);
   }
   return filters;
 }
@@ -2154,7 +2161,7 @@ function buildTimelineAudioFilters({ segments, fps, durationFrames, audioInputLa
     );
     labels.push(`[${label}]`);
   });
-  filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=0[a]`);
+  filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=0:normalize=0[a]`);
   return filters;
 }
 
