@@ -1578,7 +1578,7 @@ export function buildStyledExportArgs({
   const segmentInputArgs = useSegmentInputs
     ? normalizedTimelineSegments.flatMap((segment) => [
         '-ss', formatFilterNumber(segment.sourceIn / fps),
-        '-t', formatFilterNumber(Math.max(1, segment.sourceOut - segment.sourceIn) / fps),
+        '-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps),
         '-i', inputPath,
       ])
     : [];
@@ -1601,7 +1601,7 @@ export function buildStyledExportArgs({
   const cameraSegmentInputArgs = useCameraSegmentInputs
     ? normalizedCameraTimelineSegments.flatMap((segment) => [
         '-ss', formatFilterNumber(Math.max(0, cameraSourceStartSeconds + segment.sourceIn / fps)),
-        '-t', formatFilterNumber(Math.max(1, segment.sourceOut - segment.sourceIn) / fps),
+        '-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps),
         '-i', cameraInputPath,
       ])
     : [];
@@ -2072,6 +2072,12 @@ function isCompactRawTimelineSegments(segments, durationFrames) {
     && normalized[normalized.length - 1].timelineOut === duration;
 }
 
+// A seeked input is cut by `-t` on packet timestamps, which are decode-ordered: with B-frames the
+// last few displayed frames of every segment fall outside the window and silently vanish (a
+// 4-segment, 9.4 s timeline came out 9.0 s). The input therefore reads a few frames past the
+// segment and the filter graph trims to the exact frame count.
+const SEGMENT_INPUT_TAIL_FRAMES = 8;
+
 function buildTimelineVideoBaseFilters({
   segments,
   sourceWidth,
@@ -2104,7 +2110,7 @@ function buildTimelineVideoBaseFilters({
     if (segmentInputLabels) {
       // The input is already seeked to this segment, so there is nothing left to trim
       // and — crucially — nothing for this branch to buffer while concat drains another.
-      filters.push(`${segmentInputLabels[index]}setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+      filters.push(`${segmentInputLabels[index]}setpts=PTS-STARTPTS,trim=end_frame=${Math.max(1, segment.sourceOut - segment.sourceIn)},format=rgba[${segmentLabel}]`);
     } else {
       filters.push(`${sourceLabel}trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
     }
