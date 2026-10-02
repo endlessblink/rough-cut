@@ -1888,7 +1888,10 @@ export function buildHeadlessFrameExportArgs({
 function buildStaticLoopFilter(fps = 30, durationSeconds = null) {
   const fpsValue = Number.isFinite(fps) && fps > 0 ? fps : 30;
   const duration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? `,trim=duration=${formatFilterNumber(durationSeconds)}` : '';
-  return `loop=loop=-1:size=1:start=0${duration},fps=${formatFilterNumber(fpsValue)},setpts=N/${formatFilterNumber(fpsValue)}/TB`;
+  // The still layers are generated at 1 fps. Trimming before `fps` quantises the length to whole
+  // seconds (a 9.4 s timeline came out 9.0 s, since overlay=shortest follows these layers), so
+  // the cut happens after they are already at the output frame rate.
+  return `loop=loop=-1:size=1:start=0,fps=${formatFilterNumber(fpsValue)},setpts=N/${formatFilterNumber(fpsValue)}/TB${duration}`;
 }
 
 function buildStyledVideoOutputArgs(videoEncoder = STYLED_VIDEO_ENCODERS.CPU) {

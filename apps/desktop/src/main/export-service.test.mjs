@@ -1740,6 +1740,20 @@ test('styled export args can use an exact background image', () => {
   assert(!joined.includes('crop=1920:1080'));
 });
 
+test('still background layers are cut to length after the frame-rate conversion, not before', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceFps: 30,
+    outputDurationSeconds: 9.4,
+  });
+  const filter = args[args.indexOf('-filter_complex') + 1];
+
+  // trim before fps would round 9.4 s down to a whole 9 s (the layers are 1 fps)
+  assert(!filter.includes('trim=duration=9.4,fps=30'));
+  assert(filter.includes('fps=30,setpts=N/30/TB,trim=duration=9.4'));
+});
+
 test('background expression falls back for invalid colors', () => {
   assert.equal(buildBackgroundExpression('bad', '#000000'), "r='232+8*X/W':g='235+-3*X/W':b='240+-8*X/W'");
 });
