@@ -64,8 +64,10 @@ test('studio window profile restores normal editor bounds', async () => {
     source.includes('window.maximize()'),
     'studio maximization must call the native BrowserWindow maximize API',
   );
+  // Reasserted once the native surface is visible, but never over a window already switched to the compact
+  // recorder profile (window-profile-guard.test.mjs covers the guard itself).
   assert.ok(
-    source.includes("window.once('ready-to-show', () => maximizeStudioWindow(window))"),
+    source.includes("window.once('ready-to-show', () => {") && source.includes('if (!studioWindowBoundsById.has(window.id)) maximizeStudioWindow(window);'),
     'studio maximization must be reasserted after the native surface is visible',
   );
 });
