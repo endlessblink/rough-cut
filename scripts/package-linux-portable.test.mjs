@@ -23,3 +23,9 @@ test('artifact ships our AGPL licence and keeps Electron\'s beside it; version c
   assert.match(packager, /cp\(join\(root, 'LICENSE'\)/);
   assert.match(packager, /version: desktopVersion/);
 });
+
+test('release artifact never bakes a machine-specific sandbox symlink; launcher falls back when the system blocks the sandbox', () => {
+  assert.match(packager, /ROUGH_CUT_RELEASE_ARTIFACT/);
+  assert.match(packager, /apparmor_restrict_unprivileged_userns/);
+  assert.match(packager, /--no-sandbox/);
+});
