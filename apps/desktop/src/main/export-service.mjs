@@ -1649,7 +1649,12 @@ export function buildStyledExportArgs({
         segmentInputLabels,
         outputLabel: 'base',
       })
-    : [`${sourceStabilizationTransform?.transformPath ? '[source_stabilized]' : '[0:v]'}setpts=PTS-STARTPTS${cutFilter}[base]`];
+    : buildSingleClipBaseFilters({
+        inputLabel: sourceStabilizationTransform?.transformPath ? '[source_stabilized]' : '[0:v]',
+        fps,
+        cutFilter,
+        outputFrames: Number.isFinite(outputDurationSeconds) && outputDurationSeconds > 0 ? Math.round(outputDurationSeconds * fps) : null,
+      });
   const sourceBaseTransformFilter = sourceStabilizationTransform?.transformPath
     ? `[0:v]${buildStabilizationTransformFilter({
       transformPath: sourceStabilizationTransform.transformPath,
@@ -1709,7 +1714,7 @@ export function buildStyledExportArgs({
       ? [
           useCameraTimelineSegments
             ? `[camera_base]${cameraScaleStep}[camera_scaled]`
-            : `${cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]'}setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
+            : `${cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]'}fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
           `nullsrc=s=${cameraFrame.w}x${cameraFrame.h}:r=1:d=1,format=gray,geq=lum='${cameraAlpha}',${staticLoop}[camera_mask]`,
           '[camera_scaled][camera_mask]alphamerge[camera_rounded]',
           `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
@@ -1822,7 +1827,12 @@ export function buildSimpleStyledExportArgs({
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
   const filters = [
     `nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba${backgroundGrid ? `,${buildBackgroundGridFilter()}` : ''},${staticLoop}[bg]`,
-    `[0:v]setpts=PTS-STARTPTS[base]`,
+    ...buildSingleClipBaseFilters({
+      inputLabel: '[0:v]',
+      fps,
+      cutFilter: '',
+      outputFrames: Number.isFinite(outputDurationSeconds) && outputDurationSeconds > 0 ? Math.round(outputDurationSeconds * fps) : null,
+    }),
     ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
     `${screenInput}scale=${screenRenderSize.w}:${screenRenderSize.h}:force_original_aspect_ratio=decrease,pad=${screenRenderSize.w}:${screenRenderSize.h}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba[screen]`,
     `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=gray,geq=lum='${screenAlpha}',${staticLoop}[screen_mask]`,
@@ -2056,6 +2066,20 @@ export function buildCutFrameRemap(recording) {
     return Math.max(0, frame - shift);
   };
   return { active: true, removedFrames, mapFrame };
+}
+
+// An un-split clip reads the recording straight into the graph. Screen recordings can have uneven
+// frame timing (a 0.27 s hole and 3213 frames in a 107.3 s recording), so the clip first lands on an
+// even frame grid, exactly like the segmented path, and holds its last frame up to the planned
+// length: the output is then the timeline length whatever the source's timestamps do (that
+// recording came out 3210 frames instead of 3219).
+function buildSingleClipBaseFilters({ inputLabel, fps, cutFilter, outputFrames }) {
+  const grid = `${inputLabel}fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS${cutFilter}`;
+  if (!Number.isFinite(outputFrames) || outputFrames <= 0) return [`${grid}[base]`];
+  return [
+    `${grid}[base_unpadded]`,
+    `[base_unpadded]tpad=stop_mode=clone:stop_duration=${formatFilterNumber(outputFrames / fps)},trim=end_frame=${outputFrames},setpts=PTS-STARTPTS[base]`,
+  ];
 }
 
 function buildCutSelectFilter(cutRanges, trimStartFrame) {

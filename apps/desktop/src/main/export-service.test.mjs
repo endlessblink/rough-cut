@@ -1406,7 +1406,7 @@ test('styled export args stabilize source before frame trim and timeline graph c
   const joined = args.join(' ');
 
   const filterStart = joined.indexOf("[0:v]vidstabtransform=input='/tmp/source.trf'");
-  const setptsStart = joined.indexOf('[source_stabilized]setpts=PTS-STARTPTS');
+  const setptsStart = joined.indexOf('[source_stabilized]fps=30,setpts=PTS-STARTPTS');
   assert(filterStart !== -1);
   assert(setptsStart > filterStart);
   assert(joined.includes('smoothing=46'));
@@ -1432,7 +1432,7 @@ test('styled export args stabilize linked camera before crop and overlay', () =>
   const joined = args.join(' ');
 
   const stabilize = joined.indexOf("[1:v]vidstabtransform=input='/tmp/camera.trf'");
-  const crop = joined.indexOf('[camera_stabilized]setpts=PTS-STARTPTS');
+  const crop = joined.indexOf('[camera_stabilized]fps=30,setpts=PTS-STARTPTS');
   assert(stabilize !== -1);
   assert(crop > stabilize);
 });
@@ -1821,7 +1821,7 @@ test('styled export args include cursor subtitle layer when provided', () => {
   });
   const joined = args.join(' ');
 
-  assert(joined.includes('[0:v]setpts=PTS-STARTPTS[base]'));
+  assert(joined.includes('[0:v]fps=30,setpts=PTS-STARTPTS[base]'));
   assert(joined.includes('[base]subtitles=/tmp/cursor.ass[with_cursor]'));
   assert(joined.includes('[with_cursor]crop=iw*1:ih*1'));
 });
@@ -1836,7 +1836,7 @@ test('styled export args overlay a camera input when provided', () => {
   const joined = args.join(' ');
 
   assert.deepEqual(args.slice(args.indexOf('/tmp/source.mp4') + 1, args.indexOf('/tmp/source.mp4') + 3), ['-i', '/tmp/camera.mp4']);
-  assert(joined.includes('[1:v]setpts=PTS-STARTPTS'));
+  assert(joined.includes('[1:v]fps=30,setpts=PTS-STARTPTS'));
   assert(joined.includes('[with_screen][camera_rounded]overlay='));
   assert(joined.includes('format=yuv420p[v]'));
 });
@@ -1942,7 +1942,40 @@ test('styled export args trim camera pre-roll before overlay', () => {
   });
   const joined = args.join(' ');
 
-  assert(joined.includes('[1:v]setpts=PTS-STARTPTS,trim=start_frame=30,setpts=PTS-STARTPTS,scale='));
+  assert(joined.includes('[1:v]fps=30,setpts=PTS-STARTPTS,trim=start_frame=30,setpts=PTS-STARTPTS,scale='));
+});
+
+test('an un-split clip lands on an even frame grid and holds its last frame to the planned length (uneven-timing recordings keep their length)', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceFps: 30,
+    sourceTrimStartFrame: 0,
+    sourceTrimEndFrame: 3219,
+    cameraInputPath: '/tmp/camera.mp4',
+    outputDurationSeconds: 3219 / 30,
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('[0:v]fps=30,setpts=PTS-STARTPTS[base_unpadded]'));
+  assert(joined.includes('[base_unpadded]tpad=stop_mode=clone:stop_duration=107.3,trim=end_frame=3219,setpts=PTS-STARTPTS[base]'));
+  assert(joined.includes('[1:v]fps=30,setpts=PTS-STARTPTS'));
+});
+
+test('an un-split clip with a hidden range plans its output frames without the cut', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceFps: 30,
+    sourceTrimStartFrame: 0,
+    sourceTrimEndFrame: 300,
+    cutRanges: [{ startFrame: 100, endFrame: 130 }],
+    outputDurationSeconds: 270 / 30,
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes("[0:v]fps=30,setpts=PTS-STARTPTS,select='not(between(n\\,100\\,129))',setpts=N/FRAME_RATE/TB[base_unpadded]"));
+  assert(joined.includes('trim=end_frame=270'));
 });
 
 test('styled export args use crop+sendcmd when a zoom layer is present', () => {
