@@ -27,3 +27,7 @@ test('top Record button flips back to Record once the state is no longer recordi
   assert.match(src, /className=\{recording\.state === 'recording' \? 'stop primaryAction' : 'primaryAction'\}/);
   assert.match(src, /setRecording\(status\)/);
 });
+
+test('top-bar primary Record/Stop button is hidden while the Recording tab shows its live panel', () => {
+  assert.match(src, /\{liveTakePanelShown \? null : \(\s*<button\s+type="button"\s+onClick=\{handlePrimaryRecordAction\}/);
+});

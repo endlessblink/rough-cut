@@ -1510,6 +1510,7 @@ function App() {
             <button type="button" className="iconButton" onClick={redoProjectEdit} disabled={editHistory.redo.length === 0} aria-label="Redo last edit" title="Redo last edit">
               <Icon name="redo" />
             </button>
+            {liveTakePanelShown ? null : (
             <button
               type="button"
               onClick={handlePrimaryRecordAction}
@@ -1520,6 +1521,7 @@ function App() {
               <Icon name={recording.state === 'recording' ? 'stop' : 'record'} />
               {recordingActionPending ? (recording.state === 'recording' ? 'Stopping...' : 'Starting...') : recording.state === 'recording' ? 'Stop recording' : 'Record'}
             </button>
+            )}
             {recording.state === 'recording' && !liveTakePanelShown ? (
               <button type="button" onClick={togglePauseRecording} className="secondary" disabled={recordingActionPending} data-recording-action="pause-resume">
                 <Icon name={recording.paused ? 'play' : 'pause'} />
