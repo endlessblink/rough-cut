@@ -250,3 +250,20 @@ test('probeVideoStreamsTiming returns per-stream timing and prefers duration sec
   assert.equal(streams[1].startTimeSeconds, 0.066);
   assert.equal(streams[1].timeBase, '1/1000');
 });
+
+test('finalization probes never decode the whole file (no -count_frames); they walk packets only', async () => {
+  const { probeMp4Integrity, probeVideoTiming, probeVideoStreamsTiming } = await import('./media-probe.mjs');
+  const seen = [];
+  const runner = async (_cmd, args) => {
+    seen.push(args);
+    return { code: 0, stderr: '', stdout: JSON.stringify({ streams: [{ index: 0, nb_read_packets: '70', duration: '2.3', avg_frame_rate: '30/1' }], format: {} }) };
+  };
+  const integrity = await probeMp4Integrity('x.mp4', { runner });
+  await probeVideoTiming('x.mp4', { runner });
+  await probeVideoStreamsTiming('x.mkv', { runner });
+  for (const args of seen) {
+    assert.ok(!args.includes('-count_frames'), `slow decode flag present: ${args.join(' ')}`);
+    assert.ok(args.includes('-count_packets'));
+  }
+  assert.equal(integrity.decodedFrames, 70);
+});

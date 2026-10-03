@@ -166,10 +166,12 @@ async function runDeferredFinalization({
   let finalizedRecording = recordingForProject;
   try {
     console.info('[recording:stop] phase=deep-validate-begin');
-    captureRemuxWarning('screen', remuxWarnings, await validateRemuxedMp4(recordingForProject.outputPath));
-    if (recordingForProject.camera?.outputPath) {
-      captureRemuxWarning('camera', remuxWarnings, await validateRemuxedMp4(recordingForProject.camera.outputPath));
-    }
+    const [screenValidation, cameraValidation] = await Promise.all([
+      validateRemuxedMp4(recordingForProject.outputPath),
+      recordingForProject.camera?.outputPath ? validateRemuxedMp4(recordingForProject.camera.outputPath) : null,
+    ]);
+    captureRemuxWarning('screen', remuxWarnings, screenValidation);
+    if (cameraValidation) captureRemuxWarning('camera', remuxWarnings, cameraValidation);
     console.info('[recording:stop] phase=deep-validate-done');
     timing.mark('deep-validate');
   } catch (err) {
