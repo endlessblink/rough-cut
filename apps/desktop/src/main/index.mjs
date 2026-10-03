@@ -1,3 +1,4 @@
+import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect } from './region-selector.mjs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
@@ -2108,6 +2109,12 @@ function showRecordingTray(window) {
 }
 
 function updateRecordingTray(window, state) {
+  const plan = planTrayUpdate({ hasTray: Boolean(recordingTray && !recordingTray.isDestroyed()), hasWindow: Boolean(window), state });
+  if (plan === 'destroy') {
+    destroyRecordingTray();
+    return;
+  }
+  if (plan === 'skip') return;
   if (window) recordingTrayWindow = window;
   if (!recordingTray || recordingTray.isDestroyed()) {
     if (hiddenRecordingStopping && state === 'recording') return;

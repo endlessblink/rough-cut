@@ -1460,6 +1460,9 @@ function App() {
     );
   }
 
+  // The Recording tab's live panel already shows state + Stop/Pause/Restart/Cancel;
+  // repeating them in the top bar and banner made duplicate, drifting states.
+  const liveTakePanelShown = activeAppView === 'recording' && recording.state === 'recording' && !error;
   const recordingViewCompact = activeAppView === 'recording' && recording.state !== 'recording';
 
   return (
@@ -1517,19 +1520,19 @@ function App() {
               <Icon name={recording.state === 'recording' ? 'stop' : 'record'} />
               {recordingActionPending ? (recording.state === 'recording' ? 'Stopping...' : 'Starting...') : recording.state === 'recording' ? 'Stop recording' : 'Record'}
             </button>
-            {recording.state === 'recording' ? (
+            {recording.state === 'recording' && !liveTakePanelShown ? (
               <button type="button" onClick={togglePauseRecording} className="secondary" disabled={recordingActionPending} data-recording-action="pause-resume">
                 <Icon name={recording.paused ? 'play' : 'pause'} />
                 {recording.paused ? 'Resume' : 'Pause'}
               </button>
             ) : null}
-            {recording.state === 'recording' ? (
+            {recording.state === 'recording' && !liveTakePanelShown ? (
               <button type="button" onClick={restartRecording} className="secondary" disabled={recordingActionPending} data-recording-action="restart">
                 <Icon name="redo" />
                 Restart
               </button>
             ) : null}
-            {recording.state === 'recording' ? (
+            {recording.state === 'recording' && !liveTakePanelShown ? (
               <button type="button" onClick={cancelRecording} className="secondary" disabled={recordingActionPending}>
                 Cancel take
               </button>
@@ -1557,7 +1560,7 @@ function App() {
           </div>
         </header>
         {shortcutsOpen ? <ShortcutsDialog onClose={() => setShortcutsOpen(false)} /> : null}
-        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} warning={recordingWarning} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
+        {liveTakePanelShown ? null : <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} warning={recordingWarning} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />}
         {activeCameraFailure ? (
           <CameraFailureBanner
             error={activeCameraFailure.error}
