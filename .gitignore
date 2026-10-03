@@ -15,6 +15,16 @@ recordings/
 *.mp4
 *.roughcut
 
+# internal agent notes (kept locally, not published)
+/HANDOFF.md
+/CLAUDE.md
+/AGENTS.md
+/CONTEXT.md
+/PERPLEXITY_QUERIES.md
+/AI_CREATIVE_STUDIO_DIRECTION.md
+docs/handoffs/
+scripts/.codex-live-proof-state.mjs
+
 # agent and tool folders
 .claude/
 .agents/
