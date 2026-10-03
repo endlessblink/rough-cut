@@ -1,5 +1,51 @@
 # Handoff — 2026-10-02 20:40 Friday (export you can trust → release prep)
 
+## NEWEST UPDATE (2026-10-03 afternoon, instance at ~25% context, handing over) — READ THIS FIRST
+### Noam's words to me this session (in order; all earlier ones are in the sections below)
+1. "Read HANDOFF.md ... continue exactly where it left off, and start by confirming what you understood."
+2. "do all you can do yourself - I will run the recording"
+3. (zoom framing + GIF) "...review tool no longer crashes... I haven't yet looked at editor-versus-export pictures from the fixed build. + do the gif"; "Keep Rough Cut open until the final check finishes. finish all of it"
+4. "can I record the video needed in the meantime?" (answered: not until screen is free)
+5. "recorded my video, what now?" -> I found a 107 s recording with NO sound (mic switch was off, saved recordMic:false)
+6. "yes add that clear warning + a warning about the camera off maybe?" -> done (fda636f)
+7. "all at once" (rebuild + re-record) / "clsoed it, build it" -> rebuilt main dist
+8. "the recording page while recording should be diffrent and not show the same one as before recording" (+ screenshot of the MAIN window's Recording tab still showing the 'Ready to record / Start recording' panel while Recording 0:02) -> fixed (a767461)
+9. LAST message, UNANSWERED: "hI recorded a video, please check it" -> THE FIRST THING TO DO: find the newest folder in ~/Documents/Rough Cut MVP/recordings/ (newer than 2026-10-03_1228 Recording), check it (see steps).
+
+10. (arrived during handover, UNANSWERED) "also the recording tab at the top keep working when stopping the recording from the recording tab which shouldnt happen" -> Meaning (to confirm by reproducing): in the main window, the top 'Recording' tab / top-bar controls keep behaving as live/active after Stop is pressed from the Recording tab (stale recording state: red banner / LIVE CAPTURE / Stop-Pause-Restart buttons or the tab itself keep "working" after the take is stopped). Reproduce with the packaged build and a real stop; check recording.state transitions, the StateBanner and the top-bar buttons in main.tsx (activeAppView 'recording', recordingViewCompact, handlePrimaryRecordAction, toggleRecording) and fix.
+11. (arrived during handover, UNANSWERED) "did you tests the recording tab design, functionality, recording light funcitonality in the dock etc?" -> HONEST ANSWER: NO. I only screenshotted the live panel on a clean test profile under xvfb (all sources Off) and ran tsc + design-token tests; I did NOT test: Stop/Pause/Restart/Cancel from the Recording tab end to end, state after stopping (see item 10), real mic/camera showing "Recording", a wide-width (>=1900px) real screenshot of the Recording tab, the dock/taskbar recording light (recording indicator in the dock/tray while recording and clearing after stop; see skill electron-linux-tray-state and main/index.mjs tray/dock state code), nor smoke:recording-flow-ui / packaged smokes after the change. Tell Noam this plainly, then do all of it with the packaged app (own the verification; CLAUDE.md "Real visual verification" applies: pnpm visual:real-editor for the Recording edit surface, plus screenshots of the Recording tab before / during / after a take, check the dock light on/off) and run the recording smokes (smoke:recording-flow-ui, smoke:recording-startup-ui, smoke:package*) under xvfb where possible.
+
+### Done this session (all committed LOCALLY on fix/freecut-timeline-sync-foundation; NOTHING pushed)
+- 5cbb204 export: timeline audio no longer 6 dB quieter (amix normalize off); hold last frame when source ends early; review compare no longer crashes past export end
+- 8c5c3b2 export: multi-segment export no longer drops ~3 frames per segment
+- 33c955f export: zoom markers are source frames; mapped through clips so export zooms where editor does (was a REAL editor-vs-export zoom mismatch)
+- cac8c53 export: segment branches on even frame grid (Raw export 0.27 s too long on uneven-timing recordings; Raw picture+sound now 15.57 s). Raw audio quietness = the source mic (-61.6 dB), not export.
+- f724e56 export: unsplit clip lands on even frame grid + holds last frame to planned length. Evidence: Noam's 2026-10-03_1228 recording re-exported at exactly 107.30 s / 3219 frames (was 107.00); looked at start/end sheet.
+- 3d9f812 README demo GIF (3.4 MB, 59 frames, shows real terminal text + Noam's face — Noam must say "GIF ok" before anything public) + capture scripts under scripts/demo-gif
+- fda636f recorder pre-record panel: amber heads-up rows "Microphone is off. This recording will have no voice. [Turn on]" and "Camera is off..." (main.tsx PreRecordPanel + .preRecordHeadsUp* in styles.css). Seen in a real screenshot for camera-off; mic-off row same markup, not seen on screen.
+- a767461 main-window Recording tab now renders RecordingLauncherActive (variant="workspace") while recording: timer, take-sources list (Microphone / System audio / Camera: Recording|Off), Stop/Pause/Restart/Cancel. Verified on a test profile screenshot under xvfb (all Off there). NOT yet seen by Noam with real mic+camera. The standalone recorder window already had its own live panel (now also shows the take-sources list).
+- Tests at last check: desktop 996, project-model 274, tsc clean, design-tokens 4/4. (Not re-run after a767461 except tsc + design-tokens earlier.)
+- Main dist REBUILT after a767461 (13+ min before this handoff; verified the new class names are in the packaged bundle). Noam's dock app was closed at that time. A leftover review electron of mine (from a timed-out first review run) had been blocking the rebuild; I killed it.
+
+### Findings to keep in mind
+- Noam's 12:28 recording had micSource:null / expectedAudio:false because the saved pre-record pref was recordMic:false (the mic toggle silently stayed off). That is why the warning was added. Recorder code: apps/desktop/src/renderer/src/main.tsx ~L656-664 (silently turns recordMic off if the preferred mic is missing) — a candidate follow-up: warn there too.
+- CLAUDE.md of this repo says the main editor window has only two views (Projects, Recording edit) and Recording must never be a view, but this build's main window HAS 'Recording' (and 'AI') tabs (APP_VIEWS drift). Pre-existing; not touched; tell Noam if relevant, do not "fix" without asking.
+- The review tool (`node scripts/export-review/review-export.mjs <project> [--reuse <mp4>]`) takes ~31 s per editor shot on a 107 s project; a full run can exceed 25 min if run via ctx_shell with a short timeout. Use a long timeout or --reuse. Run the review from the repackaged worktree/scratch copy, NOT from main dist unless main dist is current (it is current as of a767461).
+- Page screenshot in packaged Electron stalls; use webContents.capturePage via app.evaluate (my script: /media/endlessblink/data/.dev-tmp/endlessblink/claude-1000/-media-endlessblink-data-my-projects-ai-development-content-creation-rough-cut-mvp/f3f74920-42a5-4a40-975e-9920dab09c88/scratchpad/live-shot.mjs; it needs the repackaged copy rc-main-copy; playwright is loaded from /home/endlessblink/.npm-global/lib/node_modules/playwright).
+- styles.css still carries ANOTHER agent's uncommitted hunk; I commit my hunks via a hand-built blob (git hash-object + update-index --cacheinfo; scripts at ~/.cache/termfleet/tmp/stage2.py as a template). Do not commit CLAUDE.md, MASTER_PLAN.md, apps/desktop/src/renderer/src/graphics-panel.tsx, styles.css (their hunk), docs/DECISION-go-free-2026-09-30.md.
+
+### What to do NOW (exact next steps)
+1. Answer Noam's last message: find his new recording (`ls -t ~/Documents/Rough\ Cut\ MVP/recordings | head -3`; newest dated folder after 2026-10-03_1228). Check: mic recorded? (ffprobe the .mp4/.mkv/-camera.mp4 for an audio stream; read the *.diagnostics.json: media.hasAudio / expectedAudio; events.log micSource non-null), camera file present, lengths, cursor file. Check that Rough Cut (the open app) is the new build (dock app started after the rebuild). Then export it through the allowed form `node scripts/export-review/review-export.mjs "<project .roughcut path>"` as a single command with a long timeout (foreground; ~8-12 min incl. editor shots; takes over the display, so tell Noam not to touch the screen), then LOOK at every sheet (overview, start-and-end, editor-vs-export, zoom) and check sound (level, sync) yourself. Report in plain words, 1-4 sentences + at most two options (All at once / One at a time). If sound is missing again, find out why (saved pref? new warning shown?).
+2. If a real bug appears: fix with regression test, run desktop tests/tsc, commit only own files.
+3. Still pending from Noam: "GIF ok" (or changes) on the README demo GIF; his three release decisions (README ok / build AppImage / push vs release). Never push, release or post without his explicit word.
+4. Not yet done from the plan: secrets scan, TASK-270 launch post drafts (files only), CI plausibility (desktop tests may need xvfb/ffmpeg on CI), organizer --apply (needs his go + app closed), AppImage (waits for "build AppImage").
+
+### Hard rules (unchanged)
+No live cloud LLM calls (stand-in only); images only via GPT Image 2 / Seedream 5 (local Qwen drafts OK); nothing leaves this PC without his explicit word; golden rule = only his verbal confirmation proves it works; UI/CSS work needs a design skill (impeccable) + real screenshots; export checks only via the review tool as one command (render-guard); lean-ctx blocks inline node -e and file-write redirects in ctx_shell (use the Write tool or the Bash tool for background jobs); git output via `rtk proxy git ...`; final replies: 1-4 plain sentences + at most two options ("All at once"/"One at a time"), no paths/code, never tell Noam to run commands; declare a cockpit task line if a task tool exists.
+
+### First command
+`cd /media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp && rtk proxy git status --short && rtk proxy git log --oneline -9 && ls -t "$HOME/Documents/Rough Cut MVP/recordings" | head -4; pgrep -af 'rough-cut-mvp-linux-x64/electron' | grep -v type= | cut -c1-120; date +"%Y-%m-%d %H:%M %A"`
+
 ## NEWEST UPDATE (2026-10-02 ~21:45, instance at ~50% context, handing over) — READ THIS FIRST
 ### Noam's messages to this instance, in his words
 1. (after I confirmed understanding and answered "what is undone for publishing") "so run everytthing needed to get done" -> GO for every remaining automatable item (CI/security/licence files, TASK-266, Raw/vertical export, package smokes, picker fallback). Nothing pushed/published still requires his explicit word.
@@ -176,3 +222,26 @@ Package: `pnpm package:linux`; packaged app at dist/rough-cut-mvp-linux-x64 (doc
 Start by: asking the user how a real Generate looks with a chosen Style + Creativity, then read the
 newest file in ~/.config/rough-cut-mvp/claude-log to judge the actual HTML Claude produced.
 ```
+
+<!-- termfleet:user-words:begin -->
+## Noam's messages, verbatim (added automatically by termfleet-child: his opening request, then the newest; the last one is the newest)
+Treat these as instructions/corrections that may not appear above. Do not skip any.
+
+1. 2026-10-02T18:06:00.322Z
+   > Read /media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp/HANDOFF.md. It is a handoff from the previous instance: continue exactly where it left off, and start by confirming what you understood.
+
+2. 2026-10-02T18:38:13.305Z
+   > so run everytthing needed to get done
+
+3. 2026-10-02T18:38:29.069Z
+   > and what are the other agent's work inside of rough-cut-mvp?
+
+4. 2026-10-02T18:51:55.739Z
+   > Three small things are open. The vertical export is 0.4 s shorter than expected, but a normal 16:9 export of the same project is also 0.4 s short, so it isn't a vertical-format problem.  check if this is an isuse. + I couldn't confirm that the zoom framing matches between the editor and the export. The automatic comparison crashed on a small bug in the review tool, and the stills I compared disagreed. Raw export's audio is nearly silent only because the source microphone is. all of these
+
+5. 2026-10-02T18:52:15.302Z
+   > - Demo GIF: I haven't made it yet. I need your OK to screen-capture the packaged app. - create ot
+
+6. 2026-10-02T18:52:32.329Z
+   > - Close the Rough Cut app so I can rebuild it, then do one real recording with camera and mic plus one export. length matters? should I add animations or anything else?
+<!-- termfleet:user-words:end -->
