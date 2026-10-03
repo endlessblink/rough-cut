@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, 'release/**']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -20,8 +20,12 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Install system tools used by the tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg xvfb xdotool
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @rough-cut/project-model build
+      # Builds every package, including the desktop app (Vite renderer + main bundle).
+      - run: pnpm build
       - run: pnpm typecheck
-      - run: pnpm --filter @rough-cut/project-model test
-      - run: pnpm --filter @rough-cut/desktop test
+      # Repo-level script tests, then the tests of every package.
+      - run: node --test scripts/repo-regression.test.mjs scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/ui-visual-proof.test.mjs scripts/package-linux-portable.test.mjs
+      - run: pnpm -r --sort test
