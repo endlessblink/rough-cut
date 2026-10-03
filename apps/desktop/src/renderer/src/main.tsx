@@ -1406,6 +1406,7 @@ function App() {
         ) : null}
         {recording.state === 'recording' ? (
           <RecordingLauncherActive
+            takeSources={{ mic: recordMic, system: recordSystemAudio, camera: recordCamera }}
             elapsedMs={elapsedMs}
             paused={Boolean(recording.paused)}
             actionPending={recordingActionPending}
@@ -1568,6 +1569,22 @@ function App() {
         <div key={activeAppView} className="editorContentSlot" data-ui-region="editor-content-slot" data-active-app-view={activeAppView}>
           {activeAppView === 'recording' ? (
             <section className="recordingWorkspace" data-ui-region="recording-workspace">
+              {recording.state === 'recording' ? (
+                <RecordingLauncherActive
+                  variant="workspace"
+                  takeSources={{ mic: recordMic, system: recordSystemAudio, camera: recordCamera }}
+                  elapsedMs={elapsedMs}
+                  paused={Boolean(recording.paused)}
+                  actionPending={recordingActionPending}
+                  cameraFailure={null}
+                  onStop={toggleRecording}
+                  onPauseResume={togglePauseRecording}
+                  onRestart={restartRecording}
+                  onCancel={cancelRecording}
+                  onRetryWithoutCamera={stopAndRetryWithCameraOff}
+                  onContinueScreenOnly={() => undefined}
+                />
+              ) : (
               <PreRecordPanel
                 variant="workspace"
                 micSources={micSources}
@@ -1604,6 +1621,7 @@ function App() {
                 onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
                 onSelectCaptureRegion={selectScreenRegion}
               />
+              )}
             </section>
           ) : activeAppView === 'projects' ? (
             <LibraryShell
@@ -2149,9 +2167,14 @@ function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
   );
 }
 
-function RecordingLauncherActive({ elapsedMs, paused, actionPending, cameraFailure, onStop, onPauseResume, onRestart, onCancel, onRetryWithoutCamera, onContinueScreenOnly }: { elapsedMs: number; paused: boolean; actionPending: boolean; cameraFailure: { error: string } | null; onStop: () => void; onPauseResume: () => void; onRestart: () => void; onCancel: () => void; onRetryWithoutCamera: () => void; onContinueScreenOnly: () => void }) {
+function RecordingLauncherActive({ variant = 'dialog', takeSources, elapsedMs, paused, actionPending, cameraFailure, onStop, onPauseResume, onRestart, onCancel, onRetryWithoutCamera, onContinueScreenOnly }: { variant?: 'dialog' | 'workspace'; takeSources: { mic: boolean; system: boolean; camera: boolean }; elapsedMs: number; paused: boolean; actionPending: boolean; cameraFailure: { error: string } | null; onStop: () => void; onPauseResume: () => void; onRestart: () => void; onCancel: () => void; onRetryWithoutCamera: () => void; onContinueScreenOnly: () => void }) {
+  const takeRows: Array<{ id: string; icon: 'mic' | 'volume' | 'camera'; label: string; on: boolean }> = [
+    { id: 'mic', icon: 'mic', label: 'Microphone', on: takeSources.mic },
+    { id: 'system', icon: 'volume', label: 'System audio', on: takeSources.system },
+    { id: 'camera', icon: 'camera', label: 'Camera', on: takeSources.camera },
+  ];
   return (
-    <div className="preRecordOverlay" data-ui-region="recording-launcher-active">
+    <div className={variant === 'workspace' ? 'preRecordWorkspacePanel' : 'preRecordOverlay'} data-ui-region="recording-launcher-active">
       <section className="preRecordPanel recordingActivePanel">
         <div className="preRecordHeader">
           <div>
@@ -2160,6 +2183,15 @@ function RecordingLauncherActive({ elapsedMs, paused, actionPending, cameraFailu
           </div>
           <span className={`liveDot ${paused ? 'paused' : ''}`} aria-hidden="true" />
         </div>
+        <ul className="recordingTakeSources" aria-label="What this take is recording">
+          {takeRows.map((row) => (
+            <li key={row.id} className={`recordingTakeSource${row.on ? ' on' : ''}`} data-take-source={row.id} data-on={row.on ? 'true' : 'false'}>
+              <Icon name={row.icon} />
+              <span>{row.label}</span>
+              <small>{row.on ? 'Recording' : 'Off'}</small>
+            </li>
+          ))}
+        </ul>
         <button type="button" onClick={onStop} className="stop primaryAction" disabled={actionPending}>
           <Icon name="stop" />
           {actionPending ? 'Stopping...' : 'Stop recording'}

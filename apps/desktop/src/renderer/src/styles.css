@@ -615,7 +615,14 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .preRecordHeadsUpRow strong { font-weight: var(--weight-semibold); }
 .preRecordHeadsUpRow small { color: var(--subtle); font-size: var(--text-xs); }
 .preRecordFooter .preflightGrid.details { bottom: calc(100% + 0.35rem); top: auto; }
-.recordingActivePanel { max-width: 26rem; }
+.recordingActivePanel { grid-template-rows: none; max-width: 26rem; }
+.recordingTakeSources { display: grid; gap: var(--space-1); list-style: none; margin: 0; padding: 0; width: 100%; }
+.recordingTakeSource { align-items: center; background: var(--panel-alt); border: 1px solid var(--line); border-radius: var(--radius-md); color: var(--subtle); display: flex; font-size: var(--text-sm); gap: var(--space-2); padding: var(--space-1) var(--space-2); }
+.recordingTakeSource .icon { flex: 0 0 auto; height: 0.95rem; margin: 0; width: 0.95rem; }
+.recordingTakeSource span { flex: 1 1 auto; }
+.recordingTakeSource small { font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.recordingTakeSource.on { color: var(--text); }
+.recordingTakeSource.on small { color: #bbf7d0; }
 .recordingActivePanel .primaryAction,
 .recordingActivePanel .secondary { width: 100%; }
 .recordingActiveActions { display: grid; gap: var(--space-2); grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
