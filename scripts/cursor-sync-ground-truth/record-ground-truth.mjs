@@ -6,19 +6,20 @@
 // the jump is visible in the telemetry. Comparing where each lands measures
 // the end-to-end residual offset of the aligned cursor data — independent of
 // any preview/player behavior.
+import { loadPlaywright as loadSharedPlaywright } from '../lib/load-playwright.mjs';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const REPO = '/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp';
+const REPO = process.env.ROUGH_CUT_REPO ?? fileURLToPath(new URL('../..', import.meta.url));
 const OUT_DIR = dirname(fileURLToPath(import.meta.url));
 
 const { createRecordingSession } = await import(`${REPO}/apps/desktop/src/main/recording/recording-session.mjs`);
 const { readCursorViaXdotool } = await import(`${REPO}/apps/desktop/src/main/recording/xdotool-cursor.mjs`);
 const { alignCursorEvents } = await import(`${REPO}/apps/desktop/src/shared/cursor-alignment.mjs`);
-const { chromium } = createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright');
+const { chromium } = loadSharedPlaywright();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const POS_A = [1000, 470];

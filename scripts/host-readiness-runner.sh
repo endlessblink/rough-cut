@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp"
+REPO="${ROUGH_CUT_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}"
 REQUEST_FILE="${ROUGH_CUT_HOST_READINESS_REQUEST_FILE:-/tmp/rough-cut-host-readiness-runner.request}"
 STATUS_FILE="${ROUGH_CUT_HOST_READINESS_STATUS_FILE:-/tmp/rough-cut-host-readiness-runner.status.json}"
 LOG_FILE="${ROUGH_CUT_HOST_READINESS_LOG_FILE:-/tmp/rough-cut-host-readiness-runner.log}"
-REAL_PROJECT_PATH="${ROUGH_CUT_REAL_PROJECT_PATH:-/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-07-25T12-18-16-524Z.roughcut}"
+REAL_PROJECT_PATH="${ROUGH_CUT_REAL_PROJECT_PATH:-$HOME/Documents/Rough Cut MVP/recordings/rough-cut-2026-07-25T12-18-16-524Z.roughcut}"
 
 cd "$REPO"
 
@@ -74,7 +74,7 @@ run_gate() {
       ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 \
       VITE_ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 \
       ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=canvas2d \
-      ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' \
+      ROUGH_CUT_PLAYBACK_PROJECT_PATH="${ROUGH_CUT_PLAYBACK_PROJECT_PATH:-$HOME/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut}" \
       ROUGH_CUT_PLAYBACK_SEEK_SEC=77 \
       ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY=1 \
       ROUGH_CUT_PLAYBACK_ADVANCE_SEC=0.5 \
@@ -93,7 +93,7 @@ run_gate() {
       ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 \
       VITE_ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 \
       ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=canvas2d \
-      ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' \
+      ROUGH_CUT_PLAYBACK_PROJECT_PATH="${ROUGH_CUT_PLAYBACK_PROJECT_PATH:-$HOME/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut}" \
       ROUGH_CUT_PLAYBACK_SEEK_SEC=77 \
       ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY=1 \
       ROUGH_CUT_PLAYBACK_ADVANCE_SEC=0.5 \

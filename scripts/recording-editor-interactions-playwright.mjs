@@ -1,3 +1,4 @@
+import { loadPlaywright as loadSharedPlaywright } from './lib/load-playwright.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -1223,7 +1224,7 @@ try {
 
 function loadPlaywright() {
   try { return createRequire(import.meta.url)('playwright'); } catch {}
-  return createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright');
+  return loadSharedPlaywright();
 }
 
 async function restoreOriginalRecording(page) {

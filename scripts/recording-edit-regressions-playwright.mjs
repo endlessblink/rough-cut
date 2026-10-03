@@ -9,6 +9,7 @@
 // Usage: node scripts/recording-edit-regressions-playwright.mjs <project.roughcut>
 // Needs a built renderer (pnpm --filter @rough-cut/desktop build). Wrap in
 // `xvfb-run -a` on a busy desktop: throttled windows produce fake stalls.
+import { loadPlaywright as loadSharedPlaywright } from './lib/load-playwright.mjs';
 import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,7 +25,7 @@ const fps = 30;
 
 function loadPlaywright() {
   try { return createRequire(import.meta.url)('playwright'); } catch {
-    return createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright');
+    return loadSharedPlaywright();
   }
 }
 

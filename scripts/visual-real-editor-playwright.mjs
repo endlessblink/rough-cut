@@ -1,3 +1,4 @@
+import { loadPlaywright as loadSharedPlaywright } from './lib/load-playwright.mjs';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -157,5 +158,5 @@ function findAppWindow(rootPid) {
 
 function loadPlaywright() {
   try { return createRequire(import.meta.url)('playwright'); } catch {}
-  return createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright');
+  return loadSharedPlaywright();
 }

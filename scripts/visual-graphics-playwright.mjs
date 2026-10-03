@@ -6,6 +6,7 @@
 // delete it and undo. Screenshots every state and writes a report.
 //
 // Usage: node scripts/visual-graphics-playwright.mjs <real-project.roughcut>
+import { loadPlaywright as loadSharedPlaywright } from './lib/load-playwright.mjs';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -153,7 +154,7 @@ try {
 
 function loadPlaywright() {
   try { return createRequire(import.meta.url)('playwright'); } catch {}
-  return createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright');
+  return loadSharedPlaywright();
 }
 
 // Screenshots are evidence, not assertions: the packaged app's page.screenshot

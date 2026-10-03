@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp"
+REPO="${ROUGH_CUT_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}"
 
 echo "== Strict profile config check =="
 codex --strict-config --profile electron-test --help >/tmp/codex-electron-profile-help.out

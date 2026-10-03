@@ -13,6 +13,7 @@
 // Automated gates can only say "not obviously broken": the REPORT always ends with the
 // pictures that must be opened and judged by eye. Nothing here proves an export is good.
 
+import { loadPlaywright as loadSharedPlaywright } from '../lib/load-playwright.mjs';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -458,5 +459,5 @@ function sampleFile(s) { return `${String(Math.round(s.exportSec * 10)).padStart
 function listFiles(dir) { return spawnSync('ls', [dir], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean); }
 function loadPlaywright() {
   try { return createRequire(import.meta.url)('playwright'); } catch {}
-  return createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright');
+  return loadSharedPlaywright();
 }

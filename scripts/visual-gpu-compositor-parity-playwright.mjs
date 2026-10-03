@@ -1,3 +1,4 @@
+import { loadPlaywright as loadSharedPlaywright } from './lib/load-playwright.mjs';
 import { createRequire } from 'node:module';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -575,7 +576,7 @@ function loadPlaywright() {
     return createRequire(import.meta.url)('playwright');
   } catch {
     try {
-      return createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright');
+      return loadSharedPlaywright();
     } catch {
       // Fall through to npm global root.
     }

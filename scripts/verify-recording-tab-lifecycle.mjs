@@ -1,13 +1,14 @@
 // Drives the PACKAGED app through real takes from the main window's Recording tab
 // and asserts the UI at each phase: before / during / paused / after stop / after cancel.
 // Run under xvfb: xvfb-run -a -s "-screen 0 1920x1080x24" node scripts/verify-recording-tab-lifecycle.mjs
+import { loadPlaywright as loadSharedPlaywright } from './lib/load-playwright.mjs';
 import { mkdtemp, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { _electron } = require('/home/endlessblink/.npm-global/lib/node_modules/playwright');
+const { _electron } = loadSharedPlaywright();
 
 const root = process.cwd();
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');

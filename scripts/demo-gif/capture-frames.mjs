@@ -5,6 +5,7 @@
 //
 // Then: python3 scripts/demo-gif/make-gif.py <out-dir> docs/assets/demo.gif
 // No video encoder is involved: frames are window screenshots at canonical timeline times.
+import { loadPlaywright as loadSharedPlaywright } from '../lib/load-playwright.mjs';
 import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -24,7 +25,7 @@ const electronPath = join(packaged, 'electron');
 const appPath = join(packaged, 'resources', 'app');
 if (!existsSync(electronPath)) throw new Error('The packaged app is missing; run pnpm package:linux first.');
 let playwright;
-try { playwright = createRequire(import.meta.url)('playwright'); } catch { playwright = createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright'); }
+try { playwright = createRequire(import.meta.url)('playwright'); } catch { playwright = loadSharedPlaywright(); }
 
 const app = await playwright._electron.launch({
   executablePath: electronPath,

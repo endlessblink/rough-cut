@@ -1,3 +1,4 @@
+import { loadPlaywright as loadSharedPlaywright } from './lib/load-playwright.mjs';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -109,5 +110,5 @@ try {
 
 function loadPlaywright() {
   try { return createRequire(import.meta.url)('playwright'); } catch {}
-  return createRequire('/home/endlessblink/.npm-global/lib/node_modules/playwright/package.json')('playwright');
+  return loadSharedPlaywright();
 }

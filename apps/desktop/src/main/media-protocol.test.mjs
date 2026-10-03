@@ -7,8 +7,8 @@ import { createMediaFetchResponse, createMediaFileResponse, parseByteRange, toMe
 
 test('toMediaUrl encodes local file paths for the media protocol', () => {
   assert.equal(
-    toMediaUrl('/home/endlessblink/Documents/Rough Cut MVP/recordings/capture.mp4'),
-    'media://file/%2Fhome%2Fendlessblink%2FDocuments%2FRough%20Cut%20MVP%2Frecordings%2Fcapture.mp4',
+    toMediaUrl('/home/user/Documents/Rough Cut MVP/recordings/capture.mp4'),
+    'media://file/%2Fhome%2Fuser%2FDocuments%2FRough%20Cut%20MVP%2Frecordings%2Fcapture.mp4',
   );
 });
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp"
+REPO="${ROUGH_CUT_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}"
 REQUEST_FILE="/tmp/rough-cut-task246-host-runner.request"
 STATUS_FILE="/tmp/rough-cut-task246-host-runner.status.json"
 LOG_FILE="/tmp/rough-cut-task246-host-runner.log"

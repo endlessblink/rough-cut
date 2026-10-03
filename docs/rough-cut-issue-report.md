@@ -31,10 +31,10 @@ Artifacts are only accepted when they are newer than the packaged renderer. An
 older artifact describes a build that is no longer shipping, so it is rejected
 rather than reported as proof.
 
-- **packaged-runtime-gate** — report: `/media/endlessblink/data/.dev-tmp/endlessblink/rough-cut-package-smoke-JKZDqQ/runtime-report.json`
-- **real-editor-renders-real-media** — report: `/tmp/rc-real-editor-latest/real-editor-report.json` — screenshot: `/tmp/rc-real-editor-latest/real-editor.png` — sha256: `47e11a3cbd13619bd7a4d68f25d5f1e0387d0de4434798ecda0e298b24e1319a` — project: `/home/endlessblink/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`
-- **editor-pane-switch-e2e** — report: `/tmp/rough-cut-pane-switch-1786215580987/pane-switch-report.json` — screenshot: `/tmp/rough-cut-pane-switch-1786215580987/pane-switch-final.png` — sha256: `9488d2ffa394578c30a07ecd011202cee6e7feb68c92918d233ba7a7b01b3379` — project: `/home/endlessblink/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`
-- **editor-recording-edit-sync** — report: `/tmp/rc-edit-sync-final-latest/editor-recording-edit-sync-report.json` — project: `/home/endlessblink/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`
+- **packaged-runtime-gate** — report: `/tmp/rough-cut-package-smoke-JKZDqQ/runtime-report.json`
+- **real-editor-renders-real-media** — report: `/tmp/rc-real-editor-latest/real-editor-report.json` — screenshot: `/tmp/rc-real-editor-latest/real-editor.png` — sha256: `47e11a3cbd13619bd7a4d68f25d5f1e0387d0de4434798ecda0e298b24e1319a` — project: `~/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`
+- **editor-pane-switch-e2e** — report: `/tmp/rough-cut-pane-switch-1786215580987/pane-switch-report.json` — screenshot: `/tmp/rough-cut-pane-switch-1786215580987/pane-switch-final.png` — sha256: `9488d2ffa394578c30a07ecd011202cee6e7feb68c92918d233ba7a7b01b3379` — project: `~/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`
+- **editor-recording-edit-sync** — report: `/tmp/rc-edit-sync-final-latest/editor-recording-edit-sync-report.json` — project: `~/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`
 - **export-page-ui-e2e** — report: `/tmp/rc-export-latest/export-entrypoints-report.json`
 - **preview-export-frame-parity** — report: `/tmp/rc-parity-latest/preview-export-parity-report.json` — screenshot: `/tmp/rc-parity-latest/preview-frame.png`
 
