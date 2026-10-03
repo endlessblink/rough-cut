@@ -365,7 +365,8 @@ type CaptureDisplay = { id: string; label: string; primary: boolean; scaleFactor
 type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number; absoluteX?: number; absoluteY?: number; displayId?: string | null; displayLabel?: string | null };
 type RecordingPreflightOptions = { recordMic: boolean; recordSystemAudio: boolean; recordCamera: boolean; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureMode: CaptureMode; captureRegion?: CaptureRegion | null };
 type RecordingPreflightCheck = { id: string; label: string; severity: 'ok' | 'warn' | 'critical'; detail: string };
-type RecordingPreflightStatus = { status: 'ok' | 'warn' | 'critical'; checkedAt: string; recordingsDir: string; display?: { x?: number; y?: number; width?: number; height?: number }; capture: { mode: CaptureMode; width: number; height: number; fps: number }; disk?: { freeBytes: number | null; severity: RecordingPreflightCheck['severity']; detail: string }; checks: RecordingPreflightCheck[] };
+type RecordingInstallHint = { family: 'apt' | 'dnf' | 'pacman' | null; commands: Array<{ family: string; label: string; command: string }> };
+type RecordingPreflightStatus = { status: 'ok' | 'warn' | 'critical'; missingTools?: string[]; installHint?: RecordingInstallHint | null; checkedAt: string; recordingsDir: string; display?: { x?: number; y?: number; width?: number; height?: number }; capture: { mode: CaptureMode; width: number; height: number; fps: number }; disk?: { freeBytes: number | null; severity: RecordingPreflightCheck['severity']; detail: string }; checks: RecordingPreflightCheck[] };
 type InspectorGroupId = 'canvas' | 'recording' | 'screen' | 'zoom' | 'cursor' | 'camera' | 'export' | 'diagnostics';
 type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string; markerId?: string };
 type TrimInfo = { startFrame: number; endFrame: number; startSec: number; endSec: number; durationSec: number; isTrimmed: boolean };
@@ -1982,7 +1983,8 @@ function PreRecordPanel({
 }) {
   const isDialog = variant === 'dialog';
   const dialogRef = useDialogFocusTrap<HTMLDivElement>(isDialog, onClose);
-
+  const blockingChecks = (preflightStatus?.checks ?? []).filter((check) => check.severity === 'critical');
+  const startBlocked = blockingChecks.length > 0;
 
   return (
     <div
@@ -2086,6 +2088,8 @@ function PreRecordPanel({
 
         </div>
 
+        {blockingChecks.length > 0 ? <PreflightBlockingNotice status={preflightStatus} blockingChecks={blockingChecks} /> : null}
+
         {!recordMic || !recordCamera ? (
           <div className="preRecordHeadsUp" data-ui-region="pre-record-heads-up" role="status">
             {!recordMic ? (
@@ -2113,7 +2117,7 @@ function PreRecordPanel({
           <PreflightSummary status={preflightStatus} />
           <div className="preRecordActions">
             <button type="button" className="secondary" onClick={onClose} disabled={actionPending} data-open-editor="pre-record">Open editor</button>
-            <button type="button" className="primaryAction" onClick={onStart} disabled={actionPending} data-recording-start="pre-record">
+            <button type="button" className="primaryAction" onClick={onStart} disabled={actionPending || startBlocked} title={startBlocked ? 'Fix the problem shown above before recording' : undefined} aria-describedby={startBlocked ? 'preflight-blocking-notice' : undefined} data-recording-start="pre-record" data-start-blocked={startBlocked ? 'true' : undefined}>
               <Icon name="record" />
               {actionPending ? 'Starting...' : 'Start recording'}
             </button>
@@ -2437,6 +2441,53 @@ function shortSourceId(sourceName: string, index: number) {
   const videoMatch = sourceName.match(/\/dev\/(video\d+)/u);
   if (videoMatch?.[1]) return videoMatch[1];
   return `${index + 1}`;
+}
+
+function PreflightBlockingNotice({ status, blockingChecks }: { status: RecordingPreflightStatus | null; blockingChecks: RecordingPreflightCheck[] }) {
+  const [copied, setCopied] = React.useState<string | null>(null);
+  const missing = new Set(status?.missingTools ?? []);
+  const toolIsBlocking = blockingChecks.some((check) => check.id === 'ffmpeg' || check.id === 'ffprobe');
+  const commands = toolIsBlocking ? status?.installHint?.commands ?? [] : [];
+  const copyCommand = (command: string) => {
+    void navigator.clipboard?.writeText(command).then(() => {
+      setCopied(command);
+      window.setTimeout(() => setCopied((current) => (current === command ? null : current)), 2000);
+    }).catch(() => undefined);
+  };
+  return (
+    <div className="preflightBlocking" id="preflight-blocking-notice" data-ui-region="preflight-blocking-notice" role="alert">
+      <Icon name="settings" />
+      <div className="preflightBlockingBody">
+        <strong>Rough Cut can't record yet.</strong>
+        {blockingChecks.map((check) => (
+          <p key={check.id} data-blocking-check={check.id}>{blockingCheckCopy(check)}</p>
+        ))}
+        {commands.length > 0 ? (
+          <div className="preflightInstall" data-ui-region="preflight-install-hint">
+            <span>{commands.length === 1 ? 'Install what is missing with this command in a terminal, then reopen Rough Cut:' : 'Install what is missing with the command for your system, then reopen Rough Cut:'}</span>
+            {commands.map((entry) => (
+              <div key={entry.family} className="preflightInstallRow">
+                {commands.length > 1 ? <small>{entry.label}</small> : null}
+                <code>{entry.command}</code>
+                <button type="button" className="secondary compact" onClick={() => copyCommand(entry.command)}>{copied === entry.command ? 'Copied' : 'Copy'}</button>
+              </div>
+            ))}
+            {missing.has('xdotool') || missing.has('xinput') ? <small>This also adds the cursor tools, so the cursor follows your recording.</small> : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function blockingCheckCopy(check: RecordingPreflightCheck): string {
+  switch (check.id) {
+    case 'ffmpeg': return 'FFmpeg is not installed. It records and saves your video.';
+    case 'ffprobe': return 'FFprobe is not installed. It comes with FFmpeg and checks your saved video.';
+    case 'session': return 'You are on a Wayland desktop. Rough Cut records on X11 only: log out and choose the X11 / Xorg session at the login screen.';
+    case 'destination': return `There is not enough free disk space to record safely. ${check.detail}.`;
+    default: return `${check.label}: ${check.detail}`;
+  }
 }
 
 function PreflightSummary({ status }: { status: RecordingPreflightStatus | null }) {

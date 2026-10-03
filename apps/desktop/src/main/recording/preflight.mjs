@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { isXinputAvailable } from './xinput-button-listener.mjs';
 import { isXdotoolAvailable } from './xdotool-cursor.mjs';
+import { buildInstallHint, readDistroFamily } from './missing-tools-hint.mjs';
 
 const MIN_FREE_BYTES_30_MIN = 8 * 1024 * 1024 * 1024;
 const MIN_FREE_BYTES_60_MIN = 16 * 1024 * 1024 * 1024;
@@ -34,8 +35,14 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
     optionalSourceCheck('camera', 'Camera', options.recordCamera, selectedCamera, cameraSources.length),
   ];
 
+  const missingTools = [['ffmpeg', ffmpegAvailable], ['ffprobe', ffprobeAvailable], ['xdotool', xdotoolAvailable], ['xinput', xinputAvailable]]
+    .filter(([, available]) => !available)
+    .map(([id]) => id);
+
   return {
     status: summarizeSeverity(checks),
+    missingTools,
+    installHint: buildInstallHint(missingTools, readDistroFamily()),
     checkedAt: new Date().toISOString(),
     recordingsDir,
     display,

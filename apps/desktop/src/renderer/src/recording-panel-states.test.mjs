@@ -31,3 +31,12 @@ test('top Record button flips back to Record once the state is no longer recordi
 test('top-bar primary Record/Stop button is hidden while the Recording tab shows its live panel', () => {
   assert.match(src, /\{liveTakePanelShown \? null : \(\s*<button\s+type="button"\s+onClick=\{handlePrimaryRecordAction\}/);
 });
+
+test('critical preflight checks block Start recording with a visible notice', () => {
+  assert.match(src, /const blockingChecks = \(preflightStatus\?\.checks \?\? \[\]\)\.filter\(\(check\) => check\.severity === 'critical'\)/);
+  assert.match(src, /const startBlocked = blockingChecks\.length > 0/);
+  assert.match(src, /<button type="button" className="primaryAction" onClick=\{onStart\} disabled=\{actionPending \|\| startBlocked\}[^>]*data-recording-start="pre-record"/);
+  assert.match(src, /\{blockingChecks\.length > 0 \? <PreflightBlockingNotice/);
+  assert.match(src, /data-ui-region="preflight-blocking-notice" role="alert"/);
+  assert.match(src, /installHint\?\.commands/);
+});
