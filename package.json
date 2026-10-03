@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r --sort build",
-    "test": "node --test scripts/repo-regression.test.mjs scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/ui-visual-proof.test.mjs && pnpm build && pnpm -r --sort test",
+    "test": "node --test scripts/repo-regression.test.mjs scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/ui-visual-proof.test.mjs scripts/package-linux-portable.test.mjs && pnpm build && pnpm -r --sort test",
     "typecheck": "pnpm -r --sort typecheck",
     "smoke:mvp": "pnpm --filter @rough-cut/project-model build && node scripts/smoke-mvp.mjs",
     "smoke:real-recording": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-real-recording.mjs",
@@ -52,7 +52,8 @@
     "visual:real-editor": "node scripts/visual-real-editor-playwright.mjs",
     "playback:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/playback-timeline-playwright.mjs",
     "dev:playback-debug": "ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH=/tmp/rough-cut-playback-debug.json pnpm dev",
-    "package:linux": "pnpm verify:recording-editor-skill && pnpm verify:recording-editor-design && pnpm build && node scripts/package-linux.mjs",
+    "package:linux": "pnpm build && node scripts/package-linux.mjs",
+    "package:linux:verified": "pnpm verify:recording-editor-skill && pnpm verify:recording-editor-design && pnpm package:linux",
     "prepare:linux:dock": "bash scripts/prepare-linux-dock.sh",
     "dock": "bash scripts/prepare-linux-dock.sh",
     "logs:live": "bash scripts/rough-cut-live-logs.sh",

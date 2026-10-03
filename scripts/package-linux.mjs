@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const root = process.cwd();
+const desktopVersion = JSON.parse(await readFile(join(root, 'apps/desktop/package.json'), 'utf8')).version ?? '0.0.0';
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appRoot = join(artifactRoot, 'resources', 'app');
 const scopedPackageRoot = join(appRoot, 'node_modules', '@rough-cut');
@@ -46,7 +47,7 @@ await writeFile(
   `${JSON.stringify(
     {
       name: 'rough-cut-mvp-packaged',
-      version: '0.1.0',
+      version: desktopVersion,
       type: 'module',
       main: 'apps/desktop/src/main/index.mjs',
       dependencies: { zod: '^3.24.0' },
@@ -58,15 +59,23 @@ await writeFile(
 
 await writeFile(
   join(artifactRoot, 'run.sh'),
-  '#!/usr/bin/env bash\nset -euo pipefail\nDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nROOT_DIR="$(cd "$DIR/../.." && pwd)"\nSESSION_RUNTIME="/run/user/$(id -u)"\nif [[ -z "${XDG_RUNTIME_DIR:-}" && -d "$SESSION_RUNTIME" ]]; then export XDG_RUNTIME_DIR="$SESSION_RUNTIME"; fi\nif [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "$SESSION_RUNTIME/bus" ]]; then export DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSION_RUNTIME/bus"; fi\nexport ROUGH_CUT_LOAD_BUILT_RENDERER=1\nexport ROUGH_CUT_STARTUP_MODE=editor\nexport ROUGH_CUT_TRANSCRIPTION_LANGUAGE=he\nexport ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH="${ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH:-/tmp/rough-cut-runtime-report.json}"\nif [[ -x "$ROOT_DIR/.venv-transcription/bin/python" && -e "$ROOT_DIR/.transcription-model" ]]; then\n  TRANSCRIPTION_SITE="$ROOT_DIR/.venv-transcription/lib/python3.12/site-packages"\n  export ROUGH_CUT_FASTER_WHISPER_PYTHON="$ROOT_DIR/.venv-transcription/bin/python"\n  export ROUGH_CUT_FASTER_WHISPER_MODEL_PATH="$ROOT_DIR/.transcription-model"\n  export ROUGH_CUT_FASTER_WHISPER_DEVICE=cuda\n  export ROUGH_CUT_FASTER_WHISPER_COMPUTE_TYPE=int8_float16\n  export ROUGH_CUT_FASTER_WHISPER_LIBRARY_PATH="$TRANSCRIPTION_SITE/nvidia/cublas/lib:$TRANSCRIPTION_SITE/nvidia/cudnn/lib"\nfi\nexec "$DIR/electron" "$DIR/resources/app" "$@"\n',
+  '#!/usr/bin/env bash\nset -euo pipefail\nDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nROOT_DIR="$(cd "$DIR/../.." && pwd)"\nSESSION_RUNTIME="/run/user/$(id -u)"\nif [[ -z "${XDG_RUNTIME_DIR:-}" && -d "$SESSION_RUNTIME" ]]; then export XDG_RUNTIME_DIR="$SESSION_RUNTIME"; fi\nif [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "$SESSION_RUNTIME/bus" ]]; then export DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSION_RUNTIME/bus"; fi\nexport ROUGH_CUT_LOAD_BUILT_RENDERER=1\nexport ROUGH_CUT_STARTUP_MODE=editor\nif [[ "${ROUGH_CUT_USE_LOCAL_VENV:-}" == "1" && -x "$ROOT_DIR/.venv-transcription/bin/python" && -e "$ROOT_DIR/.transcription-model" ]]; then\n  TRANSCRIPTION_SITE="$ROOT_DIR/.venv-transcription/lib/python3.12/site-packages"\n  export ROUGH_CUT_FASTER_WHISPER_PYTHON="$ROOT_DIR/.venv-transcription/bin/python"\n  export ROUGH_CUT_FASTER_WHISPER_MODEL_PATH="$ROOT_DIR/.transcription-model"\n  export ROUGH_CUT_FASTER_WHISPER_DEVICE=cuda\n  export ROUGH_CUT_FASTER_WHISPER_COMPUTE_TYPE=int8_float16\n  export ROUGH_CUT_FASTER_WHISPER_LIBRARY_PATH="$TRANSCRIPTION_SITE/nvidia/cublas/lib:$TRANSCRIPTION_SITE/nvidia/cudnn/lib"\nfi\nexec "$DIR/electron" "$DIR/resources/app" "$@"\n',
   { mode: 0o755 },
 );
 
 await writeFile(
   join(artifactRoot, 'dock-launch.sh'),
-  '#!/usr/bin/env bash\nset -euo pipefail\nDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nif [[ " $* " == *" --user-data-dir="* ]]; then\n  exec "$DIR/run.sh" "$@"\nfi\nBUNDLE_PATH=""\nfor candidate in "$DIR"/resources/app/apps/desktop/dist/renderer/assets/index-*.js; do\n  if [[ -f "$candidate" ]]; then BUNDLE_PATH="$candidate"; break; fi\ndone\nif [[ -z "$BUNDLE_PATH" ]]; then echo "Packaged renderer bundle is missing" >&2; exit 1; fi\nBUNDLE_ID="$(basename "$BUNDLE_PATH" .js)"\nCONFIG_ROOT="${XDG_CONFIG_HOME:-/home/endlessblink/.config}"\nPROFILE_ROOT="$CONFIG_ROOT/rough-cut-mvp/dock/$BUNDLE_ID"\nmkdir -p "$PROFILE_ROOT"\nexec "$DIR/run.sh" "--user-data-dir=$PROFILE_ROOT" "$@"\n',
+  '#!/usr/bin/env bash\nset -euo pipefail\nDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nif [[ " $* " == *" --user-data-dir="* ]]; then\n  exec "$DIR/run.sh" "$@"\nfi\nBUNDLE_PATH=""\nfor candidate in "$DIR"/resources/app/apps/desktop/dist/renderer/assets/index-*.js; do\n  if [[ -f "$candidate" ]]; then BUNDLE_PATH="$candidate"; break; fi\ndone\nif [[ -z "$BUNDLE_PATH" ]]; then echo "Packaged renderer bundle is missing" >&2; exit 1; fi\nBUNDLE_ID="$(basename "$BUNDLE_PATH" .js)"\nCONFIG_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}"\nPROFILE_ROOT="$CONFIG_ROOT/rough-cut-mvp/dock/$BUNDLE_ID"\nmkdir -p "$PROFILE_ROOT"\nexec "$DIR/run.sh" "--user-data-dir=$PROFILE_ROOT" "$@"\n',
   { mode: 0o755 },
 );
+
+// Electron ships its own MIT LICENSE at the artifact root; ours (AGPL-3.0) must
+// be the one people see, with Electron's kept beside it.
+await rename(join(artifactRoot, 'LICENSE'), join(artifactRoot, 'LICENSE.electron')).catch(() => undefined);
+await cp(join(root, 'LICENSE'), join(artifactRoot, 'LICENSE'));
+for (const name of ['THIRD_PARTY_NOTICES.md', 'README.md']) {
+  await cp(join(root, name), join(artifactRoot, name)).catch(() => undefined);
+}
 
 console.info(JSON.stringify({ ok: true, artifactRoot, executable: join(artifactRoot, 'electron') }, null, 2));
 
