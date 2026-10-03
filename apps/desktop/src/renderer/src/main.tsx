@@ -2063,6 +2063,29 @@ function PreRecordPanel({
 
         </div>
 
+        {!recordMic || !recordCamera ? (
+          <div className="preRecordHeadsUp" data-ui-region="pre-record-heads-up" role="status">
+            {!recordMic ? (
+              <div className="preRecordHeadsUpRow" data-heads-up="mic-off">
+                <Icon name="mic" />
+                <span><strong>Microphone is off.</strong> This recording will have no voice.</span>
+                {micSources.length > 0 ? (
+                  <button type="button" className="secondary compact" onClick={() => onRecordMicChange(true)} disabled={actionPending}>Turn on</button>
+                ) : <small>No microphone found</small>}
+              </div>
+            ) : null}
+            {!recordCamera ? (
+              <div className="preRecordHeadsUpRow" data-heads-up="camera-off">
+                <Icon name="camera" />
+                <span><strong>Camera is off.</strong> No camera picture will be recorded.</span>
+                {cameraSources.length > 0 ? (
+                  <button type="button" className="secondary compact" onClick={() => onRecordCameraChange(true)} disabled={actionPending}>Turn on</button>
+                ) : <small>No camera found</small>}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="preRecordFooter">
           <PreflightSummary status={preflightStatus} />
           <div className="preRecordActions">

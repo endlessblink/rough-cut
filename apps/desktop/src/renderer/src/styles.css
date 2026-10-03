@@ -608,6 +608,12 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .preRecordHeader h2 { font-size: var(--text-lg); letter-spacing: -0.03em; }
 .preRecordFooter { border-top: 1px solid var(--line); flex: 0 0 auto; justify-content: space-between; padding-top: var(--space-1-5); }
 .preRecordActions { align-items: center; display: flex; gap: var(--space-2); }
+.preRecordHeadsUp { display: grid; flex: 0 0 auto; gap: var(--space-1); }
+.preRecordHeadsUpRow { align-items: center; background: rgb(245 158 11 / 0.08); border: 1px solid rgb(245 158 11 / 0.28); border-radius: var(--radius-md); color: var(--text); display: flex; font-size: var(--text-sm); gap: var(--space-2); padding: var(--space-1) var(--space-2); }
+.preRecordHeadsUpRow .icon { color: #fde68a; flex: 0 0 auto; height: 0.95rem; margin: 0; width: 0.95rem; }
+.preRecordHeadsUpRow span { flex: 1 1 auto; min-width: 0; }
+.preRecordHeadsUpRow strong { font-weight: var(--weight-semibold); }
+.preRecordHeadsUpRow small { color: var(--subtle); font-size: var(--text-xs); }
 .preRecordFooter .preflightGrid.details { bottom: calc(100% + 0.35rem); top: auto; }
 .recordingActivePanel { max-width: 26rem; }
 .recordingActivePanel .primaryAction,
