@@ -1,6 +1,16 @@
 {
   "name": "rough-cut-mvp",
   "private": true,
+  "description": "A free screen recorder and editor for Linux (X11): record, trim, zoom, add animated graphics and export MP4.",
+  "author": "Noam Naumovsky",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endlessblink/rough-cut.git"
+  },
+  "homepage": "https://github.com/endlessblink/rough-cut#readme",
+  "bugs": {
+    "url": "https://github.com/endlessblink/rough-cut/issues"
+  },
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {

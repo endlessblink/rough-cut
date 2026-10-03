@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Rough Cut version
+      placeholder: 0.1.0-beta
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distro and desktop
+      placeholder: Ubuntu 24.04, KDE Plasma 6, X11
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      placeholder: NVIDIA RTX 3060, driver 550
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: Relevant lines from ~/.config/rough-cut-mvp/logs/app-runtime.log. Remove anything private.
+      render: text

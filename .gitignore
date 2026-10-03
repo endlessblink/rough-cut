@@ -8,3 +8,18 @@ recordings/
 .omx/
 .venv-transcription/
 .transcription-model
+
+# secrets and local media
+.env*
+*.mkv
+*.mp4
+*.roughcut
+
+# agent and tool folders
+.claude/
+.agents/
+.codex/
+.kiro/
+.impeccable/
+BlenderMCP/
+applications/
