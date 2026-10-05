@@ -1,0 +1,232 @@
+<!doctype html>
+<!--
+THESIS: A screen take can become a considered video; one real editor image and its actual export prove the journey.
+OWN-WORLD: Deep plum, violet/coral dusk, oversized centred sans, a luminous lilac action, generous space and one floating genuine desktop capture.
+STORY: Recognize the Linux screen recorder/editor, see linked sound/manual focus in the real app, then watch the same project's MP4.
+FIRST VIEWPORT: Slim nav, centred two-line hook and honest beta action above the large app showcase; a proportionate focused capture replaces full UI on mobile.
+FORM: One owner-pinned reference-based hero and first transition. Second reference locally inspected; first cloud analysis attributed. No concept tournament or full-site rollout.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#0d0716" />
+    <title>Rough Cut — record your screen. Find your cut.</title>
+    <meta
+      name="description"
+      content="An open-source screen recorder and editor for Linux. See a real recording become a linked edit, a manual zoom and an MP4 in Rough Cut."
+    />
+    <link rel="icon" href="assets/favicon.svg" />
+    <link
+      rel="preload"
+      href="assets/archivo-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="release-config.js" defer></script>
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="brand" href="#main" aria-label="Rough Cut home">
+        <svg viewBox="0 0 28 28" aria-hidden="true">
+          <defs>
+            <linearGradient id="mark" x1="0" x2="1" y1="0" y2="1">
+              <stop stop-color="#b794ff" />
+              <stop offset="1" stop-color="#ffb59b" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M8 3h9L9 25H0L8 3Zm13 0h7l-8 22h-7l8-22Z"
+            fill="url(#mark)"
+          />
+        </svg>
+        rough cut
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#demo">The workflow</a>
+        <a href="#mac-status">Mac coming soon</a>
+      </nav>
+      <a class="source-action" href="https://github.com/endlessblink/rough-cut"
+        >View source <span aria-hidden="true">↗</span></a
+      >
+    </header>
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-atmosphere" aria-hidden="true"></div>
+        <div class="hero-copy">
+          <h1 id="hero-title">
+            Record your screen.<br /><span>Find your cut.</span>
+          </h1>
+          <p class="lead">Screen recording and editing, together on Linux.</p>
+          <div class="hero-actions">
+            <a class="primary-action" href="#linux-status" data-linux-cta
+              ><span data-linux-label>Linux beta status</span
+              ><span aria-hidden="true">↗</span></a
+            >
+            <a class="demo-action" href="#demo"
+              ><span class="play-symbol" aria-hidden="true">▶</span>See it in
+              action</a
+            >
+          </div>
+          <p class="availability" data-release-status>
+            Linux beta in preparation · Mac coming soon
+          </p>
+        </div>
+        <figure class="app-showcase">
+          <a
+            class="capture-link"
+            href="assets/poster-editor-focus.webp"
+            aria-label="Open the full actual Rough Cut editor capture"
+          >
+            <picture>
+              <source
+                media="(max-width:700px)"
+                srcset="assets/poster-editor-manual-mobile.webp"
+                width="960"
+                height="945"
+              />
+              <img
+                src="assets/poster-editor-manual-hero.webp"
+                width="1430"
+                height="815"
+                fetchpriority="high"
+                alt="Actual Rough Cut editor with a manual zoom focused on the TIDE title of a neutral Poster Study recording."
+              />
+            </picture>
+          </a>
+          <figcaption>
+            <span>Actual editor detail · manual zoom · synthetic recording</span
+            ><span>Open full capture <span aria-hidden="true">↗</span></span>
+          </figcaption>
+        </figure>
+      </section>
+      <div class="transition-band" aria-hidden="true">
+        <div>
+          <span>RECORD</span><i></i
+          ><span class="band-desktop">CUT TOGETHER</span
+          ><span class="band-mobile">EDIT</span><i></i
+          ><span class="band-desktop">FOCUS THE DETAIL</span
+          ><span class="band-mobile">EXPORT</span><i></i
+          ><span class="band-extra">MAKE YOUR MP4</span>
+        </div>
+      </div>
+      <section class="first-passage" id="demo" aria-labelledby="passage-title">
+        <div class="passage-copy">
+          <h2 id="passage-title">One take.<br />All the way to done.</h2>
+          <p>
+            Keep your screen and sound together. Trim a pause, give the
+            recording a frame, and place a manual zoom where it matters.
+          </p>
+          <p class="proof-line">
+            This is the actual MP4 from that edit. Same recording. Same project.
+          </p>
+          <a class="text-link" href="assets/poster-study-export.mp4"
+            >Open the 19-second cut <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <figure class="output-showcase">
+          <div class="output-stage">
+            <picture class="poster-picture"
+              ><source
+                media="(max-width:700px)"
+                srcset="assets/poster-output-manual-mobile.webp"
+                width="960"
+                height="540" />
+              <img
+                class="demo-poster"
+                src="assets/poster-output-manual-zoom.webp"
+                width="1920"
+                height="1080"
+                loading="lazy"
+                alt="Actual exported manual-zoom moment at 10.8 seconds, enlarging the TIDE title input in the neutral recording." /></picture
+            ><button class="play-trigger" data-demo-play type="button" hidden>
+              <span aria-hidden="true">▶</span> Play the cut
+              <span class="clip-length">19 seconds</span></button
+            ><video
+              controls
+              tabindex="0"
+              playsinline
+              preload="none"
+              width="1920"
+              height="1080"
+              poster="assets/poster-output-manual-zoom.webp"
+              aria-label="Actual 19-second Poster Study export with synthetic narration and a manual zoom"
+            >
+              <source src="assets/poster-study-export.mp4" type="video/mp4" />
+              <track
+                kind="captions"
+                src="assets/poster-study-en.vtt"
+                srclang="en"
+                label="English"
+                default
+              />
+              <p>
+                <a href="assets/poster-study-export.mp4"
+                  >Open the actual MP4 export</a
+                >.
+              </p>
+            </video>
+          </div>
+          <p class="video-error" data-video-error role="alert" hidden>
+            The video could not play.
+            <a href="assets/poster-study-export.mp4">Open the MP4</a>, or try
+            playback again.
+          </p>
+          <figcaption>
+            <span>Actual MP4 export · manual zoom at 10.8s</span
+            ><span
+              >19.3 seconds · synthetic recording and narration · English
+              captions</span
+            >
+          </figcaption>
+        </figure>
+      </section>
+      <section class="release-section" aria-label="Platform availability">
+        <details id="linux-status">
+          <summary>
+            <span>Linux beta</span
+            ><span data-linux-summary>Release in preparation</span
+            ><span class="plus" aria-hidden="true">+</span>
+          </summary>
+          <div class="release-copy">
+            <p data-linux-copy>
+              The tested local candidate targets Linux x86_64 with X11. No
+              verified public download URL is configured yet. Wayland is
+              unsupported.
+            </p>
+            <p>
+              Recording and editing run locally. Optional Claude graphics
+              require the official CLI and an eligible signed-in subscription;
+              that feature is outside this demo.
+            </p>
+            <a href="https://github.com/endlessblink/rough-cut/releases"
+              >Check GitHub Releases <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </details>
+        <details id="mac-status">
+          <summary>
+            <span>Mac</span><span>Coming soon</span
+            ><span class="plus" aria-hidden="true">+</span>
+          </summary>
+          <div class="release-copy">
+            <p>No verified Mac build, release date or active email waitlist.</p>
+            <a href="https://github.com/endlessblink/rough-cut"
+              >Follow development on GitHub <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </details>
+      </section>
+    </main>
+    <footer>
+      <span>rough cut / open source</span
+      ><a href="LICENSE.txt"
+        >AGPL-3.0 license <span aria-hidden="true">↗</span></a
+      ><span class="review-label">V4 opening prototype · for review</span>
+    </footer>
+  </body>
+</html>
