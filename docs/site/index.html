@@ -47,7 +47,7 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
         rough cut
       </a>
       <nav aria-label="Main navigation">
-        <a href="#demo">The workflow</a>
+        <a href="#proof">The workflow</a>
         <a href="#mac-status">Mac coming soon</a>
       </nav>
       <a class="source-action" href="https://github.com/endlessblink/rough-cut"
@@ -67,7 +67,7 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
               ><span data-linux-label>Linux beta status</span
               ><span aria-hidden="true">↗</span></a
             >
-            <a class="demo-action" href="#demo"
+            <a class="demo-action" href="#proof"
               ><span class="play-symbol" aria-hidden="true">▶</span>See it in
               action</a
             >
@@ -108,43 +108,6 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
           ><span class="band-extra">MAKE YOUR MP4</span>
         </div>
       </div>
-      <section class="first-passage" id="demo" aria-labelledby="passage-title">
-        <div class="passage-head">
-          <h2 id="passage-title">One take.<br />All the way to done.</h2>
-          <div class="passage-side">
-            <p>
-              Record your screen and your camera, then zoom, cut and add
-              graphics in the same window. Recording and editing run locally.
-            </p>
-            <ul class="passage-steps" aria-label="What this take shows">
-              <li>Graphics</li>
-              <li>Camera bubble</li>
-              <li>Zoom</li>
-            </ul>
-          </div>
-        </div>
-        <figure class="output-showcase">
-          <div class="output-stage">
-            <video
-              autoplay
-              muted
-              loop
-              playsinline
-              preload="metadata"
-              width="1280"
-              height="672"
-              poster="assets/proof-graphic-skill.webp"
-              aria-label="Rough Cut editor on a real recording: a lower-third graphic reading 'Teach Claude once.' plays over the video while the presenter talks in the camera bubble."
-            >
-              <source src="assets/proof-graphic-skill.mp4" type="video/mp4" />
-            </video>
-          </div>
-          <figcaption>
-            <span>Real editor capture · a graphic playing over the video</span
-            ><span>Optional: graphics need an eligible Claude subscription</span>
-          </figcaption>
-        </figure>
-      </section>
       <div class="dark-zone">
       <section class="proof" id="proof" aria-labelledby="proof-title">
         <div class="section-head">
@@ -203,6 +166,30 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
             </div>
           </article>
         </div>
+      </section>
+      <section class="compare" id="compare" aria-labelledby="compare-title">
+        <div class="section-head">
+          <h2 id="compare-title">How it sits next to the Linux options.</h2>
+        </div>
+        <div class="compare-scroll" tabindex="0" role="region" aria-label="Feature comparison table, scrolls sideways on small screens">
+          <table>
+            <caption class="sr">Feature comparison of Rough Cut with other Linux screen recorders and editors</caption>
+            <thead><tr><th scope="col"><span class="sr">Feature</span></th><th scope="col" class="us">Rough Cut</th><th scope="col">Recordly</th><th scope="col">OBS Studio</th><th scope="col">Kdenlive</th><th scope="col">DaVinci Resolve</th><th scope="col">Kooha</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Price and licence</th><td class="us">Free · AGPL</td><td>Free · AGPL-3.0</td><td>Free · open source</td><td>Free · open source</td><td>Free · Studio $295</td><td>Free</td></tr>
+              <tr><th scope="row">Runs on Linux</th><td class="us">Yes · X11 only, beta</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">Records the screen</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td>Yes</td></tr>
+              <tr><th scope="row">Timeline editor</th><td class="us">Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td>Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr><th scope="row">Zoom that follows the cursor</th><td class="us">Manual zoom markers</td><td>Suggested + manual</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr><th scope="row">Camera bubble</th><td class="us">Yes</td><td>Yes</td><td>Webcam as a source</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr><th scope="row">Styled background and cursor</th><td class="us">Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr><th scope="row">Claude-made graphics</th><td class="us">Yes · needs a Claude subscription</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="compare-note">
+          A dash means the product's own page does not list it. Checked on 5 October 2026 against each project's website or README. Rough Cut's limits today: X11 only (no Wayland), the Linux beta is not downloadable yet, and graphics need an eligible Claude subscription.
+        </p>
       </section>
       <section class="closing" aria-labelledby="closing-title">
         <h2 id="closing-title">Free and open source.</h2>
