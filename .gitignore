@@ -33,3 +33,6 @@ scripts/.codex-live-proof-state.mjs
 .impeccable/
 BlenderMCP/
 applications/
+
+# landing page clips ship with the site
+!docs/site/assets/proof-*.mp4
