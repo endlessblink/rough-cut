@@ -1399,3 +1399,98 @@ footer {
     transform: translateX(-120%);
   }
 }
+
+/* under-hero Claude graphics title + steps */
+.claude-title {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: clamp(72px, 9vw, 130px) var(--edge) clamp(56px, 7vw, 96px);
+  text-align: center;
+}
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 28px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #ffb59b;
+}
+.eyebrow::before,
+.eyebrow::after {
+  content: "";
+  width: 36px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #ffb59b);
+}
+.eyebrow::after {
+  transform: scaleX(-1);
+}
+.claude-title h2 {
+  margin: 0;
+  font-size: clamp(46px, 8.2vw, 118px);
+  font-weight: 600;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+  color: var(--paper);
+}
+.claude-title h2 span {
+  background: linear-gradient(100deg, #d4b4ff 5%, #efa3cc 50%, #ffc5a7 95%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.claude-lead {
+  max-width: 54ch;
+  margin: 32px auto 0;
+  font-size: clamp(17px, 1.5vw, 21px);
+  line-height: 1.6;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.steps {
+  list-style: none;
+  margin: clamp(48px, 6vw, 80px) auto 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  max-width: 920px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+.steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px 16px 0;
+  text-align: left;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+.steps li:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.steps b {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: #ffb59b;
+}
+.steps span {
+  font-size: clamp(15px, 1.6vw, 20px);
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  color: var(--paper);
+}
+@media (max-width: 640px) {
+  .steps {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 22px;
+  }
+  .steps li:nth-child(3) {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
