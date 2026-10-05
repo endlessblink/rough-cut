@@ -1,39 +1,22 @@
 (() => {
   "use strict";
   document.documentElement.classList.add("js");
-  const play = document.querySelector("[data-demo-play]"),
-    stage = document.querySelector(".output-stage"),
-    video = stage.querySelector("video"),
-    error = document.querySelector("[data-video-error]");
-  play.hidden = false;
-  play.addEventListener("click", async () => {
-    play.disabled = true;
-    play.textContent = "Loading the cut…";
-    error.hidden = true;
-    const source = video.querySelector("source");
-    let failPlayback;
-    const failed = new Promise((_, reject) => {
-      failPlayback = () => reject(new Error("Media unavailable"));
+  const loops = document.querySelectorAll("video[autoplay]");
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    loops.forEach((v) => {
+      v.removeAttribute("autoplay");
+      v.pause();
+      v.controls = true;
     });
-    video.addEventListener("error", failPlayback);
-    source.addEventListener("error", failPlayback);
-    const timeout = setTimeout(failPlayback, 15000);
-    try {
-      video.load();
-      await Promise.race([video.play(), failed]);
-      stage.classList.add("is-playing");
-      video.focus({ preventScroll: true });
-    } catch {
-      video.pause();
-      error.hidden = false;
-      play.textContent = "Try playback again";
-    } finally {
-      clearTimeout(timeout);
-      video.removeEventListener("error", failPlayback);
-      source.removeEventListener("error", failPlayback);
-      play.disabled = false;
-    }
-  });
+  } else if ("IntersectionObserver" in window) {
+    const watcher = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) e.target.play().catch(() => {});
+        else e.target.pause();
+      });
+    });
+    loops.forEach((v) => watcher.observe(v));
+  }
   const reveal = () => {
     const el = document.getElementById(location.hash.slice(1));
     if (el?.tagName === "DETAILS") el.open = true;
