@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -64,27 +64,48 @@ test('structured output is read from either envelope shape, errors are reported'
   assert.equal(parseClaudeResult('nope').ok, false);
 });
 
-async function fakeClaude(script) {
-  const dir = await mkdtemp(join(tmpdir(), 'fake-claude-'));
+async function fakeClaude(script, tempRoot = tmpdir()) {
+  const dir = await mkdtemp(join(tempRoot, 'fake-claude-'));
+  const body = typeof script === 'function' ? script(dir) : script;
   const bin = join(dir, 'claude');
-  await writeFile(bin, `#!/usr/bin/env node\n${script}\n`);
+  await writeFile(bin, `#!/usr/bin/env node\n${body}\n`);
   await chmod(bin, 0o755);
   return { bin, dir };
 }
 
-test('a real child process is spawned with the prompt on stdin', async () => {
-  const { bin, dir } = await fakeClaude(`
+async function assertRealChildPrompt(tempRoot) {
+  const { bin, dir } = await fakeClaude((fixtureDir) => `
 let input = '';
 process.stdin.on('data', (c) => { input += c; });
 process.stdin.on('end', () => {
-  require('fs').writeFileSync(${JSON.stringify(join(tmpdir(), 'x'))}.replace('x', 'rc-fake-claude-' + process.pid), input);
+  require('fs').writeFileSync(${JSON.stringify(join(fixtureDir, 'prompt.txt'))}, input);
   process.stdout.write(JSON.stringify({ subtype: 'success', structured_output: ${JSON.stringify(GOOD)}, argv: process.argv.slice(2) }));
-});`);
-  const result = await generateGraphic({ request: 'lower third for Noam at 0:05', binary: bin });
-  assert.equal(result.ok, true, result.reason);
-  assert.equal(result.graphic.title, 'Lower third');
-  assert.equal(result.graphic.startSec, 5);
-  assert.ok(dir);
+});`, tempRoot);
+  try {
+    const result = await generateGraphic({ request: 'lower third for Noam at 0:05', binary: bin });
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.graphic.title, 'Lower third');
+    assert.equal(result.graphic.startSec, 5);
+    const input = await readFile(join(dir, 'prompt.txt'), 'utf8');
+    assert.equal(input, 'Make this graphic: lower third for Noam at 0:05');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test('a real child process is spawned with the prompt on stdin', async () => {
+  await assertRealChildPrompt(tmpdir());
+});
+
+test('real child stdin capture preserves x-containing temp directory paths', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'claude-x-parent-'));
+  try {
+    const tempRoot = join(root, 'sandbox', 'tmp with x');
+    await mkdir(tempRoot, { recursive: true });
+    await assertRealChildPrompt(tempRoot);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('an invalid first answer is retried once with the reasons, then accepted', async () => {
