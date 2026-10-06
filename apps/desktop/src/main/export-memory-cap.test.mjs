@@ -16,15 +16,24 @@ import { memoryCappedCommand } from './export-service.mjs';
 
 const ARGS = ['-y', '-i', 'in.mp4', 'out.mp4'];
 
-function withEnv(value, run) {
-  const previous = process.env.ROUGH_CUT_EXPORT_MEMORY_MAX;
-  if (value === undefined) delete process.env.ROUGH_CUT_EXPORT_MEMORY_MAX;
-  else process.env.ROUGH_CUT_EXPORT_MEMORY_MAX = value;
+function withEnv(value, run, cpuQuota = '400%', ioWeight = '20') {
+  const settings = {
+    ROUGH_CUT_EXPORT_MEMORY_MAX: value,
+    ROUGH_CUT_EXPORT_CPU_QUOTA: cpuQuota,
+    ROUGH_CUT_EXPORT_IO_WEIGHT: ioWeight,
+  };
+  const previous = Object.fromEntries(Object.keys(settings).map((name) => [name, process.env[name]]));
+  for (const [name, next] of Object.entries(settings)) {
+    if (next === undefined) delete process.env[name];
+    else process.env[name] = next;
+  }
   try {
     return run();
   } finally {
-    if (previous === undefined) delete process.env.ROUGH_CUT_EXPORT_MEMORY_MAX;
-    else process.env.ROUGH_CUT_EXPORT_MEMORY_MAX = previous;
+    for (const [name, prior] of Object.entries(previous)) {
+      if (prior === undefined) delete process.env[name];
+      else process.env[name] = prior;
+    }
   }
 }
 
@@ -60,9 +69,20 @@ test('ffprobe and other tools are left alone', () => {
   assert.equal(memoryCappedCommand('ffprobe', ['-i', 'in.mp4']), null);
 });
 
-test('the cap can be turned off deliberately', { skip: process.platform !== 'linux' }, () => {
-  assert.equal(withEnv('off', () => memoryCappedCommand('ffmpeg', ARGS)), null);
-  assert.equal(withEnv('0', () => memoryCappedCommand('ffmpeg', ARGS)), null);
+test('turning off the memory ceiling preserves CPU and I/O limits', { skip: process.platform !== 'linux' }, () => {
+  for (const value of ['off', '0']) {
+    const scoped = withEnv(value, () => memoryCappedCommand('ffmpeg', ARGS));
+    assert.equal(scoped.command, 'systemd-run');
+    assert.ok(!scoped.args.some((arg) => arg.startsWith('MemoryMax=') || arg.startsWith('MemorySwapMax=')));
+    assert.ok(scoped.args.includes('CPUQuota=400%'));
+    assert.ok(scoped.args.includes('IOWeight=20'));
+    assert.deepEqual(scoped.args.slice(scoped.args.indexOf('ffmpeg')), ['ffmpeg', ...ARGS]);
+  }
+});
+
+test('all resource limits can be turned off deliberately', { skip: process.platform !== 'linux' }, () => {
+  assert.equal(withEnv('off', () => memoryCappedCommand('ffmpeg', ARGS), 'off', 'off'), null);
+  assert.equal(withEnv('0', () => memoryCappedCommand('ffmpeg', ARGS), '0', '0'), null);
 });
 
 test('a custom ceiling is honoured', { skip: process.platform !== 'linux' }, () => {
