@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-beta (unreleased)
+## 0.1.0-beta (2026-10-06)
 
 First public beta. Linux/X11 only; tested on KDE Plasma with NVIDIA.
 

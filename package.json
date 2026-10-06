@@ -33,7 +33,6 @@
     "visual-proof:install": "node scripts/install-ui-visual-proof-hook.mjs",
     "completion:gate": "node scripts/completion-boundary-gate.mjs",
     "user:confirm-visual": "node scripts/confirm-user-visual-review.mjs",
-    "verify:recording-editor-design": "node scripts/verify-recording-editor-design-gate.mjs",
     "verify:recording-editor-skill": "node scripts/verify-rough-cut-timeline-skill-gate.mjs",
     "verify:recording-linked-lanes": "ROUGH_CUT_DOCK_LAUNCH=1 node scripts/recording-editor-interactions-playwright.mjs",
     "verify:recording-edit-regressions": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && xvfb-run -a -s '-screen 0 1920x1080x24' node scripts/recording-edit-regressions-playwright.mjs",
