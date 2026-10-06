@@ -12,13 +12,13 @@
   "ownerLocalPublicKeyPath": "$HOME/.local/share/rough-cut-signing/public.pem",
   "keyGeneration": "Owner supplied public key after local generation. Do not generate a replacement key.",
   "custody": {
-    "passphrase": "Owner reports Doppler PEM_PASSPHRASE in project Shared integrations, config rough cut; contents and access granularity not inspected.",
-    "encryptedPrivateKey": "Local private.pem exists according to owner; separate encrypted-file backup and restore verification remain unconfirmed.",
-    "agentSecretAccess": "None. No private PEM, passphrase or Doppler value retrieved."
+    "privateKey": "Keep the encrypted PKCS8 private key owner-only, mode 0600, under an owner-only directory.",
+    "backup": "Keep a separately recoverable encrypted private-key backup; keep the passphrase separately and verify recovery locally.",
+    "secretAccess": "The release tool reads a local explicit --key path and protected passphrase FD only; it has no secret-manager integration."
   },
   "signerMapping": {
     "privateKey": "Explicit --key path; private.pem is valid.",
-    "passphrase": "Explicit --passphrase-fd >=3, read from local owner prompt. No Doppler or environment-variable adapter exists. PEM_PASSPHRASE is the existing storage label, not an input this signer reads.",
+    "passphrase": "Explicit --passphrase-fd >=3, read from local owner prompt. Existing passphrase storage labels are not inputs this signer reads; no Doppler/environment adapter exists.",
     "publicKey": "Explicit --public-key path; public.pem is valid."
   },
   "ownerSteps": [
@@ -34,5 +34,6 @@
   },
   "evidenceBoundary": "Synthetic signatures made with public test keys prove verifier behavior only. They do not prove signing with the owner key, private-key recoverability or real update acceptance.",
   "manualOnlyReleaseViable": true,
-  "manualOnlyConditions": "activated:false causes zero updater backend/network calls. Manual publication still requires exact artifact/source/checksum/license verification and truthful acceptance limits."
+  "manualOnlyConditions": "activated:false causes zero updater backend/network calls. Manual publication still requires exact artifact/source/checksum/license verification and truthful acceptance limits.",
+  "ownerLocalSigningHelper": "bash scripts/sign-owner-release.sh /absolute/final.AppImage /absolute/unsigned-beta.json /absolute/beta-linux.yml; helper prompts locally, verifies the fixed public pin and exact AppImage, and refuses to overwrite the output."
 }
