@@ -55,7 +55,9 @@ for (const docsRoot of [join(artifactRoot, 'docs'), join(appRoot, 'docs')]) {
   await cp(join(root, 'docs/RELEASE-REQUIREMENTS.md'), join(docsRoot, 'RELEASE-REQUIREMENTS.md'));
   await cp(join(root, 'docs/MEDIA-SOURCE-BUILD.md'), join(docsRoot, 'MEDIA-SOURCE-BUILD.md'));
   await cp(join(root, 'docs/UPDATE-SIGNING.json'), join(docsRoot, 'UPDATE-SIGNING.json'));
-  await cp(join(root, 'docs/assets'), join(docsRoot, 'assets'), { recursive: true });
+  await cp(join(root, 'docs/publisher-public-key.pem'), join(docsRoot, 'publisher-public-key.pem'));
+  await mkdir(join(docsRoot, 'site/assets'), { recursive: true });
+  await cp(join(root, 'docs/site/assets/proof-zoom.webp'), join(docsRoot, 'site/assets/proof-zoom.webp'));
 }
 await writeFile(join(appRoot, 'app-update.yml'), 'updaterCacheDirName: rough-cut-updater\n');
 const configuredReleasePolicy = JSON.parse(await readFile(join(root, 'release-policy.json'), 'utf8'));
