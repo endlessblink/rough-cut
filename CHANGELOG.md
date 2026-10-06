@@ -4,8 +4,8 @@
 
 - Reconcile the public Linux distribution with the reviewed beta.7 editor/runtime, Electron 43.7.7 and bundled tools.
 - Require the Chromium sandbox in all shipped launchers; include complete embedded-font and media-tool notices, matching corresponding source and recorded package identity.
-- Preserve the current public landing page and publishing workflow. Manual updates remain in use; production signing, physical-device and owner acceptance are separate.
-
+- Preserve the current public landing page and publishing workflow. Manual updates remain in use; signed-update activation and final owner acceptance remain separate.
+- Preserve the publisher’s new quiet-voice export leveling toward -16 LUFS, with capped gain and peak limiting; loud enough exports and byte-equal copies remain untouched.
 
 ## 0.1.0-beta (2026-10-06)
 

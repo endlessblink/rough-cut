@@ -16,6 +16,7 @@ import {
 } from '../shared/censor-regions.mjs';
 import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
 import { buildGraphicsOverlayArgs, planGraphicsOverlay } from './graphics-export.mjs';
+import { levelQuietExport } from './export-leveling.mjs';
 import { buildBackgroundGridFilter, isBackgroundGridOn } from '../shared/background-grid.mjs';
 import {
   canonicalizeProjectDocument,
@@ -76,7 +77,23 @@ export function buildGraphicsFailureResult({ styledResult, error, expected }) {
   };
 }
 
-export async function exportProjectToMp4({
+/**
+ * Exports the project, then lifts the sound when the finished file is quiet (a quiet mic take stays quiet
+ * otherwise). Exports that are already loud enough, plain file copies and cancelled exports are not touched.
+ */
+export async function exportProjectToMp4(options = {}) {
+  const { levelQuietVoice = true, ...exportOptions } = options;
+  const result = await exportProjectToMp4Unleveled(exportOptions);
+  if (!levelQuietVoice || !result || result.cancelled || result.byteEqualCandidate) return result;
+  const outputPath = result.outputPath ?? options.outputPath;
+  if (!outputPath || !existsSync(outputPath)) return result;
+  const leveling = await levelQuietExport(outputPath, { signal: options.signal ?? null });
+  if (!leveling.leveled) return result;
+  const exported = await stat(outputPath);
+  return { ...result, bytes: exported.size, voiceLeveledDb: leveling.gainDb };
+}
+
+async function exportProjectToMp4Unleveled({
   project,
   outputPath,
   mode = EXPORT_MODES.RAW,
