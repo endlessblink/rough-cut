@@ -8,7 +8,7 @@
 
 - **Record** the screen (full display, a window area or a region), with optional camera and microphone. Cursor position and clicks are recorded alongside the video.
 - **Edit on one timeline.** Trim, cut and zoom; the viewer shows what you will export.
-- **Auto-zoom and styled cursor** that follow your clicks.
+- **Zoom and styled cursor.** Place zoom markers by hand on the timeline; the cursor is drawn in a clean style. Automatic zoom is planned.
 - **Look.** Backgrounds, rounded frame and a camera bubble.
 - **Animated graphics** drawn over the video, written from a text prompt (needs your own Claude Code login, see Privacy).
 - **Export** an MP4 with the background, frame, camera, zooms, animations and sound. Each export is checked when it finishes, and every video lives in its own dated project folder.
@@ -28,7 +28,7 @@
 | Linux with an **X11** session | Wayland is **not supported**. Log in with an X11 session. |
 | `ffmpeg` and `ffprobe` | Used for capture, processing and export. Not bundled. |
 | `xdotool` | Cursor position. Not bundled. |
-| `xinput` | Mouse clicks for auto-zoom. Not bundled. |
+| `xinput` | Mouse clicks (recorded for zoom). Not bundled. |
 | Tested on | KDE Plasma with an NVIDIA GPU. Other desktops and GPUs are untested. |
 
 On Debian/Ubuntu: `sudo apt install ffmpeg xdotool xinput`.
@@ -39,10 +39,7 @@ Optional: the `claude` command (Claude Code), logged in, for AI graphics.
 
 ## Install
 
-> Download links will appear on the Releases page when the beta is published.
-
-- **AppImage** (if available for this release): `chmod +x Rough-Cut-*.AppImage && ./Rough-Cut-*.AppImage`
-- **tar.gz**: unpack it anywhere and run the `run.sh` inside.
+Download `rough-cut-0.1.0-linux-x64.tar.gz` from the Releases page, unpack it anywhere and run the `run.sh` inside. The release page lists the SHA-256 checksum.
 
 **If the app does not start on Ubuntu 24.04 or newer:** the system restricts the Chromium sandbox that Electron apps use. You will typically see a message about the "SUID sandbox helper". Either give the bundled helper the right permissions (from the folder that contains `chrome-sandbox`):
 
