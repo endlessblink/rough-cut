@@ -4,7 +4,7 @@
 
 ![Rough Cut: the Recording edit view with screen, camera, zoom and timeline](docs/site/assets/proof-zoom.webp)
 
-The public [feature demos](https://endlessblink.github.io/rough-cut/) show recording edits, zoom and optional graphics. The newer correction candidate still requires fresh packaged verification.
+The public [feature demos](https://endlessblink.github.io/rough-cut/) show recording edits, zoom and optional graphics. [Beta.8 is available](https://github.com/endlessblink/rough-cut/releases/tag/v0.1.0-beta.8), with matching source, complete notices, checksums and owner-key-signed metadata. Its source commit is `8c065c87500c356e75124526efb933bce9cb3fad`; fresh automated/native checks passed. Owner visual/audio acceptance and long recording remain pending.
 
 ## What you can do
 
@@ -35,7 +35,7 @@ Open the recording setup, choose the screen and optional audio/camera sources, t
 
 Recording and editing stay local. There is no analytics service or automatic crash upload. Help → Crash reports is off by default; each local JSON export shows its exact contents and destination before you choose to save. This beta has no approved submission destination.
 
-Public update checks are disabled. The approved destination is GitHub Releases at `endlessblink/rough-cut`. The isolated candidate adds custom Ed25519 publisher metadata verification around electron-updater 6.8.9; the owner-supplied public key is pinned in this source, while genuine signed-release acceptance and activation remain pending. Debian updates currently require a separately downloaded package.
+Public update checks are disabled. The approved destination is GitHub Releases at `endlessblink/rough-cut`. Beta.8 includes custom Ed25519 publisher metadata verification around electron-updater 6.8.9; its owner-signed metadata and pinned public key were independently verified against the actual public AppImage bytes. The first pinned-key build requires manual installation. Genuine public update install/restart/rollback acceptance and activation remain pending. Debian updates currently require a separately downloaded package.
 
 Graphics use the official Claude Code CLI through your own Claude subscription/login. The app checks the connection and rejects API-key/billing-route overrides. It does not collect passwords or tokens. Graphic prompts and design context are sent to Claude only when you request generation; recent requests/answers are kept in local diagnostics. Your subscription limits apply. See [CLAUDE-SETUP.md](CLAUDE-SETUP.md).
 
