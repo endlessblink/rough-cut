@@ -1,8 +1,8 @@
-/* Keep this review prototype unpublished until the release owner verifies a real public asset.
-   The URL guard is plumbing, not checksum or availability verification. */
+/* The URL guard in script.js only accepts official GitHub release download links. */
 window.ROUGH_CUT_RELEASE = Object.freeze({
-  published: false,
-  version: null,
+  published: true,
+  version: "0.1.0-beta",
+  tarballUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta/rough-cut-0.1.0-linux-x64.tar.gz",
   appImageUrl: null,
   debUrl: null,
 });
