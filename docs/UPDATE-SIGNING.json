@@ -28,9 +28,9 @@
     "Keep updater inactive until genuine signed bootstrap/download/install/restart/rollback acceptance and explicit activation decision."
   ],
   "commandsPreparedNotExecuted": {
-    "metadataPreparation": "node scripts/release-metadata.mjs prepare --version 0.1.0-beta.8 --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x64.AppImage --output /absolute/path/unsigned-beta.json",
-    "metadataSigning": "node scripts/release-metadata.mjs sign --metadata /absolute/path/unsigned-beta.json --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x64.AppImage --key \"$HOME/.local/share/rough-cut-signing/private.pem\" --passphrase-fd 3 --output /absolute/path/beta-linux.yml",
-    "verification": "node scripts/release-metadata.mjs verify --metadata /absolute/path/beta-linux.yml --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x64.AppImage --public-key docs/publisher-public-key.pem --current-version 0.1.0-beta.7"
+    "metadataPreparation": "node scripts/release-metadata.mjs prepare --version 0.1.0-beta.8 --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x86_64.AppImage --output /absolute/path/unsigned-beta.json",
+    "metadataSigning": "node scripts/release-metadata.mjs sign --metadata /absolute/path/unsigned-beta.json --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x86_64.AppImage --key \"$HOME/.local/share/rough-cut-signing/private.pem\" --passphrase-fd 3 --output /absolute/path/beta-linux.yml",
+    "verification": "node scripts/release-metadata.mjs verify --metadata /absolute/path/beta-linux.yml --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x86_64.AppImage --public-key docs/publisher-public-key.pem --current-version 0.1.0-beta.7"
   },
   "evidenceBoundary": "Synthetic signatures made with public test keys prove verifier behavior only. They do not prove signing with the owner key, private-key recoverability or real update acceptance.",
   "manualOnlyReleaseViable": true,
