@@ -2,15 +2,9 @@
 
 **Linux beta — 0.1.0-beta.8.** A free screen recorder and editor for tutorials, demos and product walkthroughs. Record your screen, edit linked screen and audio on one timeline, style the picture and export an MP4.
 
-![Rough Cut beta.6 with a neutral tutorial project](docs/assets/neutral-recording-edit-beta6.png)
+![Rough Cut: the Recording edit view with screen, camera, zoom and timeline](docs/site/assets/proof-zoom.webp)
 
-## Feature demos
-
-Actual actions captured from the packaged beta.6 app with synthetic tutorial media; no private recording or live Claude generation.
-
-![Landscape, portrait and square compositions](docs/assets/composition.gif)
-![Linked screen/audio split, seek and undo](docs/assets/linked-edit.gif)
-![Stereo waveform detail and track-height adjustment](docs/assets/stereo-waveform.gif)
+The public [feature demos](https://endlessblink.github.io/rough-cut/) show recording edits, zoom and optional graphics. The newer correction candidate still requires fresh packaged verification.
 
 ## What you can do
 
