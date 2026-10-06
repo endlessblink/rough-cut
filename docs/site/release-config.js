@@ -1,8 +1,8 @@
-/* Release links must point at real GitHub release assets; script.js rejects any other host or path. */
+/* Release links must point at real GitHub release assets; deploy this commit only after its assets are verified. */
 window.ROUGH_CUT_RELEASE = Object.freeze({
   published: true,
-  version: "0.1.0-beta",
-  appImageUrl: null,
-  debUrl: null,
-  tarballUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta/rough-cut-0.1.0-linux-x64.tar.gz",
+  version: "0.1.0-beta.8",
+  appImageUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.8/Rough-Cut-0.1.0-beta.8-x86_64.AppImage",
+  debUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.8/Rough-Cut-0.1.0-beta.8-amd64.deb",
+  tarballUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.8/rough-cut-0.1.0-beta.8-linux-x64.tar.gz",
 });

@@ -14,9 +14,9 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "build": "pnpm -r --sort build",
-    "test": "pnpm build && node --test scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/release-metadata.test.mjs && pnpm -r --sort test",
-    "typecheck": "pnpm -r --sort typecheck",
+    "build": "pnpm -r --workspace-concurrency=1 --sort build",
+    "test": "pnpm build && node --test scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/release-metadata.test.mjs && pnpm -r --workspace-concurrency=1 --sort test",
+    "typecheck": "pnpm -r --workspace-concurrency=1 --sort typecheck",
     "smoke:mvp": "pnpm --filter @rough-cut/project-model build && node scripts/smoke-mvp.mjs",
     "smoke:real-recording": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-real-recording.mjs",
     "smoke:long-recording": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-long-recording.mjs",
