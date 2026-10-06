@@ -46,7 +46,7 @@
       return null;
     }
   };
-  const asset = official(config.appImageUrl) || official(config.debUrl);
+  const asset = official(config.appImageUrl) || official(config.debUrl) || official(config.tarballUrl);
   if (config.published === true && asset) {
     document.querySelector("[data-linux-cta]").href = asset;
     document.querySelector("[data-linux-label]").textContent =
