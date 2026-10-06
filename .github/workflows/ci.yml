@@ -27,5 +27,5 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       # Repo-level script tests, then the tests of every package.
-      - run: node --test scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/package-linux-portable.test.mjs
+      - run: node --test scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/ui-visual-proof.test.mjs scripts/release-metadata.test.mjs
       - run: pnpm -r --sort test

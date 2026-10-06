@@ -34,6 +34,14 @@ The `pexels-*.jpg` files in `apps/desktop/src/renderer/public/backgrounds/` are 
 
 Packaged builds include Electron (MIT) and the Chromium engine, which bundles many components under their own licences (BSD-style, MIT, Apache-2.0, LGPL and others). Electron's `LICENSE` and `LICENSES.chromium.html` files are included in the packaged application folder.
 
-## External tools (not bundled)
+## Bundled media tools in 0.1.0-beta.8
 
-`ffmpeg`, `ffprobe`, `xdotool` and `xinput` are separate programs that Rough Cut runs from your system. They are not distributed with Rough Cut and keep their own licences. The optional Claude CLI, `whisper-cli` and Vibe/Sona are likewise separate.
+This candidate includes FFmpeg/ffprobe 8.1.3-roughcut-source1, compiled from official FFmpeg 8.1.3 release sources with GPL/version3 features. Private shared libraries include GPL libx264 and LGPL libass and their dependencies. FFmpeg's GPL-3.0 text, exact Ubuntu binary-package copyright notices, NVIDIA codec-header MIT notices and referenced standard license texts are under `resources/licenses/media-tools` (also in `resources/media-tools/licenses`). Ubuntu 22.04 xdotool, xinput and pactl are included. Individual notices specify each component's license; this paragraph does not relicense third-party components.
+
+`scripts/bundled-tools.lock.json` records exact runtime hashes. The separate matching media-sources archive preserves FFmpeg/NVIDIA sources, all 45 Ubuntu source-package versions and their original/debian build files, recipes and exact compiler-package version/hash manifests. See `docs/MEDIA-SOURCE-BUILD.md` for reproduction and remaining distribution conditions. A network-disabled repeat build produced 23 byte-identical FFmpeg executable/shared-library files. The Ubuntu distribution libraries were not independently rebuilt in this task.
+
+Electron-updater 6.8.9 is MIT. Production dependency licenses remain in the shipped `node_modules` tree. Optional Claude CLI, whisper-cli and Vibe/Sona are external and are not bundled.
+
+## Complete embedded-font notices
+
+The complete family-specific notices are preserved in `build-resources/font-licenses/` in corresponding source and copied to `resources/licenses/fonts/` by the packaging recipe: Amatic-SC-OFL.txt, Karantina-OFL.txt, Caveat-OFL.txt and Permanent-Marker-LICENSE.txt. Attribution matches the copyright embedded in the shipped WOFF2 subsets. PROVENANCE.json records the official upstream URLs and notice hashes. Existing sealed packages predate this notice-copy change; verify inclusion in the newly built package before distributing it.

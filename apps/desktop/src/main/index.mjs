@@ -1,3 +1,5 @@
+import { installReleaseServices } from './release-services.mjs';
+import { configureBundledTools } from './bundled-tools.mjs';
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect } from './region-selector.mjs';
@@ -17,6 +19,7 @@ import { trackCensorRegion } from './censor-tracking.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveBlankProject, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
+import { cancelWaveformDecoders } from './waveform-envelope.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
 import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
@@ -40,7 +43,8 @@ import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import { createStabilizationService } from './stabilization-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
 import { generateGraphic } from './claude-graphics-service.mjs';
-import { typicalClaudeAnswerMs } from './claude-cli.mjs';
+import { typicalClaudeAnswerMs, resolveClaudeBinary } from './claude-cli.mjs';
+import { inspectClaudeSubscription } from './claude-connection.mjs';
 import { detectSilences, silencesToCutRanges } from './silence-detect.mjs';
 
 /** Silent stretches of the open recording as cut ranges (frames); [] if none or unreadable. */
@@ -78,6 +82,13 @@ import {
   getAiStatus,
 } from './ai-service.mjs';
 
+configureBundledTools({ resourcesPath: process.resourcesPath });
+if (process.env.ELECTRON_DISABLE_SANDBOX && process.env.ELECTRON_DISABLE_SANDBOX !== '0' || process.argv.some((arg) => /^--(?:no-sandbox|disable-(?:setuid|gpu|seccomp-filter|namespace)-sandbox)(?:=|$)/.test(arg))) {
+  console.error('Rough Cut requires the Chromium sandbox.');
+  process.exit(64);
+}
+app.enableSandbox();
+
 const ownsSingleInstance = app.requestSingleInstanceLock();
 if (!ownsSingleInstance) {
   app.quit();
@@ -95,7 +106,7 @@ if (process.platform === 'linux') {
 }
 
 if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
-  app.setDesktopName('@rough-cut/desktop');
+  app.setDesktopName('rough-cut.desktop');
 }
 
 // The build this process started from. A hidden window (e.g. the recorder)
@@ -130,7 +141,7 @@ app.on('second-instance', (_event, argv) => {
 });
 
 const runtimeLogPath = installRuntimeLog();
-const dockProvenancePath = '/tmp/rough-cut-dock-provenance.json';
+const dockProvenancePath = process.env.ROUGH_CUT_DOCK_PROVENANCE_PATH ?? '/tmp/rough-cut-dock-provenance.json';
 
 function recordDockProvenance() {
   const launchSource = process.env.ROUGH_CUT_DOCK_LAUNCH === '1'
@@ -169,7 +180,7 @@ if (process.platform === 'linux' && !isXdotoolAvailable()) {
 }
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
 ]);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1326,6 +1337,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_SAVE, (_event, payload) 
 registerAiAssetIpcHandlers(ipcMain, { store: aiAssetsStore });
 
 ipcMain.handle(IPC_CHANNELS.AI_GET_STATUS, () => getAiStatus());
+ipcMain.handle(IPC_CHANNELS.CLAUDE_CONNECTION_STATUS, () => inspectClaudeSubscription({ binary: resolveClaudeBinary() }));
 const graphicsStyleStore = createGraphicsStyleStore({ filePath: defaultGraphicsStylePath(app.getPath('appData')) });
 const graphicRequests = new Map();
 // Last few Claude exchanges, for diagnosing a bad or missing result. Under
@@ -1607,7 +1619,7 @@ ipcMain.handle(IPC_CHANNELS.STABILIZATION_PREPARE, async (event, payload = {}) =
   };
 });
 ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
-  const { projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx } = payload;
+  const { projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, startSec, spanSec } = payload;
   if (typeof projectPath !== 'string' || !projectPath) throw new Error('clip-visuals: projectPath required');
   if (typeof sourcePath !== 'string' || !sourcePath) throw new Error('clip-visuals: sourcePath required');
   const resolvedSource = isAbsolute(sourcePath) ? sourcePath : join(dirname(projectPath), sourcePath);
@@ -1618,6 +1630,8 @@ ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
     durationSec: Number(durationSec) || 1,
     targetTiles,
     targetWidthPx,
+    startSec,
+    spanSec,
   });
   const { path: visualPath, ...meta } = visual;
   return { ...meta, url: toMediaUrl(visualPath) };
@@ -1746,6 +1760,7 @@ async function resolveDockStartupProject(explicitProjectPath) {
 }
 
 app.whenReady().then(() => {
+  installReleaseServices({ app, Menu, dialog, BrowserWindow, isBusy: () => Boolean(activeRecordingFinalizePromise || activeExportController || ['recording', 'paused', 'starting', 'stopping', 'finishing'].includes(recordingSession.status().state)) });
   recordDockProvenance();
   registerMediaProtocol();
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -1784,6 +1799,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  cancelWaveformDecoders();
   void recordingTranscriptionBridgePromise.then((bridge) => bridge?.dispose());
   void stopActiveAudioPreview();
   void stopActiveCameraPreview();

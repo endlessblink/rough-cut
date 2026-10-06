@@ -1,12 +1,13 @@
 // Per-asset clip visuals for the Editor v2 timeline (TASK-237 slice 3):
 // a horizontal filmstrip PNG for video sources (one frame every
-// FILMSTRIP_INTERVAL_SEC, tiled 1-row) and a waveform PNG for audio.
+// FILMSTRIP_INTERVAL_SEC, tiled 1-row) and a signed waveform SVG for audio.
 // One image per SOURCE (not per clip) — clips slice it via CSS background
 // math in the renderer. Cached beside the project keyed by source mtime.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { ensureWaveformEnvelope } from './waveform-envelope.mjs';
 
 export const FILMSTRIP_HEIGHT = 48;
 // Uniform tile geometry: every sampled frame is cover-cropped to TILE_W×H so
@@ -19,7 +20,7 @@ export const FILMSTRIP_MAX_TILES = 120;
 export const WAVEFORM_WIDTH = 2048;
 export const WAVEFORM_MIN_WIDTH = 512;
 export const WAVEFORM_MAX_WIDTH = 8192;
-export const WAVEFORM_HEIGHT = 56;
+export const WAVEFORM_HEIGHT = 128;
 export const WAVEFORM_COLOR = 'e0f2fe';
 
 export function visualsCacheDir(projectPath) {
@@ -29,7 +30,7 @@ export function visualsCacheDir(projectPath) {
 // `variant` distinguishes zoom buckets (tile count / waveform width) so each
 // resolution caches independently.
 export function visualCacheKey(sourcePath, mtimeMs, kind, variant = 0) {
-  return createHash('sha1').update(`${sourcePath}:${Math.round(mtimeMs)}:${kind}:${variant}:v3`).digest('hex').slice(0, 20);
+  return createHash('sha1').update(`${sourcePath}:${Math.round(mtimeMs)}:${kind}:${variant}:v4`).digest('hex').slice(0, 20);
 }
 
 // Tile count follows the requested zoom bucket (renderer asks for roughly
@@ -73,7 +74,7 @@ export function buildWaveformArgs(sourcePath, outPath, targetWidthPx) {
     '-y',
     '-i', sourcePath,
     '-filter_complex',
-    `aformat=channel_layouts=mono,compand=gain=-6,showwavespic=s=${width}x${WAVEFORM_HEIGHT}:colors=#${WAVEFORM_COLOR}:scale=sqrt`,
+    `showwavespic=s=${width}x${WAVEFORM_HEIGHT}:colors=#${WAVEFORM_COLOR}:scale=lin:filter=peak:split_channels=1`,
     '-frames:v', '1',
     outPath,
   ];
@@ -112,14 +113,23 @@ const inFlight = new Map();
 // Returns { path, kind, tiles?, intervalSec?, stripSeconds?, widthPx?, durationSec }.
 // Cache hit = the keyed PNG already exists; concurrent requests for the same
 // visual share one ffmpeg run.
-export async function ensureClipVisual({ projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, runner = runFfmpeg, statImpl = stat, probeAudio = probeHasAudio }) {
+export async function ensureClipVisual({ projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, startSec = null, spanSec = null, runner = runFfmpeg, statImpl = stat, probeAudio = probeHasAudio, waveformRenderer = ensureWaveformEnvelope }) {
   if (kind !== 'filmstrip' && kind !== 'waveform') throw new Error(`Unknown clip visual kind: ${kind}`);
   const sourceInfo = await statImpl(sourcePath);
   const plan = kind === 'filmstrip' ? filmstripPlan(durationSec, targetTiles) : null;
-  const waveWidth = kind === 'waveform' ? waveformPlanWidth(targetWidthPx) : null;
+  const waveWidth = kind === 'waveform' ? (startSec !== null || spanSec !== null
+    ? Math.max(1, Math.min(8192, Math.ceil(Number(targetWidthPx) || 512))) : waveformPlanWidth(targetWidthPx)) : null;
   const variant = kind === 'filmstrip' ? plan.tiles : waveWidth;
   const key = visualCacheKey(sourcePath, sourceInfo.mtimeMs, kind, variant);
   const dir = visualsCacheDir(projectPath);
+  if (kind === 'waveform') {
+    const audioKey = `${sourcePath}:${sourceInfo.mtimeMs}`;
+    if (noAudioSources.has(audioKey) || !(await probeAudio(sourcePath))) {
+      noAudioSources.add(audioKey);
+      throw new Error('clip-visuals: source has no audio stream, no waveform to draw');
+    }
+    return waveformRenderer({ sourcePath, mtimeMs: sourceInfo.mtimeMs, durationSec, width: waveWidth, directory: dir, startSec, spanSec });
+  }
   const outPath = join(dir, `${key}.png`);
   const meta = kind === 'filmstrip'
     ? { path: outPath, kind, durationSec, ...plan }

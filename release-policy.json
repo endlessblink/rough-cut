@@ -1,0 +1,17 @@
+{
+  "approved": true,
+  "activated": false,
+  "provider": "github",
+  "owner": "endlessblink",
+  "repo": "rough-cut",
+  "url": "https://github.com/endlessblink/rough-cut/releases/",
+  "channel": "beta",
+  "publisherPublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAUvzdIUyFt/vfI+7lfOhNmFHNLM+aCO3dcUMGsHXNphw=\n-----END PUBLIC KEY-----\n",
+  "activationBlockers": [
+    "Owner-key-signed metadata for the final current-source artifact required",
+    "First pinned-key bootstrap requires manual installation",
+    "Genuine public download/install/restart/rollback acceptance pending",
+    "Updater activation remains a separate owner decision"
+  ],
+  "publisherPublicKeyFingerprintSha256": "9c524b910bb2c4986f49a209b76dcacb45653946c652a3ccf35276f802442be1"
+}

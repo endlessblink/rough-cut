@@ -1,0 +1,30 @@
+{
+  "retrievedAt": "2026-10-05T07:37:52.625814+00:00",
+  "copyrightVerifiedAgainst": "embedded WOFF2 name ID 0",
+  "files": [
+    {
+      "file": "Amatic-SC-OFL.txt",
+      "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/amaticsc/OFL.txt",
+      "sha256": "301f77908df2b00141b4dcea50cc1a586c3afcee78843bd811088e8263623f9d",
+      "bytes": 4390
+    },
+    {
+      "file": "Karantina-OFL.txt",
+      "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/karantina/OFL.txt",
+      "sha256": "d2dcb5c24a68a08bc55e2416d13cd32b077c9637044dd40f3863a0aa90aa228b",
+      "bytes": 4388
+    },
+    {
+      "file": "Caveat-OFL.txt",
+      "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/caveat/OFL.txt",
+      "sha256": "1f9d81d094273d82f3898a1ee8b598a717d050ecbf5ff7bede105b704880157b",
+      "bytes": 4385
+    },
+    {
+      "file": "Permanent-Marker-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/google/fonts/main/apache/permanentmarker/LICENSE.txt",
+      "sha256": "8dc404f254e3ad427292eb78be04112e96f34de0c914c2965e8ede8e3bafc8e1",
+      "bytes": 11419
+    }
+  ]
+}

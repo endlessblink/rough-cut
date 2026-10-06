@@ -211,6 +211,7 @@ export async function generateGraphic({
   signal = null,
   binary = resolveClaudeBinary(),
   runOnce = runClaudeOnce,
+  connectionCheck,
   debugDir = null,
   onProgress = () => {},
 } = {}) {
@@ -231,6 +232,7 @@ export async function generateGraphic({
     signal,
     binary,
     runOnce,
+    connectionCheck,
     label: existing ? 'graphic-change' : 'graphic',
     debugDir,
     onProgress,

@@ -115,6 +115,9 @@ export function restoreRecordingOriginalState(document, { assetId }) {
   // The camera file starts a few frames before the screen; its clip must keep
   // that head offset from capture or the face plays behind the voice.
   const cameraOffset = recordingCameraSourceOffset(document, cameraAssetId);
+  const cameraAsset = document.assets?.find(asset => asset.id === cameraAssetId);
+  const cameraDelay = Math.max(0, Math.round(cameraAsset?.metadata?.timelineStartFrames ?? 0));
+  const cameraEnd = Math.min(duration, cameraDelay + Math.max(0, (cameraAsset?.duration ?? duration) - cameraOffset));
   const originalAspectRatio = inferOriginalRecordingAspectRatio(recording.metadata)
     ?? recording.metadata?.recordingEditOriginalAspectRatio
     ?? 'auto';
@@ -147,10 +150,10 @@ export function restoreRecordingOriginalState(document, { assetId }) {
       ...track,
       clips: [{
         ...first,
-        timelineIn: 0,
-        timelineOut: duration,
+        timelineIn: isCamera ? cameraDelay : 0,
+        timelineOut: isCamera ? cameraEnd : duration,
         sourceIn,
-        sourceOut: sourceIn + duration,
+        sourceOut: sourceIn + (isCamera ? cameraEnd - cameraDelay : duration),
         source: { kind: 'project-asset', id: assetIdForClip },
       }],
     };
@@ -163,7 +166,8 @@ export function restoreRecordingOriginalState(document, { assetId }) {
       clips: (track.clips ?? []).map((clip) => {
         if (clip.assetId !== recording.id && clip.assetId !== cameraAssetId) return clip;
         const sourceIn = cameraAssetId && clip.assetId === cameraAssetId ? cameraOffset : 0;
-        return { ...clip, timelineIn: 0, timelineOut: duration, sourceIn, sourceOut: sourceIn + duration };
+        const isCamera = clip.assetId === cameraAssetId;
+        return { ...clip, timelineIn: isCamera ? cameraDelay : 0, timelineOut: isCamera ? cameraEnd : duration, sourceIn, sourceOut: sourceIn + (isCamera ? cameraEnd - cameraDelay : duration) };
       }),
     })),
   };

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-beta.8 — 2026-10-06
+
+- Reconcile the public Linux distribution with the reviewed beta.7 editor/runtime, Electron 43.7.7 and bundled tools.
+- Require the Chromium sandbox in all shipped launchers; include complete embedded-font and media-tool notices, matching corresponding source and recorded package identity.
+- Preserve the current public landing page and publishing workflow. Manual updates remain in use; production signing, physical-device and owner acceptance are separate.
+
+
 ## 0.1.0-beta (2026-10-06)
 
 First public beta. Linux/X11 only; tested on KDE Plasma with NVIDIA.

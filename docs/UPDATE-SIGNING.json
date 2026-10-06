@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "approvedDestination": "https://github.com/endlessblink/rough-cut/releases/",
+  "installedUpdater": "electron-updater 6.8.9",
+  "signatureKind": "custom Ed25519 publisherSignature field in beta-linux.yml; not OS code signing",
+  "publisherPublicKeyFile": "docs/publisher-public-key.pem",
+  "publisherPublicKeyFingerprintSha256": "9c524b910bb2c4986f49a209b76dcacb45653946c652a3ccf35276f802442be1",
+  "sourcePinPrepared": true,
+  "packagedPinVerified": false,
+  "activated": false,
+  "ownerLocalPrivateKeyPath": "$HOME/.local/share/rough-cut-signing/private.pem",
+  "ownerLocalPublicKeyPath": "$HOME/.local/share/rough-cut-signing/public.pem",
+  "keyGeneration": "Owner supplied public key after local generation. Do not generate a replacement key.",
+  "custody": {
+    "passphrase": "Owner reports Doppler PEM_PASSPHRASE in project Shared integrations, config rough cut; contents and access granularity not inspected.",
+    "encryptedPrivateKey": "Local private.pem exists according to owner; separate encrypted-file backup and restore verification remain unconfirmed.",
+    "agentSecretAccess": "None. No private PEM, passphrase or Doppler value retrieved."
+  },
+  "signerMapping": {
+    "privateKey": "Explicit --key path; private.pem is valid.",
+    "passphrase": "Explicit --passphrase-fd >=3, read from local owner prompt. No Doppler or environment-variable adapter exists. PEM_PASSPHRASE is the existing storage label, not an input this signer reads.",
+    "publicKey": "Explicit --public-key path; public.pem is valid."
+  },
+  "ownerSteps": [
+    "Copy the existing encrypted private.pem to owner-selected separate backup storage; keep the passphrase separately and verify recovery locally. Do not overwrite it or generate another key.",
+    "When the final AppImage and unsigned manifest exist, sign locally with private.pem, entering the passphrase only at the terminal prompt.",
+    "Verify the signature against the pinned public key and exact final AppImage before metadata publication.",
+    "Keep updater inactive until genuine signed bootstrap/download/install/restart/rollback acceptance and explicit activation decision."
+  ],
+  "commandsPreparedNotExecuted": {
+    "metadataPreparation": "node scripts/release-metadata.mjs prepare --version 0.1.0-beta.8 --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x64.AppImage --output /absolute/path/unsigned-beta.json",
+    "metadataSigning": "node scripts/release-metadata.mjs sign --metadata /absolute/path/unsigned-beta.json --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x64.AppImage --key \"$HOME/.local/share/rough-cut-signing/private.pem\" --passphrase-fd 3 --output /absolute/path/beta-linux.yml",
+    "verification": "node scripts/release-metadata.mjs verify --metadata /absolute/path/beta-linux.yml --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x64.AppImage --public-key docs/publisher-public-key.pem --current-version 0.1.0-beta.7"
+  },
+  "evidenceBoundary": "Synthetic signatures made with public test keys prove verifier behavior only. They do not prove signing with the owner key, private-key recoverability or real update acceptance.",
+  "manualOnlyReleaseViable": true,
+  "manualOnlyConditions": "activated:false causes zero updater backend/network calls. Manual publication still requires exact artifact/source/checksum/license verification and truthful acceptance limits."
+}

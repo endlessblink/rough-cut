@@ -13,7 +13,7 @@ if (!projectPath || !existsSync(projectPath)) throw new Error('Usage: node scrip
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appPath = join(artifactRoot, 'resources', 'app');
 const electronPath = join(artifactRoot, 'electron');
-const dockLaunchPath = join(artifactRoot, 'dock-launch.sh');
+const dockLaunchPath = process.env.ROUGH_CUT_INTERACTIONS_EXECUTABLE || join(artifactRoot, 'dock-launch.sh');
 if (!existsSync(appPath) || !existsSync(electronPath) || !existsSync(dockLaunchPath)) throw new Error('Package the app before running recording-editor interaction proof.');
 const desktopEntryPath = join(process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share'), 'applications', 'rough-cut-mvp.desktop');
 if (!existsSync(desktopEntryPath)) throw new Error(`Installed Rough Cut desktop entry is missing: ${desktopEntryPath}`);
@@ -37,9 +37,11 @@ const runtimeAfterPath = join(outputRoot, 'runtime-after.png');
 const { _electron: electron } = loadPlaywright();
   const app = await electron.launch({
     executablePath: dockLaunchPath,
-  args: ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${join(outputRoot, 'electron-user-data')}`, appPath],
+  chromiumSandbox: true,
+  args: ['--enable-sandbox', '--force-color-profile=srgb', `--user-data-dir=${join(outputRoot, 'electron-user-data')}`, ...(process.env.ROUGH_CUT_INTERACTIONS_EXECUTABLE ? [] : [appPath])],
   env: {
     ...process.env,
+    APPIMAGE_EXTRACT_AND_RUN: '1',
     ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: projectPath,
@@ -52,11 +54,17 @@ const { _electron: electron } = loadPlaywright();
 try {
   const page = await app.firstWindow();
   await page.waitForTimeout(300);
-  const provenancePath = '/tmp/rough-cut-dock-provenance.json';
+  const provenancePath = process.env.ROUGH_CUT_DOCK_PROVENANCE_PATH ?? '/tmp/rough-cut-dock-provenance.json';
   const identityPath = join(appPath, 'package-identity.json');
   if (!existsSync(provenancePath) || !existsSync(identityPath)) throw new Error('Dock launch identity evidence is missing.');
   const provenance = JSON.parse(readFileSync(provenancePath, 'utf8'));
   const packageIdentity = JSON.parse(readFileSync(identityPath, 'utf8'));
+  const actualRuntime = await app.evaluate(({ app, BrowserWindow }) => ({
+    version: app.getVersion(), electron: process.versions.electron, appPath: app.getAppPath(),
+    sandbox: BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().sandbox,
+    identity: JSON.parse(process.getBuiltinModule('node:fs').readFileSync(process.getBuiltinModule('node:path').join(app.getAppPath(), 'package-identity.json'))),
+  }));
+  if (!actualRuntime.sandbox || JSON.stringify(actualRuntime.identity) !== JSON.stringify(packageIdentity)) throw new Error('Actual runtime differs from verified package identity');
   if (provenance.launchSource !== 'installed-desktop-entry'
     || JSON.stringify(provenance.packageIdentity) !== JSON.stringify(packageIdentity)
     || Date.parse(provenance.startedAt) < Date.parse(packageIdentity.packagedAt)) {
@@ -449,6 +457,8 @@ try {
   await page.screenshot({ path: boundaryZoomScreenshotPath, clip: boundaryZoomCrop, timeout: 60000 });
   await restoreOriginalRecording(page);
   await page.locator('.screenLane .clipBody').first().click({ force: true });
+  const gapTrimMode = page.getByRole('button', { name: 'Close gaps when trimming' });
+  if (await gapTrimMode.getAttribute('aria-pressed') === 'true') await gapTrimMode.click();
   const headTrimHandle = page.locator('.screenLane [data-recording-trim-edge="head"]').first();
   await headTrimHandle.focus();
   await page.keyboard.press('ArrowRight');
@@ -514,8 +524,8 @@ try {
     rightErrorPx: Math.abs((audioBox.x + audioBox.width) - (screenSpanBox.x + screenSpanBox.width)),
   };
   if (audioAlignment.leftErrorPx > 3 || audioAlignment.rightErrorPx > 3) throw new Error(`Audio waveform is not aligned to the recording span: ${JSON.stringify(audioAlignment)}`);
-  const backgroundTool = page.locator('nav[aria-label="Editor tools"] button[aria-label="Background"]');
-  await backgroundTool.click({ force: true });
+  const frameTool = page.locator('nav[aria-label="Editor tools"] button[aria-label="Frame"]');
+  await frameTool.click({ force: true });
   const templateCards = page.locator('.templateCard');
   await templateCards.first().waitFor({ state: 'visible', timeout: 30000 });
   const templateWidths = await templateCards.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width));
@@ -868,6 +878,13 @@ try {
     || waveformPositions.size !== repeatedCutWaveforms.length) {
     throw new Error(`Cut audio waveforms must share one timeline-scale image with a distinct canonical offset per child: ${JSON.stringify(repeatedCutWaveforms)}`);
   }
+  await page.getByRole('button', { name: 'Undo last edit', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.screenLane [data-recording-clip-id]').length === 2);
+  if ((await readAudioWaveformMapping()).some(w => w.backgroundImage === 'none')) throw new Error('Undo removed same-source waveforms');
+  await page.getByRole('button', { name: 'Redo last edit', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.screenLane [data-recording-clip-id]').length === 3);
+  const redoWaveforms = await readAudioWaveformMapping();
+  if (JSON.stringify(redoWaveforms) !== JSON.stringify(repeatedCutWaveforms)) throw new Error('Redo changed waveform cache/source mapping');
   repeatedCutEvidence = repeatedCutLanes;
   await page.screenshot({ path: repeatedBoundaryScreenshotPath, timeout: 60000 });
   const paintedBoundaryEvidence = await readPaintedBoundaryEvidence(repeatedBoundaryScreenshotPath, repeatedCutLanes);
@@ -1157,6 +1174,25 @@ try {
   const moveFingerprint = await timelineFingerprint();
   await restoreOriginal();
 
+  // Persist split mappings and verify reopening a copied project reconstructs them.
+  await seekToExactFrame(3); await page.keyboard.press('s');
+  await page.waitForFunction(() => document.querySelectorAll('.screenLane [data-recording-clip-id]').length === 2);
+  await page.waitForTimeout(800);
+  const beforeReloadStructure = await clipStructure();
+  await page.reload();
+  await page.waitForSelector('.audioWaveform', { timeout: 60000 });
+  if (JSON.stringify(await clipStructure()) !== JSON.stringify(beforeReloadStructure)) throw new Error('Reload lost split project state');
+  const fitReloadWaveforms = await readAudioWaveformMapping();
+  // Reopening resets view zoom to Fit: a three-frame offset can round to 0px.
+  // Reapply a measurable zoom before asserting distinct painted source offsets.
+  for (let i = 0; i < 8; i++) {
+    const button = page.getByRole('button', { name: 'Zoom timeline in' });
+    if (await button.isDisabled()) break;
+    await button.click(); await page.waitForTimeout(80);
+  }
+  const reloadedWaveforms = await readAudioWaveformMapping();
+  if (reloadedWaveforms.length !== 2 || reloadedWaveforms.some(w => w.backgroundImage === 'none') || new Set(reloadedWaveforms.map(w => w.backgroundPosition)).size !== 2) throw new Error(`Reload lost source-offset waveform mappings: ${JSON.stringify({fitReloadWaveforms,reloadedWaveforms})}`);
+  await restoreOriginal();
   // Capture the restored editor as a neutral review state, not with the last
   // trim/move gesture or preview selection still visually active.
   await page.keyboard.press('Escape');
@@ -1166,6 +1202,7 @@ try {
   await page.screenshot({ path: screenshotPath, timeout: 60000 });
   const report = {
     ok: true,
+    actualRuntime,
     projectPath,
     screenshotPath,
     boundaryScreenshotPath,
@@ -1202,7 +1239,7 @@ try {
       gapClosing: { gapPx: rangeGapPx },
       rippleDelete: { before: beforeRippleDelete, after: afterRippleDelete, gapPx: rippleGapPx, selectedClipState, timelineFingerprint: rippleDeleteFingerprint },
     clickToPlay: { playheadSamples, framePlayback },
-    audioWaveform: { background: waveformBackground, alignment: audioAlignment },
+    audioWaveform: { background: waveformBackground, alignment: audioAlignment, repeatedCutWaveforms, redoWaveforms, fitReloadWaveforms, reloadedWaveforms, undoRedoReload: true },
     previewMedia: { initial: initialPreviewMedia, postSeek: postSeekPreviewMedia },
     templates: { count: templateWidths.length, minWidth: Math.min(...templateWidths), splitCanvas, splitGeometry, postSplitSeekGeometry, renderedTemplateGeometry, delayedTemplateGeometry, postSeekTemplateGeometry, postSeekRenderDebug: postSeekRenderDebug.debug },
     sourceVideoDebug,

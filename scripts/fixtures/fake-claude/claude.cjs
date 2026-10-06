@@ -2,6 +2,8 @@
 // Stand-in for the Claude CLI in UI tests: answers like `claude -p --output-format json`
 // with a fixed graphic. No network. Records the args it was called with.
 const fs = require('fs');
+if (process.argv.includes('--version')) { console.log('2.1.248 (Claude Code test fixture)'); process.exit(0); }
+if (process.argv[2] === 'auth' && process.argv[3] === 'status') { console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'pro' })); process.exit(0); }
 let input = '';
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', () => {

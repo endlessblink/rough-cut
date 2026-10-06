@@ -14,7 +14,7 @@ if (!projectPath || !existsSync(projectPath)) {
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appPath = join(artifactRoot, 'resources', 'app');
 const electronPath = join(artifactRoot, 'electron');
-const dockLaunchPath = join(artifactRoot, 'dock-launch.sh');
+const dockLaunchPath = process.env.ROUGH_CUT_REAL_EDITOR_EXECUTABLE || join(artifactRoot, 'dock-launch.sh');
 if (!existsSync(appPath) || !existsSync(electronPath) || !existsSync(dockLaunchPath)) {
   throw new Error('The packaged app is missing; run pnpm package:linux first.');
 }
@@ -28,9 +28,11 @@ const { _electron: electron } = loadPlaywright();
 
   const app = await electron.launch({
     executablePath: dockLaunchPath,
-    args: ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${userDataPath}`, appPath],
+    chromiumSandbox: true,
+  args: ['--enable-sandbox', '--force-color-profile=srgb', `--user-data-dir=${userDataPath}`, ...(process.env.ROUGH_CUT_REAL_EDITOR_EXECUTABLE ? [] : [appPath])],
     env: {
       ...process.env,
+      APPIMAGE_EXTRACT_AND_RUN: '1',
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
       ROUGH_CUT_DOCK_LAUNCH: '1',
     ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
@@ -93,7 +95,7 @@ try {
   if (focused !== windowId && process.env.ROUGH_CUT_ALLOW_NONFRONTMOST !== '1') {
     throw new Error(`The app window is not frontmost (active=${focused}, app=${windowId}).`);
   }
-  const desktopCapture = spawnSync('import', ['-window', 'root', screenshotPath], { encoding: 'utf8' });
+  const desktopCapture = spawnSync('import', ['-window', windowId, screenshotPath], { encoding: 'utf8' });
   if (desktopCapture.status !== 0) throw new Error(`Full desktop capture failed: ${desktopCapture.stderr || desktopCapture.stdout}`);
 
   const { stage, frame, timeline } = geometry;
@@ -129,6 +131,9 @@ try {
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exitCode = 1;
 } finally {
+  if (process.env.ROUGH_CUT_REAL_EDITOR_HOLD === '1' && report?.ok) {
+    for (let i = 0; i < 180 && !existsSync(join(outputRoot, 'stop-review')); i++) await new Promise(resolve => setTimeout(resolve, 10000));
+  }
   await app.close().catch(() => undefined);
 }
 

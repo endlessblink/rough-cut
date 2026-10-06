@@ -10,6 +10,10 @@
   --panel: #181820;
   --panel-alt: #20202a;
   --surface: #101015;
+  --audio-clip-fill: #152d3a;
+  --audio-clip-border: #42677b;
+  --audio-clip-ink: #c9e8f4;
+  --audio-zero-line: rgb(201 232 244 / 0.12);
   --line: #282832;
   --strong-line: #33333f;
   --problem: #fb7185;
@@ -3336,51 +3340,77 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 /* Recording edit: an attached audio clip must be visually distinct from an
  * empty lane at a glance, just like the blue Screen clip above it. */
 .audioLane .presenceRegion {
-   background: #1b405c;
-   border-color: #65a7d3;
-   color: #e0f2fe;
-   min-height: 1.15rem;
+  background: var(--audio-clip-fill);
+  border-color: var(--audio-clip-border);
+  color: var(--audio-clip-ink);
 }
-.audioLane { min-height: 2.35rem; }
-.audioLane .laneTrack { min-height: 2rem; }
 .audioRegion { isolation: isolate; overflow: hidden; position: absolute; }
 .audioWaveform {
   background-position: center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
-  /* Tiny linked cuts can be only a few pixels wide; an inner inset collapses
-   * their waveform to zero and makes Screen/Audio appear out of sync. */
-  inset: -1px;
-  filter: drop-shadow(0 0 1px rgb(224 242 254 / 0.9));
+  inset: 0;
   opacity: 1;
   pointer-events: none;
   position: absolute;
   z-index: 0;
 }
+/* An opaque source tile replaces the stretched overview, including true silence. */
+.audioWaveformDetail {
+  background-color: var(--audio-clip-fill);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
 .audioSilenceGuide {
-  border-top: 1px dashed rgb(219 234 254 / 0.48);
-  inset: 50% 0.22rem auto;
+  border-top: 1px solid var(--audio-zero-line);
+  inset: 50% 0 auto;
   pointer-events: none;
   position: absolute;
   z-index: 0;
 }
 .audioRegionLabel {
-  background: rgb(7 24 44 / 0.82);
-  border: 1px solid rgb(224 242 254 / 0.4);
-  border-radius: var(--radius-pill);
+  background: rgb(10 25 34 / 0.7);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
   line-height: 1;
-  padding: var(--space-0-5) var(--space-1-5);
+  padding: var(--space-0-5) var(--space-1);
   pointer-events: none;
-  position: relative;
+  position: absolute;
+  left: var(--space-1);
+  top: var(--space-1);
   z-index: 1;
 }
 .audioRegion {
   border-radius: var(--radius-sm);
-  bottom: 0.25rem;
+  bottom: var(--space-1);
   min-height: 0;
   padding: 0;
-  top: 0.25rem;
+  top: var(--space-1);
 }
+.laneLabel { position: relative; }
+.laneResizeHandle {
+  position: absolute;
+  inset: auto 0 0;
+  height: var(--space-2);
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 8;
+}
+.laneResizeHandle::after {
+  content: '';
+  position: absolute;
+  inset: auto var(--space-3) var(--space-0-5);
+  border-top: 1px solid var(--strong-line);
+  opacity: 0.45;
+}
+.laneResizeHandle:hover::after, .laneResizeHandle:focus-visible::after { border-color: var(--accent); opacity: 1; }
+.laneResizeHandle:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .clipCutBoundary {
   background: #f8fbff;
   box-shadow: 0 0 0 1px rgb(15 23 42 / 0.9), 0 0 8px rgb(147 197 253 / 0.85);
@@ -5384,7 +5414,7 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 }
 .timelineDock .timelineToolButton:hover:not(:disabled) { background: rgb(255 255 255 / 0.06); color: #fff; }
 .timelineDock .timelineToolButton.active { background: rgb(59 130 246 / 0.16); color: #9cc0ff; }
-.timelineDock .timelineViewport { padding: 0 var(--space-3) var(--space-1) 0; }
+.timelineDock .timelineViewport { padding: 0 var(--space-3) var(--space-1) 0; max-height: 44vh; overflow-y: auto; }
 .timelineDock .timelineRuler {
   border-bottom: 1px solid var(--line);
   color: var(--subtle);
@@ -5438,10 +5468,10 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .clipDuration { color: rgb(255 255 255 / 0.55); font-weight: var(--weight-regular); }
 .timelineDock .audioRegion,
 .timelineDock .presenceRegion.audioRegion {
-  background: #173a3a;
+  background: #152d3a;
   border: 0;
-  border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px #2f8f86;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px #42677b;
 }
 .timelineDock .audioRegionLabel { background: transparent; box-shadow: none; color: rgb(255 255 255 / 0.7); font-size: var(--text-2xs); font-weight: var(--weight-medium); }
 .timelineDock .playhead { background: #f4f5f8; width: 2px; }
@@ -5549,7 +5579,7 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 
 /* Timeline clips: name and length read left to right. */
 .timelineDock .clipBody { justify-content: flex-start; }
-.timelineDock .audioRegionLabel { display: none; }
+.timelineDock .audioRegionLabel { display: block; }
 
 /* ---------- Studio export pop-over contents ---------- */
 .exportSheet { display: grid; gap: var(--space-4); }
@@ -6429,3 +6459,50 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .graphicsStyleText { display: grid; gap: var(--space-0-5); min-width: 0; }
 .graphicsStyleName { font-size: var(--text-sm); font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .graphicsStyleMood { color: var(--muted); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Graphics sub-sections: a sticky Create / Edit / Style switch so the pane is
+ * three short pages instead of one long scroll. */
+.graphicsPane .graphicsTabBar { background: #15151c; margin-block: calc(-1 * var(--space-2)); padding-block: var(--space-2); position: sticky; top: calc(-1 * var(--space-8)); z-index: 2; }
+.studioPane .graphicsTabs { gap: var(--space-1); }
+.studioPane .graphicsTabs .segmentedOption {
+  align-items: center;
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: var(--space-1-5);
+  justify-content: center;
+  letter-spacing: 0;
+  min-height: 2rem;
+  padding: var(--space-1-5) 0;
+  text-transform: none;
+}
+.graphicsTabCount { color: var(--subtle); font-variant-numeric: tabular-nums; font-weight: var(--weight-medium); }
+.graphicsTabs .segmentedOption.active .graphicsTabCount { color: var(--muted); }
+.graphicsTabPanel { display: grid; gap: var(--space-6); }
+.graphicsPane .graphicsTabPanel > .inspectorSection { border-top: 0; padding-top: 0; }
+.graphicsLookSummary {
+  align-items: center;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-2-5);
+  min-height: 2.75rem;
+  padding: var(--space-1-5) var(--space-2-5) var(--space-1-5) var(--space-2);
+  text-align: start;
+  width: 100%;
+}
+.graphicsLookSummary:hover { border-color: var(--strong-line); }
+.graphicsLookSummary:focus-visible { outline: 2px solid rgb(59 130 246 / 0.5); outline-offset: 2px; }
+.graphicsLookSummaryText { display: grid; flex: 1; min-width: 0; }
+.graphicsLookSummaryAction { color: var(--subtle); font-size: var(--text-sm); }
+.graphicsLookSummary:hover .graphicsLookSummaryAction { color: var(--text); }
+.graphicsGroup { border-top: 1px solid var(--line); padding-top: var(--space-4); }
+.graphicsGroup > summary { align-items: center; color: var(--muted); cursor: pointer; display: flex; font-size: var(--text-md); font-weight: var(--weight-medium); list-style: none; }
+.graphicsGroup > summary::-webkit-details-marker { display: none; }
+.graphicsGroup > summary::after { border-bottom: 1.5px solid currentColor; border-right: 1.5px solid currentColor; content: ""; height: 0.4rem; margin-left: auto; transform: rotate(45deg); transition: transform 180ms ease; width: 0.4rem; }
+.graphicsGroup[open] > summary::after { transform: rotate(-135deg); }
+.graphicsGroup > summary:hover { color: var(--text); }
+.graphicsGroupBody { display: grid; gap: var(--space-4); padding-top: var(--space-4); }
+.graphicsHouseStyleBody { display: grid; gap: var(--space-4); }

@@ -39,12 +39,12 @@ test('buildFilmstripArgs tiles one row of cover-cropped uniform tiles', () => {
   assert.equal(args[args.indexOf('-frames:v') + 1], '1');
 });
 
-test('buildWaveformArgs renders a single mono waveform at the bucketed width', () => {
+test('buildWaveformArgs renders separate-channel fullscale peaks at the bucketed width', () => {
   const filter = (args) => args[args.indexOf('-filter_complex') + 1];
   assert.match(filter(buildWaveformArgs('/tmp/in.mp4', '/tmp/wave.png')), new RegExp(`showwavespic=s=${WAVEFORM_WIDTH}x\\d+`));
   assert.match(filter(buildWaveformArgs('/tmp/in.mp4', '/tmp/wave.png', 4096)), /showwavespic=s=4096x\d+/);
   assert.match(filter(buildWaveformArgs('/tmp/in.mp4', '/tmp/wave.png', 99999)), /showwavespic=s=8192x\d+/, 'width capped');
-  assert.match(filter(buildWaveformArgs('/tmp/in.mp4', '/tmp/wave.png')), /channel_layouts=mono/);
+  assert.match(filter(buildWaveformArgs('/tmp/in.mp4', '/tmp/wave.png')), /scale=lin:filter=peak:split_channels=1/);
 });
 
 test('visualCacheKey changes with mtime, kind, and zoom variant', () => {

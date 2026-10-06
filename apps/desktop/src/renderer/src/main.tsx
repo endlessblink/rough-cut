@@ -1,3 +1,4 @@
+import { TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX, defaultTrackHeight, clampTrackHeight, readTrackHeight, persistTrackHeight, keyboardTrackHeight } from './timeline-track-height.mjs';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -126,6 +127,7 @@ import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDura
 import { restoreRecordingFullSource, restoreRecordingOriginalState, restoreRecordingSourceEdge, rippleDeleteRecordingRange, selectRecordingEditModel, splitRecordingAtFrame, syncRecordingTimelinePresentation, trimRecordingClipEdge, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
+import { planWaveformTiles } from './waveform-tiles.mjs';
 import { contentWidthPx, resolvePixelsPerFrame, scrollLeftForPlayheadFollow, stepScrollLeftTowardTarget, zoomStep, MAX_PIXELS_PER_FRAME } from './timeline-viewport.mjs';
 import { isTypingTarget } from './keyboard.mjs';
 
@@ -279,7 +281,8 @@ declare global {
       deleteUserTemplate: (payload: { id: string }) => Promise<{ removed: boolean }>;
       listRecordingTemplateOverrides: () => Promise<RecordingTemplateOverride[]>;
       saveRecordingTemplateOverride: (payload: RecordingTemplateOverrideInput) => Promise<RecordingTemplateOverride>;
-      getClipVisual: (payload: Record<string, unknown>) => Promise<{ url: string; kind: 'waveform' | 'filmstrip'; durationSec: number; widthPx?: number; tiles?: number; intervalSec?: number; stripSeconds?: number }>;
+      getClipVisual: (payload: Record<string, unknown>) => Promise<{ url: string; kind: 'waveform' | 'filmstrip'; durationSec: number; widthPx?: number; channels?: number; tiles?: number; intervalSec?: number; stripSeconds?: number }>;
+      getClaudeConnection: () => Promise<{ ok: boolean; status: string; reason: string; version?: string; subscriptionType?: string }>;
       listAiAssets: () => Promise<AiAsset[]>;
       resolveAiAsset: (payload: { id: string }) => Promise<AiAsset | null>;
       tagAiAsset: (payload: { id: string; tags: string[] }) => Promise<AiAsset>;
@@ -4309,6 +4312,11 @@ function ProjectPreview({
 
   async function updateAspectRatio(nextAspectRatio: ProjectAspectRatio) {
     if (nextAspectRatio === aspectRatio) return;
+    // A manual size choice customizes this composition; it must not overwrite
+    // the named layout's saved size or leave that layout selected.
+    pendingTemplatePresetApplyRef.current = null;
+    setAppliedTemplatePresetId(null);
+    setAppliedUserTemplateId(null);
     await persist({
       ...project.document,
       settings: {
@@ -4530,17 +4538,16 @@ function ProjectPreview({
 
   async function applyTemplatePreset(templateId: string) {
     const builtIn = applyRecordingTemplatePreset(background, templateId);
-    const applied = builtIn
-      ? builtIn
-      : recordingTemplateOverrides[templateId]
+    const applied = recordingTemplateOverrides[templateId]
         ? {
+            ...builtIn,
             aspectRatio: recordingTemplateOverrides[templateId].aspectRatio,
             background: recordingTemplateOverrides[templateId].background,
             camera: recordingTemplateOverrides[templateId].camera,
             screenFrame: recordingTemplateOverrides[templateId].screenFrame,
             cameraFrame: recordingTemplateOverrides[templateId].cameraFrame,
           }
-        : undefined;
+        : builtIn;
     if (!applied) return;
     pendingTemplatePresetApplyRef.current = templateId;
     try {
@@ -5525,13 +5532,17 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const zoomAnchorScreenXRef = React.useRef<number | null>(null);
   const [timelineZoomPpf, setTimelineZoomPpf] = React.useState<number | null>(null);
   const [timelineViewWidthPx, setTimelineViewWidthPx] = React.useState(0);
+  const [waveformScrollLeft, setWaveformScrollLeft] = React.useState(0);
   const timelineDurationFrames = Math.max(1, Math.round(model.durationSec * fps));
   const pixelsPerFrame = resolvePixelsPerFrame(timelineZoomPpf, timelineViewWidthPx, timelineDurationFrames);
   const timelineTrackWidthPx = contentWidthPx(timelineDurationFrames, pixelsPerFrame);
   const timelineContentWidthPx = TIMELINE_LABEL_WIDTH_PX + timelineTrackWidthPx;
   const timelineZoomedIn = timelineZoomPpf !== null && timelineTrackWidthPx > timelineViewWidthPx + 1;
-  const waveformWidthPx = Math.max(1024, Math.min(16384, Math.ceil(timelineTrackWidthPx / 128) * 128));
-  const [waveformUrl, setWaveformUrl] = React.useState<string | null>(null);
+  const waveformWidthPx = Math.max(1024, Math.min(8192, Math.ceil(sourceFrameDuration * pixelsPerFrame / 128) * 128));
+  const waveformSourceKey = `${project.path ?? ''}\0${project.recording?.filePath ?? ''}`;
+  const [waveformVisual, setWaveformVisual] = React.useState<{ sourceKey: string; url: string; channels: number } | null>(null);
+  const waveformUrl = waveformVisual?.sourceKey === waveformSourceKey ? waveformVisual.url : null;
+  const waveformChannels = waveformUrl ? waveformVisual?.channels ?? 1 : 1;
   const timelineZoomInDisabled = pixelsPerFrame >= MAX_PIXELS_PER_FRAME;
   const playheadFollowContentXRef = React.useRef(0);
   const zoomSelectionAnchorRef = React.useRef<string | null>(null);
@@ -5542,24 +5553,75 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   React.useEffect(() => {
     const sourcePath = project.recording?.filePath;
     if (!project.path || !sourcePath || !model.durationSec) {
-      setWaveformUrl(null);
+      setWaveformVisual(null);
       return undefined;
     }
     let cancelled = false;
-    setWaveformUrl(null);
+    // Keep the same source's accurate image while a sharper zoom bucket loads.
+    // The source key hides an old image immediately when the project changes.
     void window.roughCut.getClipVisual({
       projectPath: project.path,
       sourcePath,
       kind: 'waveform',
-      durationSec: model.durationSec,
+      durationSec: sourceFrameDuration / fps,
       targetWidthPx: waveformWidthPx,
     }).then((visual) => {
-      if (!cancelled) setWaveformUrl(visual.url);
+      if (!cancelled) setWaveformVisual({ sourceKey: waveformSourceKey, url: visual.url, channels: visual.channels ?? 1 });
     }).catch(() => {
-      if (!cancelled) setWaveformUrl(null);
+      // A failed resolution upgrade must not erase the same source's valid image.
+      // First-load failures still have no image and are detected by runtime gates.
     });
     return () => { cancelled = true; };
-  }, [project.path, project.recording?.filePath, model.durationSec, waveformWidthPx]);
+  }, [project.path, project.recording?.filePath, sourceFrameDuration, fps, waveformWidthPx, waveformSourceKey]);
+
+  // Decode native PCM for visible source windows once the overview reaches its
+  // resolution limit. Source anchors survive cuts, moves and duplicate clips.
+  const waveformTilePlan = sourceFrameDuration * pixelsPerFrame > 8192
+    ? planWaveformTiles({ clips: model.lanes.screen.map(clip => ({ id: clip.id,
+        timelineIn: clip.timelineIn ?? 0, timelineOut: clip.timelineOut ?? 0, sourceIn: clip.sourceIn ?? 0 })),
+        pixelsPerFrame, fps, sourceFrames: sourceFrameDuration, scrollLeft: waveformScrollLeft,
+        viewWidth: timelineViewWidthPx, labelWidth: TIMELINE_LABEL_WIDTH_PX }) : [];
+  const waveformTileCache = React.useRef(new Map<string, string>());
+  const waveformTileWork = React.useRef<{ queue: Array<{ key: string; payload: Record<string, unknown> }>; active: number; pending: Set<string> }>({ queue: [], active: 0, pending: new Set() });
+  const waveformTileMounted = React.useRef(true);
+  const [, updateWaveformTiles] = React.useState(0);
+  const tileCacheKey = (key: string) => `${waveformSourceKey}\0${fps}\0${key}`;
+  const waveformTileRequests = JSON.stringify(Array.from(new Map(waveformTilePlan.map(tile => [tile.key, { key: tileCacheKey(tile.key),
+    payload: { projectPath: project.path, sourcePath: project.recording?.filePath, kind: 'waveform',
+      durationSec: sourceFrameDuration / fps, targetWidthPx: Math.ceil(tile.width), startSec: tile.startSec, spanSec: tile.spanSec } }])).values()));
+  React.useEffect(() => {
+    waveformTileMounted.current = true;
+    return () => { waveformTileMounted.current = false; waveformTileWork.current.queue = []; };
+  }, []);
+  React.useEffect(() => {
+    const work = waveformTileWork.current;
+    work.queue = [];
+    const timer = window.setTimeout(() => {
+      if (!project.path || !project.recording?.filePath) return;
+      work.queue = (JSON.parse(waveformTileRequests) as typeof work.queue)
+        .filter(request => !waveformTileCache.current.has(request.key) && !work.pending.has(request.key));
+      const worker = async () => {
+        work.active++;
+        try {
+          while (waveformTileMounted.current && work.queue.length) {
+            const request = work.queue.shift()!;
+            if (waveformTileCache.current.has(request.key) || work.pending.has(request.key)) continue;
+            work.pending.add(request.key);
+            try {
+              const visual = await window.roughCut.getClipVisual(request.payload);
+              const cache = waveformTileCache.current;
+              cache.set(request.key, visual.url);
+              while (cache.size > 128) cache.delete(cache.keys().next().value!);
+              if (waveformTileMounted.current) updateWaveformTiles(value => value + 1);
+            } catch { /* Keep the real overview until a detail request succeeds. */ }
+            finally { work.pending.delete(request.key); }
+          }
+        } finally { work.active--; }
+      };
+      while (work.active < 2 && work.queue.length) void worker();
+    }, 100);
+    return () => { window.clearTimeout(timer); work.queue = []; };
+  }, [waveformTileRequests, project.path, project.recording?.filePath]);
 
   React.useEffect(() => {
     const el = viewportRef.current;
@@ -6420,7 +6482,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   function handleTimelineSurfacePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement | null;
-    if (target?.closest('.timelineToolButton, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .zoomEditorChip, .trimHandle, .hiddenTrimRange, .hiddenCutRange')) return;
+    if (target?.closest('.timelineToolButton, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .zoomEditorChip, .trimHandle, .hiddenTrimRange, .hiddenCutRange, .laneResizeHandle, .laneLabel')) return;
     const track = event.currentTarget.querySelector('.laneTrack');
     if (!(track instanceof HTMLElement)) return;
      if (target?.closest('.clipBody, .laneTrack, .timelineRuler')) return;
@@ -6725,10 +6787,12 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   }
 
   function screenRegionStyle(region: { id: string; left: number; width: number; sourceIn?: number; sourceOut?: number; timelineIn?: number; timelineOut?: number }) {
-    const separated = (placement: { left: number; width: number }) => ({
-      left: `calc(${placement.left}% + 1px)`,
-      width: `max(0px, calc(${placement.width}% - 2px))`,
-    });
+    const separated = (placement: { left: number; width: number }) => {
+      // A fixed inset erases subpixel clips at Fit. Both linked lanes retain
+      // at least half their canonical width while exposing the edit boundary.
+      const inset = Math.min(1, Math.max(0, placement.width * timelineTrackWidthPx / 400));
+      return { left: `calc(${placement.left}% + ${inset}px)`, width: `calc(${placement.width}% - ${2 * inset}px)` };
+    };
     const baseline = trimDragPreview ? trimDragBaseline.find((clip) => clip.id === region.id) : null;
     void baseline;
     if (clipDragPreview?.clipId === region.id) {
@@ -6769,10 +6833,12 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   }
 
   function audioRegionStyle(region: { id: string; left: number; width: number; timelineIn?: number; timelineOut?: number }) {
-    const separated = (placement: { left: number; width: number }) => ({
-      left: `calc(${placement.left}% + 1px)`,
-      width: `max(0px, calc(${placement.width}% - 2px))`,
-    });
+    const separated = (placement: { left: number; width: number }) => {
+      // A fixed inset erases subpixel clips at Fit. Both linked lanes retain
+      // at least half their canonical width while exposing the edit boundary.
+      const inset = Math.min(1, Math.max(0, placement.width * timelineTrackWidthPx / 400));
+      return { left: `calc(${placement.left}% + ${inset}px)`, width: `calc(${placement.width}% - ${2 * inset}px)` };
+    };
     const linkedScreen = linkedScreenRegionForAudio(region);
     const clipId = linkedScreen?.id ?? (region.id.startsWith('audio:') ? region.id.slice('audio:'.length) : region.id);
     const baseline = trimDragPreview ? trimDragBaseline.find((clip) => clip.id === clipId) : null;
@@ -6787,10 +6853,10 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     return separated(placement);
   }
 
-  function audioWaveformStyle(timelineIn?: number) {
-    const startFrame = Math.max(0, Math.round(timelineIn ?? 0));
+  function audioWaveformStyle(sourceIn?: number) {
+    const startFrame = Math.max(0, Math.round(sourceIn ?? 0));
     return {
-      backgroundSize: `${timelineTrackWidthPx}px 100%`,
+      backgroundSize: `${sourceFrameDuration * pixelsPerFrame}px 100%`,
       backgroundPosition: `${-Math.round(startFrame * pixelsPerFrame)}px center`,
     };
   }
@@ -6846,6 +6912,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
         ref={viewportRef}
         onPointerDownCapture={beginTimelinePan}
         onAuxClick={preventMiddleTimelineAuxClick}
+        onScroll={(event) => setWaveformScrollLeft(event.currentTarget.scrollLeft)}
       >
         <div className="timelineContent" ref={contentRef} style={{ width: `${timelineContentWidthPx}px` }}>
           <div className="timelineRuler" aria-hidden="true" onPointerDown={handleHeaderSeekPointerDown} title="Click or drag to seek">
@@ -6951,9 +7018,15 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
            {model.lanes.audio.length > 0
              ? model.lanes.audio.map((region, index) => { const linkedScreen = linkedScreenRegionForAudio(region); const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} data-recording-linked-screen-clip-id={linkedScreen?.id ?? ''} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={audioRegionStyle(region)} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
                   {index > 0 ? <span className="clipCutBoundary audioCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} aria-hidden="true" /> : null}
-                 {waveformUrl ? <span className="audioWaveform" aria-hidden="true" style={{ backgroundImage: `url("${waveformUrl}")`, ...audioWaveformStyle(region.timelineIn ?? linkedScreen?.timelineIn) }} /> : null}
-                 <span className="audioSilenceGuide" aria-hidden="true" />
-                  <span className="audioRegionLabel">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
+                 {waveformUrl ? <span className="audioWaveform" aria-hidden="true" style={{ backgroundImage: `url("${waveformUrl}")`, ...audioWaveformStyle(linkedScreen?.sourceIn ?? 0) }} /> : null}
+                 {waveformTilePlan.filter(tile => tile.clipId === linkedScreen?.id).map(tile => {
+                   const url = waveformTileCache.current.get(tileCacheKey(tile.key));
+                   return url ? <span key={tile.key} className="audioWaveformDetail" aria-hidden="true"
+                     data-waveform-source-start={tile.startSec} data-waveform-source-span={tile.spanSec}
+                     style={{ left: `${tile.left}px`, width: `${tile.width}px`, backgroundImage: `url("${url}")` }} /> : null;
+                 })}
+                 {Array.from({ length: waveformChannels }, (_, channel) => <span key={channel} className="audioSilenceGuide" aria-hidden="true" style={{ top: `${(channel + 0.5) * 100 / waveformChannels}%` }} />)}
+                  <span className="srOnly">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
                 </button>; })
              : <p className="srOnly">No audio track.</p>}
             </TimelineLane>
@@ -7156,9 +7229,26 @@ const TIMELINE_LANE_ICONS: Record<string, PhosphorIconType> = {
 };
 
 function TimelineLane({ label, className, style, children, onTrackDoubleClick, onTrackPointerDown, onTrackPointerDownCapture, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; style?: React.CSSProperties; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; onTrackPointerDownCapture?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {
+  const rows = Number((style as Record<string, unknown> | undefined)?.['--graphic-rows']) || 1;
+  const minimum = className.includes('graphicsLane') ? Math.max(TRACK_HEIGHT_MIN, rows * 30 + 8) : TRACK_HEIGHT_MIN;
+  const preferenceStorage = (() => { try { return window.localStorage; } catch { return null; } })();
+  const [preferredHeight, setPreferredHeight] = React.useState(() => readTrackHeight(label, preferenceStorage, minimum));
+  const height = clampTrackHeight(preferredHeight, minimum);
+  const resizing = React.useRef<{ pointerId: number; startY: number; initial: number; current: number } | null>(null);
+  const commitHeight = (value: number) => { const next = clampTrackHeight(value, minimum); setPreferredHeight(next); persistTrackHeight(label, next, preferenceStorage); };
+  const cancelResize = () => { if (resizing.current) setPreferredHeight(resizing.current.initial); resizing.current = null; };
   return (
-    <div className={`timelineLane ${className}`} style={style} data-timeline-lane={label.toLowerCase()} aria-label={ariaLabel}>
-      <span className="laneLabel">{(() => { const LaneIcon = TIMELINE_LANE_ICONS[label.toLowerCase()]; return LaneIcon ? <LaneIcon size={15} weight="regular" aria-hidden /> : null; })()}{label}</span>
+    <div className={`timelineLane ${className}`} style={{ ...style, height, minHeight: minimum }} data-timeline-lane={label.toLowerCase()} aria-label={ariaLabel}>
+      <span className="laneLabel">{(() => { const LaneIcon = TIMELINE_LANE_ICONS[label.toLowerCase()]; return LaneIcon ? <LaneIcon size={15} weight="regular" aria-hidden /> : null; })()}{label}
+        <span className="laneResizeHandle" role="separator" aria-orientation="horizontal" aria-label={`Resize ${label} track height`} aria-valuemin={minimum} aria-valuemax={Math.max(minimum, TRACK_HEIGHT_MAX)} aria-valuenow={height} aria-valuetext={`${height} pixels`} tabIndex={0} title="Drag to resize track · Arrow keys adjust · Enter resets"
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => { event.stopPropagation(); commitHeight(defaultTrackHeight(label, minimum)); }}
+          onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); cancelResize(); return; } const next = keyboardTrackHeight(event.key, height, minimum, defaultTrackHeight(label, minimum), event.shiftKey); if (next !== null) { event.preventDefault(); commitHeight(next); } }}
+          onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); resizing.current = { pointerId: event.pointerId, startY: event.clientY, initial: height, current: height }; }}
+          onPointerMove={(event) => { const drag = resizing.current; if (!drag || drag.pointerId !== event.pointerId) return; event.stopPropagation(); drag.current = clampTrackHeight(drag.initial + event.clientY - drag.startY, minimum); setPreferredHeight(drag.current); }}
+          onPointerUp={(event) => { const drag = resizing.current; if (!drag || drag.pointerId !== event.pointerId) return; event.stopPropagation(); resizing.current = null; commitHeight(drag.current); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
+          onPointerCancel={cancelResize} onLostPointerCapture={cancelResize} />
+      </span>
       <div className={`laneTrack ${trackClassName ?? ''}`} onDoubleClick={onTrackDoubleClick} onPointerDown={onTrackPointerDown} onPointerDownCapture={onTrackPointerDownCapture} title={trackTitle}>{children}</div>
     </div>
   );

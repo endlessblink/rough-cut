@@ -15,6 +15,8 @@ import {
   runClaudeOnce,
 } from './claude-graphics-service.mjs';
 
+const readyConnection = async () => ({ ok: true, status: 'ready', version: '2.1.248', subscriptionType: 'pro' });
+
 const GOOD = {
   title: 'Lower third',
   durationSec: 4,
@@ -68,7 +70,7 @@ async function fakeClaude(script, tempRoot = tmpdir()) {
   const dir = await mkdtemp(join(tempRoot, 'fake-claude-'));
   const body = typeof script === 'function' ? script(dir) : script;
   const bin = join(dir, 'claude');
-  await writeFile(bin, `#!/usr/bin/env node\n${body}\n`);
+  await writeFile(bin, `#!/usr/bin/env node\nif (process.argv.includes("--version")) { console.log("2.1.248 (Claude Code test fixture)"); process.exit(0); }\nif (process.argv[2] === "auth" && process.argv[3] === "status") { console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "pro" })); process.exit(0); }\n${body}\n`);
   await chmod(bin, 0o755);
   return { bin, dir };
 }
@@ -117,7 +119,7 @@ test('an invalid first answer is retried once with the reasons, then accepted', 
     const spec = calls === 1 ? { ...GOOD, html: '<img src="https://x.com/a.png">' } : GOOD;
     return { ok: true, stdout: JSON.stringify({ subtype: 'success', structured_output: spec }) };
   };
-  const result = await generateGraphic({ request: 'lower third', binary: '/fake', runOnce });
+  const result = await generateGraphic({ request: 'lower third', binary: '/fake', runOnce, connectionCheck: readyConnection });
   assert.equal(result.ok, true);
   assert.equal(calls, 2);
   assert.match(prompts[1], /external URL/);
@@ -125,7 +127,7 @@ test('an invalid first answer is retried once with the reasons, then accepted', 
 
 test('two bad answers fail closed with the reasons', async () => {
   const runOnce = async () => ({ ok: true, stdout: JSON.stringify({ subtype: 'success', structured_output: { ...GOOD, html: '' } }) });
-  const result = await generateGraphic({ request: 'x', binary: '/fake', runOnce });
+  const result = await generateGraphic({ request: 'x', binary: '/fake', runOnce, connectionCheck: readyConnection });
   assert.equal(result.ok, false);
   assert.ok(result.errors.length > 0);
 });
@@ -207,7 +209,7 @@ test('a chosen length goes to Claude, long ones ask for beats, and the result ke
   assert.match(buildGraphicsUserPrompt({ request: 'x', lengthSec: 30 }), /exactly 30 seconds[\s\S]*multi-beat scene/);
   assert.doesNotMatch(buildGraphicsUserPrompt({ request: 'x', lengthSec: 5 }), /multi-beat/);
   const runOnce = async () => ({ ok: true, stdout: JSON.stringify({ type: 'result', subtype: 'success', structured_output: { title: 't', durationSec: 4, html: '<div>x</div>', fields: [] } }) });
-  const result = await generateGraphic({ request: 'x', lengthSec: 30, binary: '/bin/true', runOnce });
+  const result = await generateGraphic({ request: 'x', lengthSec: 30, binary: '/bin/true', runOnce, connectionCheck: readyConnection });
   assert.equal(result.ok, true);
   assert.equal(result.graphic.durationSec, 30);
 });

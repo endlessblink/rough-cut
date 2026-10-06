@@ -248,11 +248,11 @@ export function cameraSyncCorrection(driftSec, baseRate = 1, frameRate = 30) {
   return { seek: false, playbackRate: rate * (driftSec > 0 ? 0.9 : 1.1) };
 }
 
-export function cameraCoversSourceTime(sourceTimeSec, cameraOffsetSec, cameraDurationSec, frameRate = 30) {
+export function cameraCoversSourceTime(sourceTimeSec, cameraOffsetSec, cameraDurationSec, frameRate = 30, boundaryHoldSec = 0) {
   if (!Number.isFinite(cameraDurationSec) || cameraDurationSec <= 0) return true;
   const requested = (Number.isFinite(sourceTimeSec) ? sourceTimeSec : 0) + (Number.isFinite(cameraOffsetSec) ? cameraOffsetSec : 0);
   const frameSlack = 1 / (Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30);
-  return requested <= Math.max(0, cameraDurationSec - frameSlack);
+  return requested <= Math.max(0, cameraDurationSec - frameSlack) + Math.max(0, Math.min(0.5, boundaryHoldSec));
 }
 
 export function coverSourceRect(sourceWidth, sourceHeight, destWidth, destHeight) {

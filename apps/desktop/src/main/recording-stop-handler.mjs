@@ -1,5 +1,8 @@
+import { stat } from 'node:fs/promises';
+import { probeCameraMediaTiming } from './media-probe.mjs';
 import { writeRecordingDiagnosticsReport as defaultWriteRecordingDiagnosticsReport } from './recording-diagnostics.mjs';
 import { validateRemuxedMp4 as defaultValidateRemuxedMp4 } from './remux-service.mjs';
+import { unifiedCameraClock } from '../shared/camera-clock.mjs';
 
 export async function stopRecordingAndCreateProject({
   recordingSession,
@@ -242,16 +245,15 @@ async function probeSyncedRecording({
     screenTiming = screenStream;
     cameraTiming = cameraStream;
     if (screenStream && cameraStream) {
-      cameraSourceInFrames = Math.max(
-        0,
-        Math.round(((cameraStream.startTimeSeconds ?? 0) - (screenStream.startTimeSeconds ?? 0)) * recordingForProject.fps),
-      );
+      const clock = unifiedCameraClock(screenStream.startTimeSeconds ?? 0, cameraStream.startTimeSeconds ?? 0, recordingForProject.fps);
+      cameraSourceInFrames = clock.sourceInFrames;
       recordingWithTiming = {
         ...recordingForProject,
         camera: recordingForProject.camera
           ? {
               ...recordingForProject.camera,
               sourceInFrames: cameraSourceInFrames,
+              ...clock,
               streamTiming: cameraStream,
             }
           : null,
@@ -264,10 +266,15 @@ async function probeSyncedRecording({
       ? await probeVideoTiming(recordingForProject.camera.outputPath, { fps: recordingForProject.fps })
       : null;
   }
+  if (isUnifiedCapture && recordingWithTiming.camera?.cameraClockVersion === 1 && (await stat(recordingWithTiming.camera.outputPath).catch(() => null))?.isFile()) {
+    const mediaTiming = await probeCameraMediaTiming(recordingWithTiming.camera.outputPath).catch(() => null);
+    if (mediaTiming) recordingWithTiming = { ...recordingWithTiming, camera: { ...recordingWithTiming.camera, mediaTiming, mediaTimeOffsetSec: mediaTiming.startTimeSeconds - recordingWithTiming.camera.cameraDelayFrames / recordingForProject.fps } };
+  }
   const sync = computeSyncedRecordingTiming({
     screen: screenTiming,
     camera: cameraTiming,
     cameraSourceInFrames,
+    cameraDelayFrames: recordingWithTiming.camera?.cameraClockVersion === 1 ? recordingWithTiming.camera.cameraDelayFrames : null,
     fps: recordingForProject.fps,
   });
   const leakedSyncWarningAsCameraError = sync.syncWarning

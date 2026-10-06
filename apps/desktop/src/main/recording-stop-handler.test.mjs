@@ -347,8 +347,10 @@ test('unified camera recording derives camera offset from source stream timestam
   assert.equal(result.sync, undefined);
   releaseProbe();
   await result.finalizationPromise;
-  assert.equal(savedRecordingArg.camera.sourceInFrames, 3);
-  assert.equal(savedRecordingArg.sync.cameraSourceInFrames, 3);
+  assert.equal(savedRecordingArg.camera.sourceInFrames, 0);
+  assert.equal(savedRecordingArg.camera.cameraDelayFrames, 3);
+  assert.equal(savedRecordingArg.camera.cameraClockVersion, 1);
+  assert.equal(savedRecordingArg.sync.cameraSourceInFrames, 0);
   assert.equal(savedRecordingArg.streamTiming.camera.index, 1);
 });
 

@@ -1192,7 +1192,8 @@ test('styled export args can use NVIDIA NVENC without changing the preview-parit
   assert(joined.includes('[base]subtitles=/tmp/cursor.ass[with_cursor]'));
   assert(joined.includes('[screen][screen_mask]alphamerge[rounded]'));
   assert(joined.includes('boxblur=58:5'));
-  assert(joined.includes('[camera_scaled][camera_mask]alphamerge[camera_rounded]'));
+  assert(joined.includes('[camera_source_alpha][camera_mask]blend=all_mode=multiply[camera_alpha]'));
+  assert(joined.includes('[camera_color][camera_alpha]alphamerge[camera_rounded]'));
   assert(joined.includes('[with_screen][camera_rounded]overlay='));
 });
 
@@ -1507,8 +1508,8 @@ test('styled export args give each camera timeline segment its own seeked input'
 
   // Screen keeps inputs 2 and 3; the camera's land after them.
   assert.equal(args.filter((arg, index) => args[index - 1] === '-i' && arg === '/tmp/camera.mp4').length, 3);
-  assert(joined.includes('-ss 0.5 -t 2.267 -i /tmp/camera.mp4'));
-  assert(joined.includes('-ss 300.5 -t 2.267 -i /tmp/camera.mp4'));
+  assert(joined.includes('-seek_timestamp 1 -ss 0.499999 -t 2.267 -i /tmp/camera.mp4'));
+  assert(joined.includes('-seek_timestamp 1 -ss 300.499999 -t 2.267 -i /tmp/camera.mp4'));
   assert(joined.includes('[4:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[camera_base_seg_0]'));
   assert(joined.includes('[5:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[camera_base_seg_1]'));
   assert(!joined.includes('camera_base_seg_0]') || !joined.includes('[1:v]trim=start_frame=9000'));
@@ -2860,4 +2861,19 @@ test('styled export args read each seeked screen segment a few frames long and t
   assert(joined.includes('-ss 10 -t 2.267 -i /tmp/source.mp4'));
   assert(joined.includes('[1:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[base_seg_0]'));
   assert(joined.includes('[2:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[base_seg_1]'));
+});
+
+test('virtual camera export rebases padding and concat, precisely seeks and hides beyond-end seeds',()=>{
+ const args=buildStyledExportArgs({inputPath:'/screen.mp4',outputPath:'/export.mp4',sourceWidth:96,sourceHeight:64,sourceFps:30,cameraInputPath:'/camera.mp4',cameraSourceWidth:96,cameraSourceHeight:64,cameraSourceStartSeconds:.066016,cameraDelayFrames:2,cameraDecodedDurationSeconds:3,timelineDurationFrames:10,timelineSegments:[{timelineIn:0,timelineOut:2,sourceIn:88,sourceOut:90},{timelineIn:2,timelineOut:10,sourceIn:110,sourceOut:118}],cameraTimelineSegments:[{timelineIn:0,timelineOut:2,sourceIn:88,sourceOut:90},{timelineIn:2,timelineOut:10,sourceIn:110,sourceOut:118}]});
+ const graph=args[args.indexOf('-filter_complex')+1];
+ assert(args.join(' ').includes('-seek_timestamp 1 -ss 2.932681'));
+ assert(graph.includes('tpad=stop_mode=clone:stop=15'));
+ assert(graph.includes('tpad=stop_mode=clone:stop=0'));
+ assert(graph.includes('setpts=N/30/TB,colorchannelmixer=aa=0'));
+ assert(graph.includes('[camera_base]setpts=N/30/TB[camera_clock]'));
+ assert(graph.includes('[camera_clock]scale='));
+ assert(args.includes('-noaccurate_seek'));
+ assert(graph.includes('fps=30:start_time=0'));
+ const cameraInputPositions=args.map((arg,index)=>arg==='/camera.mp4'&&args[index-1]==='-i'?index:null).filter(index=>index!==null).slice(1);
+ for(const position of cameraInputPositions)assert.equal(args[position-3],'-ss','virtual input window stays frame-bounded after retained keyframe preroll');
 });

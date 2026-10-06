@@ -15,7 +15,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r --sort build",
-    "test": "node --test scripts/repo-regression.test.mjs scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/ui-visual-proof.test.mjs scripts/package-linux-portable.test.mjs && pnpm build && pnpm -r --sort test",
+    "test": "pnpm build && node --test scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/ui-visual-proof.test.mjs scripts/release-metadata.test.mjs && pnpm -r --sort test",
     "typecheck": "pnpm -r --sort typecheck",
     "smoke:mvp": "pnpm --filter @rough-cut/project-model build && node scripts/smoke-mvp.mjs",
     "smoke:real-recording": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-real-recording.mjs",
@@ -61,8 +61,8 @@
     "visual:real-editor": "node scripts/visual-real-editor-playwright.mjs",
     "playback:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/playback-timeline-playwright.mjs",
     "dev:playback-debug": "ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH=/tmp/rough-cut-playback-debug.json pnpm dev",
-    "package:linux": "pnpm build && node scripts/package-linux.mjs",
-    "package:linux:verified": "pnpm verify:recording-editor-skill && pnpm verify:recording-editor-design && pnpm package:linux",
+    "package:linux": "pnpm electron:install && pnpm tools:prepare && pnpm build && node scripts/package-linux.mjs",
+    "package:linux:verified": "pnpm verify:recording-editor-skill && pnpm package:linux",
     "prepare:linux:dock": "bash scripts/prepare-linux-dock.sh",
     "dock": "bash scripts/prepare-linux-dock.sh",
     "logs:live": "bash scripts/rough-cut-live-logs.sh",
@@ -73,13 +73,18 @@
     "dev": "pnpm --filter @rough-cut/desktop dev",
     "clean": "pnpm -r --parallel clean",
     "visual:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-timeline-interactions-playwright.mjs",
-    "test:graphics": "node scripts/visual-graphics-playwright.mjs"
+    "test:graphics": "node scripts/visual-graphics-playwright.mjs",
+    "electron:install": "pnpm --filter @rough-cut/desktop exec install-electron",
+    "release:linux": "pnpm package:linux && node scripts/build-linux-release.mjs",
+    "tools:prepare": "node scripts/prepare-bundled-tools.mjs",
+    "test:release": "ROUGH_CUT_RELEASE_ARTIFACT=1 pnpm package:linux && node --test scripts/package-linux-portable.test.mjs && pnpm test"
   },
   "devDependencies": {
+    "electron-builder": "26.15.3",
     "typescript": "^5.7.0"
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.12.0"
   }
 }

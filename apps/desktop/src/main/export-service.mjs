@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
-import { probeVideoStreamStartOffsets } from './media-probe.mjs';
+import { probeCameraMediaTiming, probeVideoStreamStartOffsets } from './media-probe.mjs';
 import { buildScreenCropTrack, createCropPanSendcmdLayer, createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import {
@@ -631,6 +631,9 @@ export async function exportStyledProjectToMp4({
   const cameraSourceStartSeconds = recording.camera?.filePath
     ? await probeCameraStartSeconds(recording.camera.filePath)
     : 0;
+  const cameraMediaTiming = recording.camera?.cameraClockVersion === 1 && recording.camera?.filePath
+    ? await probeCameraMediaTiming(recording.camera.filePath, { runner: (command, args) => run(command, args, { signal }) }).catch(() => null)
+    : null;
   let useSimpleFastPath = false;
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
@@ -672,6 +675,8 @@ export async function exportStyledProjectToMp4({
       cameraSourceWidth: recording.camera?.width ?? null,
       cameraSourceHeight: recording.camera?.height ?? null,
       cameraSourceInFrames: recording.camera?.sourceInFrames ?? 0,
+      cameraDelayFrames: recording.camera?.cameraClockVersion === 1 ? recording.camera.cameraDelayFrames ?? 0 : null,
+      cameraDecodedDurationSeconds: cameraMediaTiming?.durationSeconds ?? recording.camera?.decodedDurationSeconds ?? null,
       cameraSourceStartSeconds,
       cameraTimelineSegments: recording.camera?.timelineSegments ?? [],
       cameraPresentation: recording.presentation?.camera ?? null,
@@ -845,7 +850,8 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
   const sourceOut = screenClips[screenClips.length - 1].sourceOut;
   const needsSegmentComposition = screenClips.length !== 1
     || screenClips[0].timelineIn !== 0
-    || screenClips[0].timelineOut !== timelineDurationFrames;
+    || screenClips[0].timelineOut !== timelineDurationFrames
+    || cameraClips.some((clip, index) => clip.timelineIn !== screenClips[index]?.timelineIn || clip.timelineOut !== screenClips[index]?.timelineOut);
   const timelineSegments = needsSegmentComposition
     ? screenClips.map((clip) => ({
         timelineIn: clip.timelineIn,
@@ -1506,6 +1512,8 @@ export function buildStyledExportArgs({
   cameraSourceWidth = null,
   cameraSourceHeight = null,
   cameraSourceInFrames = 0,
+  cameraDelayFrames = null,
+  cameraDecodedDurationSeconds = null,
   cameraSourceStartSeconds = 0,
   cameraTimelineSegments = [],
   cameraPresentation = null,
@@ -1589,6 +1597,18 @@ export function buildStyledExportArgs({
       : `${screenManualCropStep ??`crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2`},${screenScaleStep}`;
   const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
+  const virtualCameraClock = Number.isFinite(cameraDelayFrames);
+  const boundaryHoldFrames = Math.floor(0.5 * fps);
+  const cameraPadding = (headFrames, tailHoldFrames = boundaryHoldFrames) => {
+    const head = Math.max(0, Math.round(headFrames));
+    const cloneHead = Math.min(boundaryHoldFrames, head);
+    const transparentHead = head - cloneHead;
+    return `${head > 0 ? `,tpad=start_mode=clone:start=${cloneHead}${transparentHead > 0 ? `,tpad=start_mode=add:start=${transparentHead}:color=black@0` : ''}` : headFrames < 0 ? `,trim=start_frame=${-headFrames},setpts=PTS-STARTPTS` : ''},tpad=stop_mode=clone:stop=${Math.max(0, tailHoldFrames)},tpad=stop_mode=add:stop=${Math.max(1, timelineDuration ?? trimDurationFrames ?? 1)}:color=black@0,setpts=N/${formatFilterNumber(fps)}/TB`;
+  };
+  // tpad can inherit an EOF timestamp that omits its start padding. Rebase the
+  // complete virtual frame sequence so cloned/transparent tails cannot jump
+  // backward and be selected two frames early by overlay's timestamp sync.
+  const cameraFrameFilter = virtualCameraClock ? `fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS,format=rgba${cameraPadding(cameraDelayFrames)}` : null;
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
   const cameraAlpha = buildRoundedAlphaExpression(cameraRadius);
   const screenAlpha = buildRoundedAlphaExpression(screenRadius);
@@ -1633,8 +1653,14 @@ export function buildStyledExportArgs({
   // start offset back keeps the seek landing on the same frame the trim did.
   const cameraSegmentInputArgs = useCameraSegmentInputs
     ? normalizedCameraTimelineSegments.flatMap((segment) => [
-        '-ss', formatFilterNumber(Math.max(0, cameraSourceStartSeconds + segment.sourceIn / fps)),
-        '-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps),
+        ...(virtualCameraClock ? ['-noaccurate_seek'] : []),
+        '-seek_timestamp', '1',
+        '-ss', formatCameraSeekSeconds(Math.max(0, cameraSourceStartSeconds + (virtualCameraClock
+          ? Math.min(Math.max(0, segment.sourceIn - cameraDelayFrames), Number.isFinite(cameraDecodedDurationSeconds) ? Math.max(0, Math.round(cameraDecodedDurationSeconds * fps) - 1) : Infinity)
+          : segment.sourceIn) / fps)),
+        // The frame trim bounds virtual inputs. Input -t counts retained
+        // keyframe preroll and would cut their desired VFR segment short.
+        ...(!virtualCameraClock ? ['-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps)] : []),
         '-i', cameraInputPath,
       ])
     : [];
@@ -1672,8 +1698,29 @@ export function buildStyledExportArgs({
         segmentInputLabels: cameraSegmentInputLabels,
         outputLabel: 'camera_base',
         transparent: true,
+        sourceFrameFilter: cameraFrameFilter,
+        segmentFrameFilters: virtualCameraClock ? normalizedCameraTimelineSegments.map(segment => {
+          const endFrame = Number.isFinite(cameraDecodedDurationSeconds) ? cameraDelayFrames + Math.round(cameraDecodedDurationSeconds * fps) : Infinity;
+          // A seek past decoded media is seeded from its last frame. Count that
+          // frame inside the remaining hold budget; after the budget every
+          // seeded/padded frame is transparent, including the very first one.
+          const afterMedia = segment.sourceIn >= endFrame;
+          const remainingHold = Math.max(0, endFrame + boundaryHoldFrames - segment.sourceIn);
+          const tailHold = afterMedia ? Math.max(0, remainingHold - 1) : boundaryHoldFrames;
+          const hideSeed = afterMedia && remainingHold === 0 ? ',colorchannelmixer=aa=0' : '';
+          // Retain keyframe preroll, then let the timestamp grid choose the frame
+          // active at the seek instant. Accurate seek alone discards that frame
+          // when a dropped/VFR frame leaves the target inside its display span.
+          return `fps=${formatFilterNumber(fps)}:start_time=0,setpts=PTS-STARTPTS,format=rgba${cameraPadding(Math.max(0, cameraDelayFrames - segment.sourceIn), tailHold)}${hideSeed}`;
+        }) : null,
       })
     : [];
+  if (virtualCameraClock && useCameraTimelineSegments) {
+    // concat can assign the next segment the same PTS as a one-frame part.
+    // Canonical source ranges already define exact counts; give the assembled
+    // camera those counts on one monotonic grid before compositor frame sync.
+    cameraBaseFilters.push(`[camera_base]setpts=N/${formatFilterNumber(fps)}/TB[camera_clock]`);
+  }
   const cameraBaseTransformFilter = cameraInputPath && cameraStabilizationTransform?.transformPath
     ? `[1:v]${buildStabilizationTransformFilter({
       transformPath: cameraStabilizationTransform.transformPath,
@@ -1713,10 +1760,13 @@ export function buildStyledExportArgs({
     ...(cameraFrame
       ? [
           useCameraTimelineSegments
-            ? `[camera_base]${cameraScaleStep}[camera_scaled]`
-            : `${cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]'}fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
+            ? `${virtualCameraClock ? '[camera_clock]' : '[camera_base]'}${cameraScaleStep}[camera_scaled]`
+            : `${cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]'}${cameraFrameFilter ?? `fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS`}${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
           `nullsrc=s=${cameraFrame.w}x${cameraFrame.h}:r=1:d=1,format=gray,geq=lum='${cameraAlpha}',${staticLoop}[camera_mask]`,
-          '[camera_scaled][camera_mask]alphamerge[camera_rounded]',
+          '[camera_scaled]split[camera_color][camera_alpha_source]',
+          '[camera_alpha_source]alphaextract[camera_source_alpha]',
+          '[camera_source_alpha][camera_mask]blend=all_mode=multiply[camera_alpha]',
+          '[camera_color][camera_alpha]alphamerge[camera_rounded]',
           `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
         ]
       : ['[with_screen]format=yuv420p[v]']),
@@ -2138,6 +2188,13 @@ function isCompactRawTimelineSegments(segments, durationFrames) {
 // segment and the filter graph trims to the exact frame count.
 const SEGMENT_INPUT_TAIL_FRAMES = 8;
 
+function formatCameraSeekSeconds(seconds) {
+  // Stream starts from ffprobe are rounded to microseconds. Seek just below
+  // the decoded-frame boundary, never milliseconds beyond it: accurate seek
+  // then keeps the requested frame rather than silently dropping it.
+  return (Math.max(0, Math.floor((seconds - 0.000001) * 1e6)) / 1e6).toFixed(6);
+}
+
 function buildTimelineVideoBaseFilters({
   segments,
   sourceWidth,
@@ -2149,6 +2206,8 @@ function buildTimelineVideoBaseFilters({
   segmentInputLabels = null,
   outputLabel = 'base',
   transparent = false,
+  sourceFrameFilter = null,
+  segmentFrameFilters = null,
 } = {}) {
   const safeWidth = Math.max(2, Math.round(Number.isFinite(sourceWidth) ? sourceWidth : 1280));
   const safeHeight = Math.max(2, Math.round(Number.isFinite(sourceHeight) ? sourceHeight : 720));
@@ -2173,9 +2232,9 @@ function buildTimelineVideoBaseFilters({
     if (segmentInputLabels) {
       // The input is already seeked to this segment, so there is nothing left to trim
       // and — crucially — nothing for this branch to buffer while concat drains another.
-      filters.push(`${segmentInputLabels[index]}fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS,trim=end_frame=${Math.max(1, segment.sourceOut - segment.sourceIn)},format=rgba[${segmentLabel}]`);
+      filters.push(`${segmentInputLabels[index]}${segmentFrameFilters?.[index] ?? `fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS`},trim=end_frame=${Math.max(1, segment.sourceOut - segment.sourceIn)},format=rgba[${segmentLabel}]`);
     } else {
-      filters.push(`${sourceLabel}fps=${formatFilterNumber(fps)},trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+      filters.push(`${sourceLabel}${sourceFrameFilter ?? `fps=${formatFilterNumber(fps)}`},trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
     }
     labels.push(`[${segmentLabel}]`);
     cursor = segment.timelineOut;
