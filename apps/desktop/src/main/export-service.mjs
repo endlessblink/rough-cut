@@ -82,8 +82,9 @@ export function buildGraphicsFailureResult({ styledResult, error, expected }) {
  * otherwise). Exports that are already loud enough, plain file copies and cancelled exports are not touched.
  */
 export async function exportProjectToMp4(options = {}) {
-  const result = await exportProjectToMp4Unleveled(options);
-  if (!result || result.cancelled || result.byteEqualCandidate) return result;
+  const { levelQuietVoice = true, ...exportOptions } = options;
+  const result = await exportProjectToMp4Unleveled(exportOptions);
+  if (!levelQuietVoice || !result || result.cancelled || result.byteEqualCandidate) return result;
   const outputPath = result.outputPath ?? options.outputPath;
   if (!outputPath || !existsSync(outputPath)) return result;
   const leveling = await levelQuietExport(outputPath, { signal: options.signal ?? null });

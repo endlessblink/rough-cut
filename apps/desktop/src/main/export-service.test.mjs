@@ -274,6 +274,7 @@ printf encoded > "\${@: -1}"
       project: edited,
       outputPath,
       mode: 'raw',
+      levelQuietVoice: false, // this test inspects the single fake ffmpeg call of the export itself
     });
 
     assert.equal(result.byteEqualCandidate, false);
