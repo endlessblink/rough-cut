@@ -2,7 +2,7 @@
 
 **Beta (v0.1.0-beta).** A free screen recorder and editor for Linux (X11), built for tutorials, demos and product walkthroughs. Record your screen, trim and zoom on one timeline, add animated graphics, and export a finished MP4.
 
-![Rough Cut: the Recording edit view with screen, camera, zoom and timeline](docs/assets/demo.gif)
+![Rough Cut: the Recording edit view with screen, camera, zoom and timeline](docs/site/assets/proof-zoom.webp)
 
 ## What it does
 
