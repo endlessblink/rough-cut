@@ -101,4 +101,3 @@ Copyright (C) 2026 Noam Naumovsky.
 
 Rough Cut is free software, released under the [GNU Affero General Public License v3.0](LICENSE). Everything in this repository is free to use, study, change and share under that licence.
 
-A paid Pro edition with new features may come later.
