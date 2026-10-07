@@ -6,6 +6,7 @@ Free screen recorder and editor for Linux (x86_64, X11). Pre-release. All checks
 
 - **Fix: importing a video from outside the projects folder.** In beta.8, Projects → Import on a video stored in another folder created the project but then failed with "Project path is outside the allowed projects directory" and the editor never opened. Beta.9 opens a project you imported or opened yourself from the folder you chose. A regression test covers it.
 - **Fix: recording from the Recording tab.** Pressing Start now hides the Rough Cut window for the whole take (as the separate recorder does), so the recording shows your other apps instead of Rough Cut itself. The window comes back with the editor when you stop.
+- **Fix: choosing the second screen.** A whole-screen take now records the screen you clicked; it used to record the main screen.
 - Nothing else in the application changed. The same Electron 43.7.7, bundled media tools and notices as beta.8.
 
 ## What this release is
