@@ -1,5 +1,6 @@
 // @ts-check
 import { spawn } from 'node:child_process';
+import { audioInputArgs, cameraInputArgs, screenInputArgs, captureSupported } from './platform-capture.mjs';
 
 /**
  * @typedef {Object} FfmpegCaptureOptions
@@ -21,10 +22,7 @@ import { spawn } from 'node:child_process';
  * @property {string} outputPath
  */
 
-const USE_FFMPEG_CAPTURE =
-  process.platform === 'linux' &&
-  (process.env.XDG_SESSION_TYPE === 'x11' ||
-    (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''));
+const USE_FFMPEG_CAPTURE = captureSupported();
 
 // Screen capture finalization can legitimately take many seconds for libx264
 // to flush a long mux, so the screen path keeps the original generous
@@ -435,23 +433,14 @@ export function buildFfmpegCameraCaptureArgs({
     'nobuffer',
     '-thread_queue_size',
     '1024',
-    '-f',
-    'v4l2',
-    // Force MJPEG input. UVC webcams typically only deliver high-resolution
+    // Linux forces MJPEG input. UVC webcams typically only deliver high-resolution
     // frames at the requested framerate when negotiating MJPEG; YUYV
     // (uncompressed) caps at very low fps for 1280x720 (10 fps on the
     // Lenovo FHD UVC tested 2026-05-10). Without this ffmpeg negotiates
     // YUYV by default and the recorded camera stream is 10 fps regardless
     // of -framerate, making playback look "stuttery". Verified via
     // `v4l2-ctl --list-formats-ext` and a direct ffmpeg run.
-    '-input_format',
-    'mjpeg',
-    '-framerate',
-    String(frameRate),
-    '-video_size',
-    `${captureWidth}x${captureHeight}`,
-    '-i',
-    devicePath,
+    ...cameraInputArgs({ fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
     '-an',
     '-c:v',
     'libx264',
@@ -495,16 +484,7 @@ export function buildFfmpegCameraPreviewArgs({
     'low_delay',
     '-thread_queue_size',
     '1024',
-    '-f',
-    'v4l2',
-    '-input_format',
-    'mjpeg',
-    '-framerate',
-    String(frameRate),
-    '-video_size',
-    `${captureWidth}x${captureHeight}`,
-    '-i',
-    devicePath,
+    ...cameraInputArgs({ fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
     '-an',
     '-vf',
     `fps=${frameRate},scale=${outputWidth}:-1`,
@@ -664,16 +644,7 @@ export function buildFfmpegCaptureArgs({
     // Input 0: x11grab video
     '-thread_queue_size',
     '512',
-    '-f',
-    'x11grab',
-    '-draw_mouse',
-    '0',
-    '-framerate',
-    String(fps),
-    '-video_size',
-    `${width}x${height}`,
-    '-i',
-    display,
+    ...screenInputArgs({ fps: fps, width, height, display }),
   ];
 
   // Input 1 (if present): system audio monitor
@@ -681,14 +652,7 @@ export function buildFfmpegCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      systemAudioSource,
+      ...audioInputArgs(systemAudioSource),
     );
   }
 
@@ -697,14 +661,7 @@ export function buildFfmpegCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      micSource,
+      ...audioInputArgs(micSource),
     );
   }
 
@@ -789,32 +746,14 @@ export function buildFfmpegUnifiedCaptureArgs({
     '0.05',
     '-thread_queue_size',
     '1024',
-    '-f',
-    'x11grab',
-    '-draw_mouse',
-    '0',
-    '-framerate',
-    String(frameRate),
-    '-video_size',
-    `${width}x${height}`,
-    '-i',
-    display,
+    ...screenInputArgs({ fps: frameRate, width, height, display }),
     '-use_wallclock_as_timestamps',
     '1',
     '-fflags',
     'nobuffer',
     '-thread_queue_size',
     '1024',
-    '-f',
-    'v4l2',
-    '-input_format',
-    'mjpeg',
-    '-framerate',
-    String(frameRate),
-    '-video_size',
-    `${captureCameraWidth}x${captureCameraHeight}`,
-    '-i',
-    cameraDevicePath,
+    ...cameraInputArgs({ fps: frameRate, width: captureCameraWidth, height: captureCameraHeight, device: cameraDevicePath }),
   ];
 
   let nextInputIndex = 2;
@@ -825,28 +764,14 @@ export function buildFfmpegUnifiedCaptureArgs({
     args.push(
       '-thread_queue_size',
       '1024',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      systemAudioSource,
+      ...audioInputArgs(systemAudioSource),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '1024',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      micSource,
+      ...audioInputArgs(micSource),
     );
   }
 
@@ -1210,28 +1135,14 @@ export function buildFfmpegAudioCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      systemAudioSource,
+      ...audioInputArgs(systemAudioSource),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '512',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      micSource,
+      ...audioInputArgs(micSource),
     );
   }
 
@@ -1265,28 +1176,14 @@ export function buildFfmpegAudioLevelProbeArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      systemAudioSource,
+      ...audioInputArgs(systemAudioSource),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '512',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      micSource,
+      ...audioInputArgs(micSource),
     );
   }
 

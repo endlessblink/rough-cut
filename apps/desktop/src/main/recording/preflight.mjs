@@ -19,8 +19,9 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
   const captureHeight = captureRegion?.height ?? display.height ?? 0;
   const ffmpegAvailable = commandAvailable('ffmpeg');
   const ffprobeAvailable = commandAvailable('ffprobe');
-  const xdotoolAvailable = isXdotoolAvailable();
-  const xinputAvailable = isXinputAvailable();
+  const onWindows = process.platform === 'win32';
+  const xdotoolAvailable = onWindows || isXdotoolAvailable();
+  const xinputAvailable = onWindows ? false : isXinputAvailable();
 
   const checks = [
     createCheck('session', sessionLabel(), sessionSeverity(), sessionDetail()),
@@ -28,14 +29,14 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
     createCheck('destination', 'Save destination', disk.severity, disk.detail),
     createCheck('ffmpeg', 'FFmpeg', ffmpegAvailable ? 'ok' : 'critical', ffmpegAvailable ? 'Available' : 'Missing; recording/export cannot start safely'),
     createCheck('ffprobe', 'FFprobe', ffprobeAvailable ? 'ok' : 'critical', ffprobeAvailable ? 'Available' : 'Missing; saved media cannot be verified'),
-    createCheck('xdotool', 'Cursor position', xdotoolAvailable ? 'ok' : 'warn', xdotoolAvailable ? 'xdotool available' : 'xdotool missing; cursor tracking may be unreliable'),
-    createCheck('xinput', 'Click telemetry', xinputAvailable ? 'ok' : 'warn', xinputAvailable ? 'xinput available' : 'xinput missing; click telemetry may be skipped'),
+    createCheck('xdotool', 'Cursor position', xdotoolAvailable ? 'ok' : 'warn', onWindows ? 'Windows cursor polling' : xdotoolAvailable ? 'xdotool available' : 'xdotool missing; cursor tracking may be unreliable'),
+    createCheck('xinput', 'Click telemetry', xinputAvailable ? 'ok' : 'warn', onWindows ? 'Not available on Windows yet; auto-zoom uses the cursor-jump heuristic' : xinputAvailable ? 'xinput available' : 'xinput missing; click telemetry may be skipped'),
     optionalSourceCheck('mic', 'Microphone', options.recordMic, selectedMic, micSources.length),
     optionalSourceCheck('system-audio', 'System audio', options.recordSystemAudio, selectedSystemAudio, systemAudioSources.length),
     optionalSourceCheck('camera', 'Camera', options.recordCamera, selectedCamera, cameraSources.length),
   ];
 
-  const missingTools = [['ffmpeg', ffmpegAvailable], ['ffprobe', ffprobeAvailable], ['xdotool', xdotoolAvailable], ['xinput', xinputAvailable]]
+  const missingTools = [['ffmpeg', ffmpegAvailable], ['ffprobe', ffprobeAvailable], ...(onWindows ? [] : [['xdotool', xdotoolAvailable], ['xinput', xinputAvailable]])]
     .filter(([, available]) => !available)
     .map(([id]) => id);
 
@@ -95,15 +96,18 @@ function findSource(sources, name) {
 }
 
 function sessionLabel() {
+  if (process.platform === 'win32') return 'Windows session';
   return process.env.XDG_SESSION_TYPE ? `${process.env.XDG_SESSION_TYPE.toUpperCase()} session` : 'Unknown session';
 }
 
 function sessionSeverity() {
+  if (process.platform === 'win32') return 'ok';
   const type = String(process.env.XDG_SESSION_TYPE ?? '').toLowerCase();
   return type === 'wayland' ? 'critical' : type === 'x11' || process.env.DISPLAY ? 'ok' : 'warn';
 }
 
 function sessionDetail() {
+  if (process.platform === 'win32') return 'Desktop capture via FFmpeg gdigrab';
   const type = String(process.env.XDG_SESSION_TYPE ?? '').toLowerCase();
   if (type === 'wayland') return 'Wayland is outside the current reliability scope; use X11 for client recordings';
   if (type === 'x11' || process.env.DISPLAY) return `DISPLAY ${process.env.DISPLAY || 'available'}`;

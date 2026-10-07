@@ -32,6 +32,12 @@ import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './re
 import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { getRecordingPreflightStatus } from './recording/preflight.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
+import {
+  getPrimaryWindowsDisplayInfo,
+  listDshowCameraSources,
+  listDshowMicSources,
+  listDshowSystemAudioSources,
+} from './recording/windows-devices.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 import { createUserTemplatesStore, defaultUserTemplatesPath } from './user-templates-store.mjs';
 import { createRecordingTemplateOverridesStore, defaultRecordingTemplateOverridesPath } from './recording-template-overrides-store.mjs';
@@ -231,15 +237,19 @@ let activeAudioPreview = null;
 let activeExportController = null;
 let activeCensorTrackController = null;
 const studioWindowBoundsById = new Map();
+function getPrimaryDisplayInfo() {
+  return process.platform === 'win32' ? getPrimaryWindowsDisplayInfo(screen) : getPrimaryX11DisplayInfo(screen);
+}
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
-  getDisplayInfo: () => getPrimaryX11DisplayInfo(screen),
+  getDisplayInfo: () => getPrimaryDisplayInfo(),
   // xdotool-first cursor source. Electron's getCursorScreenPoint() returns
   // stale/stuck values when the cursor leaves the primary display on Linux/X11
   // (electron/electron#42519). Fall back to it on platforms where xdotool is
   // unavailable so the app still records cursor under simpler setups.
-  getCursorPoint: () => readCursorViaXdotool() ?? screen.getCursorScreenPoint(),
+  getCursorPoint: () =>
+    (process.platform === 'linux' ? readCursorViaXdotool() : null) ?? screen.getCursorScreenPoint(),
 });
 const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
   environment: process.env,
@@ -272,7 +282,7 @@ const recordingTranscriptionLifecycle = createRecordingTranscriptionLifecycle({
 });
 
 async function listCameraSources() {
-  const sources = await listV4l2CameraSources();
+  const sources = process.platform === 'win32' ? await listDshowCameraSources() : await listV4l2CameraSources();
   const smokeCameraPath = process.env.ROUGH_CUT_SMOKE_CAMERA_DEVICE_PATH;
   if (!smokeCameraPath) return sources;
   return [
@@ -286,7 +296,7 @@ async function listCameraSources() {
 }
 
 async function listMicSources() {
-  const sources = await listPulseAudioMicSources().catch(() => []);
+  const sources = await (process.platform === 'win32' ? listDshowMicSources() : listPulseAudioMicSources()).catch(() => []);
   const smokeMicSource = process.env.ROUGH_CUT_SMOKE_MIC_SOURCE;
   if (!smokeMicSource) return sources;
   return [
@@ -296,7 +306,7 @@ async function listMicSources() {
 }
 
 async function listSystemAudioSources() {
-  const sources = await listPulseAudioSystemAudioSources().catch(() => []);
+  const sources = await (process.platform === 'win32' ? listDshowSystemAudioSources() : listPulseAudioSystemAudioSources()).catch(() => []);
   const smokeSystemAudioSource = process.env.ROUGH_CUT_SMOKE_SYSTEM_AUDIO_SOURCE;
   if (!smokeSystemAudioSource) return sources;
   return [
@@ -1026,7 +1036,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, optio
   ]);
   return getRecordingPreflightStatus({
     recordingsDir,
-    displayInfo: getPrimaryX11DisplayInfo(screen),
+    displayInfo: getPrimaryDisplayInfo(),
     micSources,
     systemAudioSources,
     cameraSources,

@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
+import { createNoopButtonListener } from './noop-button-listener.mjs';
 import { probeVideoStreamStartOffsets } from '../media-probe.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 import { createProjectFolder } from '../project-folders.mjs';
@@ -37,7 +38,7 @@ export function createRecordingSession({
   now = () => new Date(),
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
   cameraWarmupMs = DEFAULT_CAMERA_WARMUP_MS,
-  buttonListenerFactory = createXinputButtonListener,
+  buttonListenerFactory = process.platform === 'win32' ? createNoopButtonListener : createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
   videoStreamStartProbe = probeVideoStreamStartOffsets,
@@ -106,7 +107,7 @@ export function createRecordingSession({
 
   async function start(options = {}) {
     if (active) throw new Error('A recording is already active.');
-    if (!isCaptureAvailable()) throw new Error('FFmpeg x11grab capture is not available on this session.');
+    if (!isCaptureAvailable()) throw new Error(process.platform === 'win32' ? 'FFmpeg screen capture is not available on this session.' : 'FFmpeg x11grab capture is not available on this session.');
     const micSource = normalizeAudioSource(options.micSource);
     const micGainPercent = normalizeAudioGainPercent(options.micGainPercent);
     const systemAudioSource = normalizeAudioSource(options.systemAudioSource);
@@ -873,6 +874,7 @@ function normalizeAudioGainPercent(value) {
 function normalizeCameraDevicePath(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
+  if (process.platform === 'win32') return trimmed.length > 0 && !/["\r\n]/.test(trimmed) ? trimmed : null;
   return /^\/dev\/video\d+$/.test(trimmed) ? trimmed : null;
 }
 
