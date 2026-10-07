@@ -1015,7 +1015,9 @@ function App() {
           setRecordingWarning('Camera was enabled but no camera source was selected, so this take is recording screen-only.');
           cameraDevicePath = null;
         }
-        const region = captureMode === 'region' ? captureRegion : null;
+        const region = captureMode === 'region'
+          ? captureRegion
+          : wholeDisplayCaptureRegion(captureDisplays.find((display) => display.id === selectedCaptureDisplayId));
         await stopAudioPreview();
         setPreRecordPanelOpen(false);
         // The preview is main-process ffmpeg, not getUserMedia; unmount stops it

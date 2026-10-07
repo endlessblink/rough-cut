@@ -159,3 +159,16 @@ test('a take started from the Recording tab hides the window and never re-maximi
     'the window must be hidden for takes started from the Recording tab too, or the recording captures Rough Cut itself',
   );
 });
+
+test('starting a take records the screen the user picked, not always the primary one', async () => {
+  const source = await readSource('main.tsx');
+  assert.equal(
+    source.includes("const region = captureMode === 'region' ? captureRegion : null;"),
+    false,
+    'a whole-screen take must pass the selected display as its region (multi-monitor desk)',
+  );
+  assert.ok(
+    (source.match(/wholeDisplayCaptureRegion\(captureDisplays\.find\(\(display\) => display\.id === selectedCaptureDisplayId\)\)/g) ?? []).length >= 3,
+    'start, restart and preflight must all use the selected display',
+  );
+});
