@@ -202,9 +202,17 @@ function quitSmokeApp(exitCode = process.exitCode ?? 0) {
   setTimeout(() => process.exit(exitCode), 2500);
 }
 
+// Folders the user explicitly chose for a project this session (Open project dialog,
+// Import next to a source file). Without them, a project created or opened outside the
+// projects folder is refused by project:open-path and project:save.
+const trustedProjectDirs = new Set();
+function trustProjectFolder(projectPath) {
+  if (typeof projectPath === 'string' && isAbsolute(projectPath)) trustedProjectDirs.add(dirname(projectPath));
+}
+
 function buildAllowedProjectRoots() {
   // The default folder stays allowed so projects made before a folder change still open.
-  const roots = [...new Set([recordingsDir, defaultRecordingsDir])];
+  const roots = [...new Set([recordingsDir, defaultRecordingsDir, ...trustedProjectDirs])];
   // Tests / smokes write fixtures to a tmp dir and pass it via ROUGH_CUT_UI_SMOKE_PROJECT_PATH.
   // Without including its parent dir, validateProjectPath rejects the fixture as outside-root.
   const smokeProject = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH;
@@ -1128,6 +1136,7 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
   // The user explicitly picked this path via the OS dialog, so we trust it.
   // Keep the extension + null-byte checks but skip the allowlist.
   const safePath = validateProjectPath(result.filePaths[0]);
+  trustProjectFolder(safePath);
   return formatProject(await openProjectFile(safePath));
 });
 // P-AI-C/TASK-167 — Library "Import file" picker. Filters the dialog to the
@@ -1177,6 +1186,7 @@ ipcMain.handle(IPC_CHANNELS.LIBRARY_CREATE_FROM_IMPORT, async (_event, payload) 
     probe,
     recordingsDir,
   });
+  trustProjectFolder(saved.path);
   return formatProject(saved);
 });
 // P-AI-C/TASK-169 — create a blank .roughcut. Returns the new project state
