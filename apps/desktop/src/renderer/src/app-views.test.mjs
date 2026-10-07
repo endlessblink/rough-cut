@@ -138,11 +138,24 @@ test('the persistent editor slot is not inside a keyed subtree', async () => {
 test('recording view switches the native window into the compact profile', async () => {
   const source = await readSource('main.tsx');
   assert.ok(
-    source.includes("activeAppView === 'recording' && recording.state !== 'recording' ? 'recording' : 'studio'"),
+    source.includes("activeAppView === 'recording' ? 'recording' : 'studio'"),
     'main.tsx must derive the native window profile from the active Recording view',
   );
   assert.ok(
     source.includes('window.roughCut.setWindowProfile(profile)'),
     'main.tsx must call the preload bridge that resizes/restores the native BrowserWindow',
+  );
+});
+
+test('a take started from the Recording tab hides the window and never re-maximizes it while recording', async () => {
+  const source = await readSource('main.tsx');
+  assert.ok(
+    source.includes("if (recording.state === 'recording') return undefined;"),
+    'the window-profile effect must not flip to studio (maximize re-shows a hidden window) during a take',
+  );
+  assert.equal(
+    source.includes('hideWindowDuringRecording: isRecorderMode'),
+    false,
+    'the window must be hidden for takes started from the Recording tab too, or the recording captures Rough Cut itself',
   );
 });

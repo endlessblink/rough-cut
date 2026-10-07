@@ -606,7 +606,11 @@ function App() {
 
   React.useEffect(() => {
     if (isRecorderMode) return undefined;
-    const profile = activeAppView === 'recording' && recording.state !== 'recording' ? 'recording' : 'studio';
+    // A take started from the Recording tab hides this window; flipping to the
+    // studio profile now would maximize() it, which re-shows it over the screen
+    // being recorded (seen 2026-10-07).
+    if (recording.state === 'recording') return undefined;
+    const profile = activeAppView === 'recording' ? 'recording' : 'studio';
     void window.roughCut.setWindowProfile(profile).catch((err) => {
       console.warn('[renderer:window-profile] failed', err);
     });
@@ -1033,7 +1037,7 @@ function App() {
           systemAudioGainPercent: systemAudioSource ? systemAudioGainPercent : 100,
           cameraDevicePath,
           captureRegion: region,
-          hideWindowDuringRecording: isRecorderMode,
+          hideWindowDuringRecording: true,
         }));
       }
     } catch (err) {
@@ -1092,7 +1096,7 @@ function App() {
     setError(null);
     try {
       console.info('[renderer:recording] restart requested');
-      const restarted = await window.roughCut.restartRecording(buildCurrentRecordingOptions({ hideWindowDuringRecording: isRecorderMode }));
+      const restarted = await window.roughCut.restartRecording(buildCurrentRecordingOptions({ hideWindowDuringRecording: true }));
       console.info(`[renderer:recording] restart completed ${JSON.stringify(summarizeRecordingStatus(restarted))}`);
       adoptRecordingStatus(restarted);
       setProject(null);
