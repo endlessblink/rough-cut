@@ -133,6 +133,9 @@ app.on('second-instance', (_event, argv) => {
     app.exit(0);
     return;
   }
+  // A take started with the window hidden must stay out of the picture: a second
+  // dock click mid-take would otherwise show the window and record it.
+  if (hiddenRecorderWindow && recording) return;
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isMinimized()) window.restore();
     window.show();

@@ -88,3 +88,8 @@ test('the recording setup window stays above other windows; the editor does not'
   assert.match(source, /setRecorderStacking\(senderWindow, profile === 'recording'\);/);
   assert.match(source, /window\.setAlwaysOnTop\(Boolean\(recorder\), recorder \? 'floating' : 'normal'\);/);
 });
+
+test('a second launch during a hidden take does not show the window (it would be recorded)', async () => {
+  const source = await readFile(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(source, /if \(hiddenRecorderWindow && recording\) return;/);
+});
