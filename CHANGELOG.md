@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-beta.9 — 2026-10-08
+
+- Fix: importing a video from outside the projects folder created the project but then failed with "Project path is outside the allowed projects directory", and the editor never opened. A project you imported or opened yourself now opens and saves in the folder you chose (regression test included).
+- No other application changes from beta.8.
+
 ## 0.1.0-beta.8 — 2026-10-06
 
 - Reconcile the public Linux distribution with the reviewed beta.7 editor/runtime, Electron 43.7.7 and bundled tools.
@@ -33,5 +38,5 @@ First public beta. Linux/X11 only; tested on KDE Plasma with NVIDIA.
 
 ### Known limits
 
-- Electron 35 is out of support; upgrade planned for 0.1.1.
+- Electron 35 was out of support. Beta.8 and later ship Electron 43.7.7.
 - Wayland, Windows and macOS are not supported.

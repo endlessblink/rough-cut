@@ -1,50 +1,84 @@
-# Install the isolated Linux candidate
+# Install Rough Cut 0.1.0-beta.9 (Linux x86_64, X11)
 
-Candidate: **0.1.0-beta.8**, Electron **43.7.7**, Linux x86_64/X11. ffmpeg/ffprobe (8.1.3-roughcut-source1), xdotool, xinput and pactl are bundled. Node.js, pnpm, source checkout and host media-tool packages are unnecessary for installed builds. Standard Linux desktop libraries are still required; this is not a server/headless distribution. Wayland is not supported.
+Rough Cut is a free screen recorder and editor for Linux. This is a public beta. Download everything from https://github.com/endlessblink/rough-cut/releases/tag/v0.1.0-beta.9
 
-This is a local pre-release candidate. Public release, production signing and actual recording-device/user acceptance remain pending; corresponding source is supplied as a separately verified archive; see `docs/RELEASE-REQUIREMENTS.md` in the source snapshot.
+## Before you start
 
-## AppImage
+- Linux **x86_64** with **X11** and glibc **2.35 or newer** (for example Ubuntu 22.04 or later). Wayland is not supported. There is no macOS or Windows build.
+- Tested on KDE Plasma/X11 with an NVIDIA GPU. Other setups may work but are untested.
+- FFmpeg/FFprobe (8.1.3), xdotool, xinput and pactl are bundled. You do not need Node.js or a source checkout. Standard Linux desktop libraries are still required; this is not a server or headless distribution.
+- Back up recordings you cannot redo. This is a beta.
 
-Verify the supplied SHA256 first, then:
+## 1. Check the download
 
-```bash
-chmod +x Rough-Cut-0.1.0-beta.8-x86_64.AppImage
-./Rough-Cut-0.1.0-beta.8-x86_64.AppImage
-```
-
-If FUSE is unavailable, the AppImage runtime can extract and run without mounting:
+Put the file and `SHA256SUMS` in the same folder, then run:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 ./Rough-Cut-0.1.0-beta.8-x86_64.AppImage
+sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Keep the image in a writable directory for in-app updates. The Chromium sandbox remains required. Do not pass sandbox-disabling flags or change host security settings to force a failed launch. Report the exact startup error instead. AppImage compatibility still needs independent Linux-machine verification.
+The line for your file should say `OK`.
 
-## Debian / Ubuntu
+## 2. Install (pick one)
 
-The `.deb` declares standard desktop-library dependencies and installs a launcher. After verification, ordinary package-manager installation resolves those libraries:
+**AppImage (one file)**
 
 ```bash
-sudo apt install ./Rough-Cut-0.1.0-beta.8-amd64.deb
+chmod +x Rough-Cut-0.1.0-beta.9-x86_64.AppImage
+./Rough-Cut-0.1.0-beta.9-x86_64.AppImage
 ```
 
-The app does not invoke sudo or modify package-manager security. Debian builds use package-manager updates; an approved signed repository has not been configured.
+If FUSE is missing: `APPIMAGE_EXTRACT_AND_RUN=1 ./Rough-Cut-0.1.0-beta.9-x86_64.AppImage`
 
-## Portable folder
+**Debian / Ubuntu package**
 
-Keep the whole extracted folder together and run `./run.sh`. It enables the sandbox and rejects disabling arguments. The portable folder has no automatic updater; replace it with a separately verified new download after closing the app.
+```bash
+sudo apt install ./Rough-Cut-0.1.0-beta.9-amd64.deb
+```
 
-## Updates, reports and recordings
+**Portable folder (.tar.gz)**
 
-The native Help menu is available from the menu bar (Alt on Linux). AppImage supports approved-feed checking/downloading and explicit restart to install. **GitHub Releases at `endlessblink/rough-cut` is the approved destination. Checks remain disabled (`activated:false`) until an owner-approved publisher public key is pinned and signed release metadata/install acceptance are ready.** It keeps a verified `.previous` image beside the application and provides explicit restore. Installation/restore are blocked during recording, finalization or export; save work before restarting.
+```bash
+tar -xzf rough-cut-0.1.0-beta.9-linux-x64.tar.gz
+cd rough-cut-mvp-linux-x64
+./run.sh
+```
 
-Help → Crash reports is **off by default**. Opt-in holds one minimal crash event in memory. Every local export first shows the chosen destination and exact JSON and offers Cancel. No automatic uploads, minidumps, recordings, project content, paths, stack traces or user identifiers are included. Main-process crashes cannot preserve an in-memory event across application termination.
+Keep the whole folder together. Replace it with a new download when a new version comes out.
 
-Recordings and exports default below `~/Documents/Rough Cut MVP`. Settings/logs use the usual Linux application configuration directory. Existing projects/settings are not replaced by application updates. Optional Claude CLI/login and optional transcription runtimes remain separate; they are not installed by this package. NVIDIA/KDE device acceptance and representative real-project tests remain separate from synthetic package checks. Back up recordings you cannot redo.
+The Chromium sandbox stays on, and the launchers refuse options that turn it off. If the app does not start because of a sandbox error, do not work around it: open an issue with the exact error text.
 
-## Linux beta compatibility
+## 3. First use
 
-Linux x86_64 with X11 and glibc 2.35 or newer is required by the bundled media libraries. AppImage does not remove this ABI requirement. Wayland, macOS and independent-machine compatibility are not certified by this candidate.
+1. Open Rough Cut. A new profile may start on the recording setup panel or on the Projects screen. Both are normal.
+2. **Record.** Pick the screen or a region. Add a microphone, system audio or camera if you want them. If the microphone or camera is off, the panel tells you; press **Turn on** if that is a mistake. Press **Start recording**. Stop when you are done. The take is saved and opens in **Recording edit**.
+3. **Edit.** Screen and sound are linked on one timeline: split, trim, move or delete a stretch and the gap closes for both. Add zoom markers by hand where you want to focus the detail. Style the picture with a background, rounded frame and camera layout.
+4. **Export.** Use Export to make an MP4. The file is checked when it finishes before it appears.
+5. Your files: recordings and exports go to `~/Documents/Rough Cut MVP`. Settings and logs are in `~/.config/rough-cut-mvp` (log: `logs/app-runtime.log`).
 
-A manual beta download with published checksums and corresponding source can be released with the updater disabled. Creating or pinning a publisher signing key is required for updater activation, not for manual beta installation. Hardware acceptance and publication approval are separate release gates.
+Existing recordings can be reopened from Projects. You can also import a video file from any folder; beta.9 fixes importing a video from outside the projects folder, which failed in beta.8.
+
+**NVIDIA tip:** if recordings show tearing, turn off **Allow Flipping** in nvidia-settings (OpenGL Settings). That fixed it on the tested setup.
+
+## Optional: Claude graphics
+
+Graphics are optional, and everything else works without them. Install the official Claude Code CLI separately and sign in with a Claude plan that includes Claude Code (setup: https://code.claude.com/docs/en/setup). In Graphics, press **Check connection**. When you ask for a graphic, your text and the selected design context are sent to Claude through that CLI. Rough Cut does not store your password or token, and it rejects API-key and alternate billing overrides.
+
+## Privacy and updates
+
+Recording and editing stay on your computer. There is no analytics and no automatic crash upload. Crash reports are off by default; if you turn them on, you see the exact JSON and destination before anything is saved.
+
+Automatic updates are **off**. Update by downloading the next release manually and checking `SHA256SUMS`. Debian users install the new package the same way.
+
+## What feedback helps
+
+- Where it breaks: distro, desktop, X11 session, GPU and driver, plus the relevant lines from the log (remove anything private).
+- What was confusing in the first five minutes.
+- Whether the exported MP4 looks and sounds the way you expected, and anything out of sync.
+- What you would use it for, and what was missing.
+
+Report at https://github.com/endlessblink/rough-cut/issues/new/choose. Security problems go through the private link on that page, not a public issue. Optional support: https://buymeacoffee.com/noamnau. Rough Cut is free under AGPL-3.0; a paid Pro with new features may come later.
+
+## Linux compatibility
+
+Linux x86_64 with X11 and glibc 2.35 or newer is required by the bundled media libraries; AppImage does not remove this requirement. Wayland, macOS and Windows are not supported. Other desktops, GPUs and independent machines are not yet tested.
