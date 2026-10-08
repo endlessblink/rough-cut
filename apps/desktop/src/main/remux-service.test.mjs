@@ -181,3 +181,68 @@ test('remuxMkvToMp4 propagates RemuxIncompleteError from the validator', async (
     (err) => err instanceof RemuxIncompleteError,
   );
 });
+
+test('audio tail trim ends the remux at the press moment and logs how far the sound reaches', async () => {
+  const calls = [];
+  const logs = [];
+  await remuxMkvToMp4({
+    rawPath: '/tmp/take.mkv',
+    outputPath: '/tmp/take.mp4',
+    tailTrimSec: 2,
+    onLog: (line) => logs.push(line),
+    probeEnd: async () => ({ endSec: 62.4, audioEndSec: 61.6 }),
+    runner: async (command, args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; },
+    validate: async () => ({ integrity: null, warning: null }),
+  });
+  const args = calls[0];
+  assert.equal(args[args.indexOf('-t') + 1], '60.400');
+  // Sound reaches 1.2 s past the kept end: the grace covered the lost tail.
+  assert.ok(logs.some((line) => line.includes('audio-tail trim') && line.includes('audioMarginSec=1.200')));
+  assert.ok(!logs.some((line) => line.includes('still short')));
+});
+
+test('audio tail trim warns when sound still ends before the kept picture', async () => {
+  const logs = [];
+  await remuxMkvToMp4({
+    rawPath: '/tmp/take.mkv',
+    outputPath: '/tmp/take.mp4',
+    tailTrimSec: 0.5,
+    onLog: (line) => logs.push(line),
+    probeEnd: async () => ({ endSec: 10, audioEndSec: 9 }),
+    runner: async () => ({ code: 0, stdout: '', stderr: '' }),
+    validate: async () => ({ integrity: null, warning: null }),
+  });
+  assert.ok(logs.some((line) => line.includes('audio-tail still short by 0.500 s')));
+});
+
+test('no trim requested leaves the remux untouched', async () => {
+  const calls = [];
+  await remuxMkvToMp4({
+    rawPath: '/tmp/take.mkv',
+    outputPath: '/tmp/take.mp4',
+    probeEnd: async () => { throw new Error('must not probe'); },
+    runner: async (command, args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; },
+    validate: async () => ({ integrity: null, warning: null }),
+  });
+  assert.equal(calls[0].includes('-t'), false);
+});
+
+test('paused takes: every segment gets its own outpoint in the concat list', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-remux-tail-'));
+  let listBody = '';
+  const ends = { [join(root, 'a.mkv')]: 5, [join(root, 'b.mkv')]: 7.5 };
+  await remuxMkvSegmentsToMp4({
+    rawPaths: [join(root, 'a.mkv'), join(root, 'b.mkv')],
+    outputPath: join(root, 'out.mp4'),
+    tailTrimSec: [2, 2],
+    probeEnd: async (path) => ({ endSec: ends[path], audioEndSec: ends[path] - 0.8 }),
+    runner: async (command, args) => {
+      const { readFile } = await import('node:fs/promises');
+      listBody = await readFile(args[args.indexOf('-i') + 1], 'utf8');
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    validate: async () => ({ integrity: null, warning: null }),
+  });
+  assert.match(listBody, /a\.mkv'\noutpoint 3\.000\nfile '.*b\.mkv'\noutpoint 5\.500\n/);
+  await rm(root, { recursive: true, force: true });
+});

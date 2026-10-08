@@ -1493,3 +1493,79 @@ test('stop() reports a zero anchor offset when ffmpeg never signals a first fram
 
   await rm(root, { recursive: true, force: true });
 });
+
+test('stop keeps capturing for the audio tail grace, then reports how much to trim', async () => {
+  // 2026-10-08: the bundled ffmpeg drops the last 0.4-1.4 s of queued sound on 'q'.
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-audio-tail-'));
+  let nowMs = Date.parse('2026-04-28T12:00:00.000Z');
+  const order = [];
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(nowMs),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    audioTailGraceMs: 2000,
+    wait: async (ms) => { order.push(`wait:${ms}`); nowMs += ms + 15; },
+    captureFactory: (options) => ({
+      outputPath: options.outputPath,
+      stop: async () => { order.push('capture-stop'); nowMs += 400; return options.outputPath; },
+    }),
+  });
+
+  await session.start({ micSource: 'alsa_input.mic' });
+  nowMs += 10_000;
+  const stopped = await session.stop();
+  // The grace runs BEFORE ffmpeg is told to quit, and the trim is the measured time since the press.
+  assert.deepEqual(order, ['wait:2000', 'capture-stop']);
+  assert.deepEqual(stopped.rawTailTrimSec, [2.015]);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('pause applies the grace per segment and the take length stops at the press', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-audio-tail-pause-'));
+  let nowMs = Date.parse('2026-04-28T12:00:00.000Z');
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(nowMs),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    audioTailGraceMs: 2000,
+    wait: async (ms) => { nowMs += ms; },
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => { nowMs += 300; return options.outputPath; } }),
+  });
+
+  await session.start({ micSource: 'alsa_input.mic' });
+  nowMs += 1000;
+  const paused = await session.pause();
+  // Recorded time counts up to the press, not the grace or ffmpeg's finalization.
+  assert.equal(paused.recordedDurationMs, 1000);
+  nowMs += 5000;
+  await session.resume();
+  nowMs += 3000;
+  const stopped = await session.stop();
+  assert.equal(stopped.rawSegments.length, 2);
+  assert.deepEqual(stopped.rawTailTrimSec, [2, 2]);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('a take without sound stops at once and asks for no trim', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-audio-tail-silent-'));
+  let waited = false;
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    audioTailGraceMs: 2000,
+    wait: async () => { waited = true; },
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+  });
+  await session.start();
+  const stopped = await session.stop();
+  assert.equal(waited, false);
+  assert.deepEqual(stopped.rawTailTrimSec, [0]);
+  await rm(root, { recursive: true, force: true });
+});

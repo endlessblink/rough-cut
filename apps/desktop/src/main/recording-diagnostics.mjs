@@ -45,11 +45,12 @@ export function buildRecordingDiagnosticsReport({
   const video = probe?.video ?? null;
   const audio = probe?.audio ?? null;
   const warnings = summarizeWarnings(remuxLogs);
+  const audioTail = summarizeAudioTail({ recording, video, audio, remuxLogs });
 
   return {
     version: 1,
     generatedAt,
-    status: warnings.hasDropOrQueueWarnings ? 'warning' : 'ok',
+    status: warnings.hasDropOrQueueWarnings || audioTail.short ? 'warning' : 'ok',
     recording: {
       startedAt: recording?.startedAt ?? null,
       stoppedAt: recording?.stoppedAt ?? null,
@@ -69,6 +70,7 @@ export function buildRecordingDiagnosticsReport({
       hasAudio: Boolean(audio),
       audio,
       expectedAudio: Boolean(recording?.audio),
+      audioTail,
     },
     cursor: {
       totalEvents: cursorEvents.length,
@@ -110,6 +112,29 @@ export async function probeMediaFile(filePath) {
     },
     video: videoStream ? normalizeStream(videoStream) : null,
     audio: audioStream ? normalizeStream(audioStream) : null,
+  };
+}
+
+// Sound that ends this much before the picture is reported (one AAC frame is ~21 ms).
+const AUDIO_TAIL_SHORT_MS = 150;
+
+/**
+ * Does the sound reach the end of the picture? Records the tail grace the recorder used and the
+ * remux's own trim lines, so a short ending can be traced to its origin from this report alone.
+ */
+export function summarizeAudioTail({ recording, video, audio, remuxLogs = [] }) {
+  const videoSec = Number(video?.durationSeconds);
+  const audioSec = Number(audio?.durationSeconds);
+  const missingMs = audio && Number.isFinite(videoSec) && Number.isFinite(audioSec)
+    ? Math.round((videoSec - audioSec) * 1000)
+    : null;
+  const trimLines = remuxLogs.map(String).filter((line) => line.includes('audio-tail'));
+  return {
+    missingMs,
+    short: missingMs !== null && missingMs > AUDIO_TAIL_SHORT_MS,
+    thresholdMs: AUDIO_TAIL_SHORT_MS,
+    tailTrimSec: Array.isArray(recording?.rawTailTrimSec) ? recording.rawTailTrimSec : [],
+    remuxTrimLines: trimLines,
   };
 }
 

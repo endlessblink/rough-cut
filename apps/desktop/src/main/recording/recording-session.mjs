@@ -20,6 +20,16 @@ const DEFAULT_FPS = 30;
 const DEFAULT_SAMPLE_INTERVAL_MS = 33;
 const DEFAULT_CAMERA_WARMUP_MS = Number(process.env.ROUGH_CUT_CAMERA_WARMUP_MS ?? 1000);
 
+// Audio tail grace (2026-10-08). The bundled ffmpeg 8 holds captured audio back
+// while libx264's lookahead runs ~1 s behind, and on 'q' it discards the audio
+// still queued, so every take (and every pause) lost its last 0.4-1.4 s of
+// sound: 25 of 34 mic recordings 2026-10-04..07 ended 0.6-1.4 s short, the
+// same amount at 10 s or 22 min (a fixed tail, not drift), reproduced with the
+// app's own ffmpeg. Sound already captured is lost too, so after Stop/Pause we
+// keep capturing this long, then the remux trims the file back to the moment
+// the user pressed (the raw file's video end minus the measured grace).
+const DEFAULT_AUDIO_TAIL_GRACE_MS = Number(process.env.ROUGH_CUT_AUDIO_TAIL_GRACE_MS ?? 2000);
+
 // Diagnostic logging is on by default while we hunt the recording-tear race
 // condition. Turn off by setting ROUGH_CUT_DEBUG_RECORDING=0.
 const DIAGNOSTIC_LOGGING_DEFAULT =
@@ -41,7 +51,10 @@ export function createRecordingSession({
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
   videoStreamStartProbe = probeVideoStreamStartOffsets,
+  audioTailGraceMs = DEFAULT_AUDIO_TAIL_GRACE_MS,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
+  const tailOptions = { audioTailGraceMs, wait };
   let active = null;
   let stopping = null;
   let canceling = null;
@@ -310,7 +323,7 @@ export function createRecordingSession({
     stopTelemetry(session);
     if (session.eventLogger) session.eventLogger.event('recording-stop');
     if (!session.paused) {
-      await stopCurrentSegment(session, 'stop', now, { videoStreamStartProbe });
+      await stopCurrentSegment(session, 'stop', now, { videoStreamStartProbe, ...tailOptions });
     }
     const rawPath = session.segments.length > 1 ? session.rawPath : session.segments[0]?.rawPath ?? session.rawPath;
     let cameraRawPath = session.unifiedCapture ? rawPath : session.cameraSegments[0]?.rawPath ?? null;
@@ -339,6 +352,8 @@ export function createRecordingSession({
       rawPath,
       outputPath: session.outputPath,
       rawSegments: session.segments.length > 1 ? session.segments.map((segment) => segment.rawPath) : null,
+      // Seconds captured after Stop/Pause per segment (audio tail grace); the remux trims them off.
+      rawTailTrimSec: session.segments.map((segment) => segment.tailTrimSec ?? 0),
       cameraRawPath,
       cameraRawSegments: cameraRawSegments.length > 1 ? cameraRawSegments : null,
       cameraOutputPath: cameraRawPath && !cameraError ? session.cameraOutputPath : null,
@@ -390,7 +405,7 @@ export function createRecordingSession({
   async function pauseActiveSession(session, now) {
     if (session.paused) return;
     session.eventLogger?.event('recording-pause');
-    await stopCurrentSegment(session, 'pause', now, { videoStreamStartProbe });
+    await stopCurrentSegment(session, 'pause', now, { videoStreamStartProbe, ...tailOptions });
     session.paused = true;
     session.pauseStartedAt = now().toISOString();
   }
@@ -550,11 +565,31 @@ async function startActiveSegment(session, {
   startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory });
 }
 
-async function stopCurrentSegment(session, reason, now, { videoStreamStartProbe = probeVideoStreamStartOffsets } = {}) {
+async function stopCurrentSegment(session, reason, now, {
+  videoStreamStartProbe = probeVideoStreamStartOffsets,
+  audioTailGraceMs = 0,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
   if (!session.currentSegment || !session.capture) return;
   stopTelemetry(session);
   const segment = session.currentSegment;
   const wasUnifiedCapture = Boolean(session.unifiedCapture);
+  // The moment the user pressed Stop/Pause: the segment ends here, not when ffmpeg finished.
+  const stopRequestedAtMs = now().getTime();
+  const hasAudio = Boolean(session.micSource || session.systemAudioSource);
+  if (hasAudio && audioTailGraceMs > 0) {
+    await wait(audioTailGraceMs);
+    // Measured, not assumed: everything captured after the press is trimmed off in the remux.
+    segment.tailTrimSec = Math.max(0, (now().getTime() - stopRequestedAtMs) / 1000);
+    console.info(`[recording-session] phase=audio-tail-grace reason=${reason} graceMs=${audioTailGraceMs} trimSec=${segment.tailTrimSec.toFixed(3)}`);
+    session.eventLogger?.event('audio-tail-grace', {
+      reason,
+      segmentIndex: segment.index,
+      graceMs: audioTailGraceMs,
+      tailTrimSec: segment.tailTrimSec,
+      stopRequestedAtMs,
+    });
+  }
   console.info(`[recording-session] phase=screen-capture-${reason}-begin`);
   const rawPath = await session.capture.stop();
   console.info(`[recording-session] phase=screen-capture-${reason}-done`);
@@ -574,7 +609,9 @@ async function stopCurrentSegment(session, reason, now, { videoStreamStartProbe 
     console.info(`[recording-session] phase=camera-capture-${reason}-skipped (no camera in session)`);
   }
 
-  const stoppedAtMs = now().getTime();
+  // With the tail grace the segment's length is up to the press (the grace is trimmed off);
+  // without it this is unchanged (stop time measured after ffmpeg finished).
+  const stoppedAtMs = segment.tailTrimSec ? stopRequestedAtMs : now().getTime();
 
   // Unified capture: the banner anchor is the CAMERA input's first-packet
   // wall-clock, but the muxed file's t=0 is the first *retained* packet.

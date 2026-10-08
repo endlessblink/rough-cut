@@ -69,3 +69,20 @@ test('diagnosticsPathForRecording writes next to output mp4', () => {
   assert.equal(diagnosticsPathForRecording('/tmp/foo/bar.mp4'), '/tmp/foo/bar.diagnostics.json');
   assert.equal(diagnosticsPathForRecording('/tmp/foo/bar.m4v'), '/tmp/foo/bar.m4v.diagnostics.json');
 });
+
+test('diagnostics flag sound that ends before the picture and keep the trim evidence', async () => {
+  const { summarizeAudioTail } = await import('./recording-diagnostics.mjs');
+  const short = summarizeAudioTail({
+    recording: { rawTailTrimSec: [2] },
+    video: { durationSeconds: 762.366 },
+    audio: { durationSeconds: 761.509 },
+    remuxLogs: ['[remux] audio-tail trim: keep=760.4 audioMarginSec=-0.1', '[remux] Starting: ffmpeg'],
+  });
+  assert.equal(short.missingMs, 857);
+  assert.equal(short.short, true);
+  assert.deepEqual(short.tailTrimSec, [2]);
+  assert.equal(short.remuxTrimLines.length, 1);
+  const fine = summarizeAudioTail({ recording: {}, video: { durationSeconds: 60 }, audio: { durationSeconds: 59.99 } });
+  assert.equal(fine.short, false);
+  assert.equal(summarizeAudioTail({ recording: {}, video: { durationSeconds: 60 }, audio: null }).missingMs, null);
+});
