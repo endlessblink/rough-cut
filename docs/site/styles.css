@@ -1494,3 +1494,134 @@ footer {
     padding-left: 0;
   }
 }
+
+/* waitlist: one email, Mac and/or Windows */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.waitlist {
+  margin: 4px 0 20px;
+}
+.waitlist-platforms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+.waitlist-platforms legend {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.waitlist-platforms label {
+  position: relative;
+  cursor: pointer;
+}
+.waitlist-platforms input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.waitlist-platforms span {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 100px;
+  border: 1px solid var(--panel-line);
+  background: #1c1c22;
+  color: var(--paper);
+  font-size: 14px;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
+}
+.waitlist-platforms span::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid #5c5868;
+  background: transparent center / 10px no-repeat;
+}
+.waitlist-platforms label:hover span {
+  background: #26262e;
+}
+.waitlist-platforms input:checked + span {
+  border-color: var(--lilac);
+  background: #231a30;
+}
+.waitlist-platforms input:checked + span::before {
+  border-color: var(--lilac);
+  background-color: var(--lilac);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 5.2 4 7.5l4.5-5' fill='none' stroke='%2321102e' stroke-width='1.6'/%3E%3C/svg%3E");
+}
+.waitlist-platforms input:focus-visible + span,
+.waitlist input[type="email"]:focus-visible,
+.waitlist button:focus-visible {
+  outline: 2px solid #fbc3ad;
+  outline-offset: 3px;
+}
+.waitlist-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.waitlist input[type="email"] {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 100px;
+  border: 1px solid #3a3a44;
+  background: #0a0a0d;
+  color: var(--paper);
+  font: inherit;
+  font-size: 15px;
+}
+.waitlist input[type="email"]::placeholder {
+  color: #8f899b;
+}
+.waitlist input[aria-invalid="true"] {
+  border-color: #f0a08a;
+}
+.waitlist button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 560;
+  cursor: pointer;
+}
+.waitlist button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.waitlist-status {
+  min-height: 1.6em;
+  margin: 12px 0 0;
+  font-size: 14px;
+}
+.waitlist-status[data-tone="error"] {
+  color: #f6b4a2;
+}
+.waitlist-status[data-tone="done"] {
+  color: var(--paper);
+}
+.waitlist[data-done] .waitlist-platforms,
+.waitlist[data-done] .waitlist-row {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .waitlist-platforms span {
+    transition: none;
+  }
+}

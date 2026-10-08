@@ -6,3 +6,11 @@ window.ROUGH_CUT_RELEASE = Object.freeze({
   appImageUrl: null,
   debUrl: null,
 });
+
+/* Google Form behind the Mac/Windows waitlist. Entry ids come from the form's questions. */
+window.ROUGH_CUT_WAITLIST = Object.freeze({
+  formResponseUrl:
+    "https://docs.google.com/forms/d/e/1FAIpQLSc9LY7ixr82Hgpn_6ACstpYF5pRGWGY0UkBGjqeKnEU6tzVXQ/formResponse",
+  emailEntry: "entry.1385153765",
+  platformEntry: "entry.1692496502",
+});
