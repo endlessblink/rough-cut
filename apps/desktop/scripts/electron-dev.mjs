@@ -34,6 +34,8 @@ function spawnElectron() {
   const proc = spawn(ELECTRON_BIN, ELECTRON_ARGS, {
     cwd: desktopRoot,
     stdio: 'inherit',
+    // electron is a .cmd shim on Windows, which spawn only runs through a shell.
+    shell: process.platform === 'win32',
     env: { ...process.env, VITE_DEV_SERVER_URL: 'http://127.0.0.1:7545' },
   });
   electronProc = proc;
