@@ -55,7 +55,7 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
       </a>
       <nav aria-label="Main navigation">
         <a href="#proof">The workflow</a>
-        <a href="#mac-status">Mac coming soon</a>
+        <a href="#mac-status">Mac &amp; Windows waitlist</a>
       </nav>
       <a class="source-action" href="https://github.com/endlessblink/rough-cut"
         >View source <span aria-hidden="true">↗</span></a
@@ -385,13 +385,46 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
             >
           </div>
         </details>
-        <details id="mac-status">
+        <details id="mac-status" open>
           <summary>
-            <span>Mac</span><span>Coming soon</span
+            <span>Mac &amp; Windows</span><span>Waitlist open</span
             ><span class="plus" aria-hidden="true">+</span>
           </summary>
           <div class="release-copy">
-            <p>No verified Mac build, release date or active email waitlist.</p>
+            <p>
+              No Mac or Windows build or date yet. Each one gets built once
+              enough people ask for it. Leave your email and we will write once,
+              when yours is ready.
+            </p>
+            <form class="waitlist" data-waitlist novalidate>
+              <fieldset class="waitlist-platforms">
+                <legend>Which computer?</legend>
+                <label
+                  ><input type="checkbox" name="platform" value="Mac" />
+                  <span>Mac</span></label
+                >
+                <label
+                  ><input type="checkbox" name="platform" value="Windows" />
+                  <span>Windows</span></label
+                >
+              </fieldset>
+              <div class="waitlist-row">
+                <label class="visually-hidden" for="waitlist-email">Email</label>
+                <input
+                  id="waitlist-email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  inputmode="email"
+                  placeholder="you@example.com"
+                  required
+                />
+                <button type="submit" class="pill-link pill-light">
+                  Join the waitlist
+                </button>
+              </div>
+              <p class="waitlist-status" data-waitlist-status role="status" aria-live="polite"></p>
+            </form>
             <a href="https://github.com/endlessblink/rough-cut"
               >Follow development on GitHub <span aria-hidden="true">↗</span></a
             >
