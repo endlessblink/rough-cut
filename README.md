@@ -1,62 +1,100 @@
 # Rough Cut
 
-**Linux beta — 0.1.0-beta.8.** A free screen recorder and editor for tutorials, demos and product walkthroughs. Record your screen, edit linked screen and audio on one timeline, style the picture and export an MP4.
+**Record your screen, edit it on one timeline, and let Claude draw the graphics. Free, local, open source.**
+
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE) [![Platform: Linux X11](https://img.shields.io/badge/platform-Linux%20X11-black)](#requirements) [![Status: beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/endlessblink/rough-cut/releases)
+
+[Get started](#get-started) · [What you can do](#what-you-can-do) · [Examples](#examples) · [Roadmap](#roadmap) · [Website](https://endlessblink.github.io/rough-cut/)
 
 ![Rough Cut in use: smooth zooms, Claude-made graphics, backgrounds and layouts](docs/assets/demo-usage.gif)
+
+Rough Cut is a free screen recorder and editor for tutorials, demos and product walkthroughs. You record, trim and zoom on one timeline, style the picture, add animated graphics written from a text prompt, and export an MP4. Recording and editing stay on your computer.
 
 A short tour of the whole flow:
 
 ![Rough Cut tour: record, edit on one timeline, add graphics, export](docs/assets/demo.gif)
 
-The public [feature demos](https://endlessblink.github.io/rough-cut/) show recording edits, zoom and optional graphics. [Beta.8 is available](https://github.com/endlessblink/rough-cut/releases/tag/v0.1.0-beta.8), with matching source, complete notices, checksums and owner-key-signed metadata. Its source commit is `8c065c87500c356e75124526efb933bce9cb3fad`; fresh automated/native checks passed. Owner visual/audio acceptance and long recording remain pending.
+## Get started
+
+Linux **x86_64 / X11** only for now. Download the latest build from [GitHub Releases](https://github.com/endlessblink/rough-cut/releases), unpack it and run it. Checksums are listed on the release page; exact filenames and commands are in [INSTALL.md](INSTALL.md).
+
+Then:
+
+1. Open the recording setup, choose the screen and optional microphone, system audio and camera.
+2. Press Start, record, press Stop. The take opens in Recording edit.
+3. Trim, zoom, style, add graphics, then Export.
+
+Existing recordings can be reopened without recording again.
 
 ## What you can do
 
 - Record a display, window area or region, with optional microphone, system audio and camera.
-- Seek, split, trim, move and remove linked screen/audio clips. Undo and restore edits.
-- Inspect signed stereo waveforms, resize the Audio lane, and zoom into detailed source windows.
+- Seek, split, trim, move and remove linked screen and audio clips. Undo and restore edits.
+- Inspect stereo waveforms, resize the Audio lane, and zoom into detailed source windows.
 - Add manual zooms, styled cursors, click emphasis, backgrounds, rounded frames and camera layouts.
 - Choose landscape, portrait or square compositions and adjust the output size.
 - Hide sensitive regions with solid or pixelated censors.
-- Add optional Claude-made animated graphics over your video; edit their exposed text/colour fields and timing.
-- Export MP4 with picture and audio. Output is validated before the final file is exposed.
+- Add optional Claude-made animated graphics over your video; edit their text, colours and timing.
+- Export MP4 with picture and audio. Output is validated before the final file appears.
 
-**Automatic zoom is deferred to the next version.** Existing experimental code is not a release promise. Transparent graphics-only export is also not available in this beta.
+## Examples
 
-## Download and install
+Real clips from the editor, each with the action that produced it.
 
-Linux **x86_64 / X11** only. Published downloads and their checksums are listed on [GitHub Releases](https://github.com/endlessblink/rough-cut/releases). There are no macOS or Windows builds yet; a Windows port is in progress and the [project site](https://endlessblink.github.io/rough-cut/) has a Mac and Windows waitlist.
+**Zoom: place a marker on the timeline, the picture glides in and back out.**
 
-See [INSTALL.md](INSTALL.md) for exact filenames and commands. FFmpeg/FFprobe, xdotool, xinput and pactl are bundled, with their private libraries and notices. Node.js, pnpm and a source checkout are not needed to run the app. Standard Linux desktop libraries are required. Optional Claude and transcription engines/models are separate.
+[![Smooth zoom](docs/site/assets/proof-zoom.webp)](docs/site/assets/proof-zoom.mp4)
 
-Tested on KDE Plasma/X11 with NVIDIA. Other desktops/GPUs and independent machines still need acceptance testing. On NVIDIA, disabling **Allow Flipping** in nvidia-settings has prevented capture tearing on the tested setup. This is a beta; back up recordings you cannot redo.
+**Claude graphics: describe the animation in a sentence, get a live graphic on the timeline.**
 
-## First run
+[![Claude graphics](docs/site/assets/proof-claude-graphics.webp)](docs/site/assets/proof-claude-graphics.mp4)
 
-Open the recording setup, choose the screen and optional audio/camera sources, then Start. Stop saves the take and opens Recording edit. Make your edits, inspect the preview and use Export. Existing recordings can be reopened without recording again.
+| Backgrounds | Layouts |
+| --- | --- |
+| [![Backgrounds](docs/site/assets/proof-backgrounds.webp)](docs/site/assets/proof-backgrounds.mp4) | [![Layouts](docs/site/assets/proof-layouts.webp)](docs/site/assets/proof-layouts.mp4) |
 
-## Privacy and optional Claude graphics
+Click any picture to play it. More on the [website](https://endlessblink.github.io/rough-cut/).
 
-Recording and editing stay local. There is no analytics service or automatic crash upload. Help → Crash reports is off by default; each local JSON export shows its exact contents and destination before you choose to save. This beta has no approved submission destination.
+## How it works
 
-Public update checks are disabled. The approved destination is GitHub Releases at `endlessblink/rough-cut`. Beta.8 includes custom Ed25519 publisher metadata verification around electron-updater 6.8.9; its owner-signed metadata and pinned public key were independently verified against the actual public AppImage bytes. The first pinned-key build requires manual installation. Genuine public update install/restart/rollback acceptance and activation remain pending. Debian updates currently require a separately downloaded package.
+Rough Cut is an Electron app with one shared timeline. Recording writes the screen, audio, camera and cursor data side by side; the editor plays the same timeline you export. Graphics are small live web pages drawn over the video and rendered into the export. Capture and export use FFmpeg.
 
-Graphics use the official Claude Code CLI through your own Claude subscription/login. The app checks the connection and rejects API-key/billing-route overrides. It does not collect passwords or tokens. Graphic prompts and design context are sent to Claude only when you request generation; recent requests/answers are kept in local diagnostics. Your subscription limits apply. See [CLAUDE-SETUP.md](CLAUDE-SETUP.md).
+Graphics use the official Claude Code CLI through your own Claude subscription. Nothing is sent to Claude unless you ask for a graphic. See [CLAUDE-SETUP.md](CLAUDE-SETUP.md).
 
-Optional local transcription requires a compatible engine and model; these are not installed or bundled. See [CONTRIBUTING.md](CONTRIBUTING.md) for configuration. Recordings/exports default below `~/Documents/Rough Cut MVP`; settings and logs use the Linux configuration directory.
+## Requirements
+
+| | |
+| --- | --- |
+| Platform | Linux x86_64 with an **X11** session and glibc 2.35 or newer. Wayland is not supported yet. |
+| Tools | FFmpeg/FFprobe, xdotool, xinput and pactl are bundled with their libraries and notices. No Node.js or source checkout needed. |
+| Tested on | KDE Plasma with an NVIDIA GPU. Other desktops and GPUs still need testing. |
+| Claude graphics | Optional. Needs the `claude` command, logged in. |
+| Transcription | Optional. Needs a compatible local engine and model (not bundled). See [CONTRIBUTING.md](CONTRIBUTING.md). |
+
+On NVIDIA, turn **Allow Flipping** off in nvidia-settings (OpenGL Settings); with it on, the screen grab can contain torn frames. This is a beta: back up recordings you cannot redo.
+
+## Roadmap
+
+Planned, no dates. Automatic zoom is deferred; existing experimental code is not a promise.
+
+- **Automatic zoom** that follows the cursor and clicks. Today zooms are placed by hand.
+- **Automatic subtitles** from local transcription, styled and burned into the export.
+- **Describe an edit** and let an agent cut, zoom and caption a take for you. The result lands on the same timeline, so you can keep editing it by hand.
+- **More AI models for graphics**, so they do not depend on one subscription.
+- **Wayland recording**, then **Windows** (a port is in progress) and **macOS**. The website has a Mac and Windows waitlist.
+
+## Privacy
+
+Recording and editing stay local. There is no analytics service or automatic crash upload. Help → Crash reports is off by default; each local JSON export shows its exact contents before you choose to save it.
+
+Public update checks are disabled. Graphic prompts and design context go to Claude only when you request generation; recent requests and answers are kept in local diagnostics. Recordings and exports default below `~/Documents/Rough Cut MVP`; settings and logs use the Linux configuration directory.
 
 ## Source, support and license
 
-Release artifacts must be accompanied by the exact application source and media-tool corresponding-source archives, SHA256SUMS and license notices. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [docs/MEDIA-SOURCE-BUILD.md](docs/MEDIA-SOURCE-BUILD.md).
+Release artifacts come with the exact application source, media-tool source archives, SHA256SUMS and license notices. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [docs/MEDIA-SOURCE-BUILD.md](docs/MEDIA-SOURCE-BUILD.md).
 
 Report issues on [GitHub](https://github.com/endlessblink/rough-cut/issues), after reviewing attachments for private content. Development instructions: [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
 
 If Rough Cut helps your work, you can [support Noam on Buy Me a Coffee](https://buymeacoffee.com/noamnau). Support is optional; the app remains free.
 
-Copyright (C) 2026 Noam Naumovsky. Free software under [AGPL-3.0-only](LICENSE), including the graphics tool.
-
-## Linux beta compatibility
-
-Linux x86_64 with X11 and glibc 2.35 or newer is required by the bundled media libraries. AppImage does not remove this ABI requirement. Wayland, macOS and independent-machine compatibility are not certified by this candidate.
-
-A manual beta download with published checksums and corresponding source can be released with the updater disabled. Creating or pinning a publisher signing key is required for updater activation, not for manual beta installation. Hardware acceptance and publication approval are separate release gates.
+Copyright (C) 2026 Noam Naumovsky. Free software under [AGPL-3.0-only](LICENSE), including the graphics tool. A paid Pro edition with new features may come later.
