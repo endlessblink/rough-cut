@@ -2,7 +2,11 @@
 
 **Linux beta — 0.1.0-beta.8.** A free screen recorder and editor for tutorials, demos and product walkthroughs. Record your screen, edit linked screen and audio on one timeline, style the picture and export an MP4.
 
-![Rough Cut: the Recording edit view with screen, camera, zoom and timeline](docs/site/assets/proof-zoom.webp)
+![Rough Cut in use: smooth zooms, Claude-made graphics, backgrounds and layouts](docs/assets/demo-usage.gif)
+
+A short tour of the whole flow:
+
+![Rough Cut tour: record, edit on one timeline, add graphics, export](docs/assets/demo.gif)
 
 The public [feature demos](https://endlessblink.github.io/rough-cut/) show recording edits, zoom and optional graphics. [Beta.8 is available](https://github.com/endlessblink/rough-cut/releases/tag/v0.1.0-beta.8), with matching source, complete notices, checksums and owner-key-signed metadata. Its source commit is `8c065c87500c356e75124526efb933bce9cb3fad`; fresh automated/native checks passed. Owner visual/audio acceptance and long recording remain pending.
 
@@ -21,7 +25,7 @@ The public [feature demos](https://endlessblink.github.io/rough-cut/) show recor
 
 ## Download and install
 
-Linux **x86_64 / X11** only. Published downloads and their checksums are listed on [GitHub Releases](https://github.com/endlessblink/rough-cut/releases). There are no macOS or Windows builds yet.
+Linux **x86_64 / X11** only. Published downloads and their checksums are listed on [GitHub Releases](https://github.com/endlessblink/rough-cut/releases). There are no macOS or Windows builds yet; a Windows port is in progress and the [project site](https://endlessblink.github.io/rough-cut/) has a Mac and Windows waitlist.
 
 See [INSTALL.md](INSTALL.md) for exact filenames and commands. FFmpeg/FFprobe, xdotool, xinput and pactl are bundled, with their private libraries and notices. Node.js, pnpm and a source checkout are not needed to run the app. Standard Linux desktop libraries are required. Optional Claude and transcription engines/models are separate.
 
