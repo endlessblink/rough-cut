@@ -2,7 +2,7 @@
 
 **Beta (v0.1.0-beta).** A free screen recorder and editor for Linux (X11), built for tutorials, demos and product walkthroughs. Record your screen, trim and zoom on one timeline, add animated graphics, and export a finished MP4.
 
-![Rough Cut: the Recording edit view with screen, camera, zoom and timeline](docs/assets/demo.gif)
+![Rough Cut in use: smooth zooms, Claude-made graphics, backgrounds and layouts](docs/assets/demo-usage.gif)
 
 ## What it does
 
@@ -13,25 +13,17 @@
 - **Animated graphics** drawn over the video, written from a text prompt (needs your own Claude Code login, see Privacy).
 - **Export** an MP4 with the background, frame, camera, zooms, animations and sound. Each export is checked when it finishes, and every video lives in its own dated project folder.
 
-<!-- GIFs to be added: -->
-<!-- ![Record](docs/assets/record.gif) -->
-<!-- ![Auto-zoom and cursor](docs/assets/auto-zoom.gif) -->
-<!-- ![Cut and trim](docs/assets/cut-trim.gif) -->
-<!-- ![Look](docs/assets/look.gif) -->
-<!-- ![Claude graphics](docs/assets/graphics.gif) -->
-<!-- ![Export](docs/assets/export.gif) -->
+A short tour of the whole flow:
+
+![Rough Cut tour: record, edit on one timeline, add graphics, export](docs/assets/demo.gif)
 
 ## Requirements
 
 | Need | Notes |
 |------|-------|
 | Linux with an **X11** session | Wayland is **not supported**. Log in with an X11 session. |
-| `ffmpeg` and `ffprobe` | Used for capture, processing and export. Not bundled. |
-| `xdotool` | Cursor position. Not bundled. |
-| `xinput` | Mouse clicks (recorded for zoom). Not bundled. |
+| `ffmpeg`, `ffprobe`, `xdotool`, `xinput` | Capture, export, cursor position and click recording. **Installed for you on first start** (see Install); nothing to type. |
 | Tested on | KDE Plasma with an NVIDIA GPU. Other desktops and GPUs are untested. |
-
-On Debian/Ubuntu: `sudo apt install ffmpeg xdotool xinput`.
 
 **NVIDIA users:** open `nvidia-settings`, go to OpenGL Settings, and turn **Allow Flipping** off. With it on, the screen grab can occasionally contain torn frames. The setting persists across reboots.
 
@@ -40,6 +32,8 @@ Optional: the `claude` command (Claude Code), logged in, for AI graphics.
 ## Install
 
 Download `rough-cut-0.1.0-linux-x64.tar.gz` from the Releases page, unpack it anywhere and run the `run.sh` inside. The release page lists the SHA-256 checksum.
+
+On first start, if `ffmpeg`, `ffprobe`, `xdotool` or `xinput` are missing, Rough Cut asks once and installs them with your system's package manager (apt, dnf, pacman or zypper), using the normal graphical password prompt. If your system uses something else, it shows the exact command to run. If you decline, the app still opens and tells you what is missing before you record.
 
 **If the app does not start on Ubuntu 24.04 or newer:** the system restricts the Chromium sandbox that Electron apps use. You will typically see a message about the "SUID sandbox helper". Either give the bundled helper the right permissions (from the folder that contains `chrome-sandbox`):
 
@@ -73,7 +67,7 @@ or start the app with `--no-sandbox` (this turns off a security layer; the app o
 
 ## Known limits
 
-- Linux X11 only. No Wayland, Windows or macOS builds yet.
+- Linux X11 only for now. No Wayland or macOS builds. A Windows port is in progress and not released yet; the project site has a waitlist for Mac and Windows.
 - Tested only on KDE Plasma with NVIDIA. Expect rough edges elsewhere.
 - Beta software: back up recordings you cannot redo.
 - Electron 35 is out of support; the upgrade is planned for 0.1.1 (see [SECURITY.md](SECURITY.md)).
