@@ -45,6 +45,9 @@ export function createRecordingSession({
   videoStreamStartProbe = probeVideoStreamStartOffsets,
   // Windows system audio: a local feed that turns WASAPI loopback into an ffmpeg input. Null elsewhere.
   systemAudioFeedFactory = process.platform === 'win32' ? createLoopbackFeed : null,
+  // Windows hands us physical pixels from every input (low-level hook, screen.dipToScreenPoint), so they must not be
+  // multiplied by the display scale factor again. Linux keeps its original behaviour.
+  inputCoordinatesArePhysical = process.platform === 'win32',
 }) {
   let active = null;
   let stopping = null;
@@ -176,6 +179,7 @@ export function createRecordingSession({
       // (screen, then camera) and xinput button listener once telemetry
       // starts. Each entry is `{ name, getPid, kill }`.
       children: [],
+      inputsArePhysical: inputCoordinatesArePhysical,
       ...displayInfo,
     };
 
@@ -660,6 +664,10 @@ function segmentPaths(session, index) {
   };
 }
 
+function inputScaleFactor(session) {
+  return session.inputsArePhysical ? 1 : session.scaleFactor || 1;
+}
+
 function closeSystemAudioFeed(session) {
   const feed = session?.systemAudioFeed;
   if (!feed) return;
@@ -1036,7 +1044,7 @@ function recordButtonEvent(session, event, now) {
       point: { x: event.x, y: event.y },
       originX: session.originX || 0,
       originY: session.originY || 0,
-      scaleFactor: session.scaleFactor || 1,
+      scaleFactor: inputScaleFactor(session),
     });
     const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
     session.latestCursorPoint = cursor;
@@ -1075,7 +1083,7 @@ function recordKeyEvent(session, event, now) {
           point: { x: event.x, y: event.y },
           originX: session.originX || 0,
           originY: session.originY || 0,
-          scaleFactor: session.scaleFactor || 1,
+          scaleFactor: inputScaleFactor(session),
         })
       : null;
     const anchor = session.typingAnchor ?? session.latestCursorPoint ?? eventPoint;
@@ -1142,7 +1150,7 @@ function sampleCursor(session, getCursorPoint, now) {
       point,
       originX: session.originX || 0,
       originY: session.originY || 0,
-      scaleFactor: session.scaleFactor || 1,
+      scaleFactor: inputScaleFactor(session),
     });
     const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
     session.latestCursorPoint = cursor;

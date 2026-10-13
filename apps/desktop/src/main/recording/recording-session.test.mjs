@@ -1563,3 +1563,58 @@ test('system audio loopback: other sources never create a feed', async () => {
   await session.stop();
   await rm(root, { recursive: true, force: true });
 });
+
+test('input coordinates that are already physical are not scaled again (Windows at 125%)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-physical-'));
+  const buttons = [];
+  const keys = [];
+  const makeSession = (inputCoordinatesArePhysical) => createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1.25, width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: 800, y: 400 }),
+    sampleIntervalMs: 5,
+    inputCoordinatesArePhysical,
+    buttonListenerFactory: ({ onButton, onKey }) => ({
+      start() { buttons.push(onButton); keys.push(onKey); return true; },
+      stop() {}, kill() {}, getPid: () => null,
+    }),
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+  });
+
+  // Telemetry (and so the button listener) starts just after start() returns, so wait for it to register.
+  const listenerRegistered = async (count) => {
+    for (let i = 0; i < 100 && buttons.length < count; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(buttons.length >= count, 'button listener was never started');
+  };
+
+  // Physical (Windows): a hook click at (800, 400) is stored as (800, 400), and a polled point likewise.
+  const physical = makeSession(true);
+  await physical.start();
+  let physicalResult;
+  try {
+    await listenerRegistered(1);
+    buttons.at(-1)({ type: 'down', button: 0, x: 800, y: 400 });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } finally {
+    physicalResult = await physical.stop();
+  }
+  const click = physicalResult.cursorEvents.find((event) => event.type === 'down');
+  assert.deepEqual([click.x, click.y], [800, 400]);
+  assert.ok(physicalResult.cursorEvents.filter((event) => event.type === 'move').every((event) => event.x === 800 && event.y === 400));
+
+  // Not physical (the original behaviour on other platforms): the same inputs are multiplied by the scale factor.
+  const scaled = makeSession(false);
+  await scaled.start();
+  let scaledResult;
+  try {
+    await listenerRegistered(2);
+    buttons.at(-1)({ type: 'down', button: 0, x: 800, y: 400 });
+  } finally {
+    scaledResult = await scaled.stop();
+  }
+  const scaledClick = scaledResult.cursorEvents.find((event) => event.type === 'down');
+  assert.deepEqual([scaledClick.x, scaledClick.y], [1000, 500]);
+  await rm(root, { recursive: true, force: true });
+});

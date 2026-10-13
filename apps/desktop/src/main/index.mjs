@@ -6,6 +6,7 @@ import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRec
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
@@ -147,7 +148,7 @@ app.on('second-instance', (_event, argv) => {
 });
 
 const runtimeLogPath = installRuntimeLog();
-const dockProvenancePath = process.env.ROUGH_CUT_DOCK_PROVENANCE_PATH ?? '/tmp/rough-cut-dock-provenance.json';
+const dockProvenancePath = process.env.ROUGH_CUT_DOCK_PROVENANCE_PATH ?? (process.platform === 'win32' ? join(tmpdir(), 'rough-cut-dock-provenance.json') : '/tmp/rough-cut-dock-provenance.json');
 
 function recordDockProvenance() {
   const launchSource = process.env.ROUGH_CUT_DOCK_LAUNCH === '1'
@@ -259,8 +260,12 @@ const recordingSession = createRecordingSession({
   // stale/stuck values when the cursor leaves the primary display on Linux/X11
   // (electron/electron#42519). Fall back to it on platforms where xdotool is
   // unavailable so the app still records cursor under simpler setups.
+  // On Windows the point is converted to physical pixels per display (mixed-DPI safe); the session is told so
+  // via inputCoordinatesArePhysical, so it does not scale it again.
   getCursorPoint: () =>
-    (process.platform === 'linux' ? readCursorViaXdotool() : null) ?? screen.getCursorScreenPoint(),
+    process.platform === 'win32'
+      ? screen.dipToScreenPoint(screen.getCursorScreenPoint())
+      : (process.platform === 'linux' ? readCursorViaXdotool() : null) ?? screen.getCursorScreenPoint(),
 });
 const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
   environment: process.env,

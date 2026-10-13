@@ -12,6 +12,7 @@
 // `pkill electron` is hostile. This script makes `pnpm dev` self-healing.
 
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { watch } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,8 +20,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, '..');
 
-const ELECTRON_BIN = 'electron';
-const ELECTRON_ARGS = ['--no-sandbox', '--force-color-profile=srgb', '.'];
+// Windows runs Electron's real exe (no .cmd shim, so no shell) and keeps the Chromium sandbox on: the app refuses
+// to start with --no-sandbox, and the sandbox needs no special setup on Windows. Linux keeps its original launch.
+const ON_WINDOWS = process.platform === 'win32';
+const ELECTRON_BIN = ON_WINDOWS ? createRequire(import.meta.url)('electron') : 'electron';
+const ELECTRON_ARGS = ON_WINDOWS ? ['--force-color-profile=srgb', '.'] : ['--no-sandbox', '--force-color-profile=srgb', '.'];
 
 const WATCH_DIRS = ['src/main', 'src/preload', 'src/shared'].map((rel) => join(desktopRoot, rel));
 
@@ -34,8 +38,6 @@ function spawnElectron() {
   const proc = spawn(ELECTRON_BIN, ELECTRON_ARGS, {
     cwd: desktopRoot,
     stdio: 'inherit',
-    // electron is a .cmd shim on Windows, which spawn only runs through a shell.
-    shell: process.platform === 'win32',
     env: { ...process.env, VITE_DEV_SERVER_URL: 'http://127.0.0.1:7545' },
   });
   electronProc = proc;
