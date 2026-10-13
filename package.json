@@ -83,6 +83,7 @@
   },
   "devDependencies": {
     "electron-builder": "26.15.3",
+    "rcedit": "5.0.2",
     "typescript": "^5.7.0"
   },
   "packageManager": "pnpm@9.15.0",

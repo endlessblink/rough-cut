@@ -1,0 +1,14 @@
+{
+  "source": {
+    "name": "FFmpeg (Gyan.dev full build)",
+    "version": "9.0.2",
+    "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-full_build.zip",
+    "zipSha256": "759d0a9831c436a0eb331ad36f236c06cb04aaa0005da46571f0e9d3d9206f6b",
+    "license": "GPL-3.0-or-later",
+    "pinnedFrom": "winget manifest Gyan.FFmpeg 9.0.2 (publisher https://www.gyan.dev/)"
+  },
+  "files": {
+    "bin/ffmpeg.exe": "589e50b766d251afdf181dd664d40bd94407e200b019989fd7468c7d118a28d0",
+    "bin/ffprobe.exe": "02264dfa4f56baaa31e443ece8aa16d397f6b008200e7fd184d22b9009e75fd3"
+  }
+}

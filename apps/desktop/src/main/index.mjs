@@ -1787,7 +1787,8 @@ app.whenReady().then(() => {
   }
   const requestedProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
   const startupProjectPathPromise = resolveDockStartupProject(requestedProjectPath);
-  const requestedMode = process.env.ROUGH_CUT_STARTUP_MODE;
+  // The Linux launcher (run.sh) sets editor mode; an installed Windows app has no launcher script to do that.
+  const requestedMode = process.env.ROUGH_CUT_STARTUP_MODE ?? (process.platform === 'win32' && app.isPackaged ? 'editor' : undefined);
   void startupProjectPathPromise.then((startupProjectPath) => {
     const startupMode = requestedMode === 'editor'
         || process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1'

@@ -3,7 +3,8 @@ import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
-export async function releaseSourceIdentity(root) {
+// `extraFiles` lets another platform's packager add its own files to the hash; Linux passes none, so its identity is unchanged.
+export async function releaseSourceIdentity(root, { extraFiles = [] } = {}) {
   const files = [];
   const collect = async (path) => {
     for (const entry of await readdir(path, { withFileTypes: true })) {
@@ -20,7 +21,7 @@ export async function releaseSourceIdentity(root) {
   }
   files.push(...['package.json', 'pnpm-lock.yaml', 'release-policy.json',
     'apps/desktop/package.json', 'scripts/package-linux.mjs',
-    'scripts/bundled-tools.lock.json', 'scripts/lib/release-source-identity.mjs'].map((name) => join(root, name)));
+    'scripts/bundled-tools.lock.json', 'scripts/lib/release-source-identity.mjs', ...extraFiles].map((name) => join(root, name)));
   const entries = await Promise.all(files.sort().map(async (path) => ({
     path: relative(root, path),
     sha256: createHash('sha256').update(await readFile(path)).digest('hex'),
