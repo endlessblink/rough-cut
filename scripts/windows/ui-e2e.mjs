@@ -76,6 +76,25 @@ function writeToneWav(path) {
   writeFileSync(path, Buffer.concat([header, data]));
 }
 
+// Safety: the test makes real mouse input, so it must never act on another program. Bring the app to the front and
+// check that the foreground window really belongs to it; if not, stop BEFORE recording or clicking anything.
+async function assertAppInForeground(app) {
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.show();
+    window.focus();
+    window.moveTop();
+  });
+  await wait(1000);
+  const foreground = powershell(`
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class F{[DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);}'
+$p = 0; [F]::GetWindowThreadProcessId([F]::GetForegroundWindow(), [ref]$p) | Out-Null; $p`).stdout.trim();
+  if (String(app.process().pid) !== foreground) {
+    const owner = powershell(`(Get-Process -Id ${Number(foreground) || 0} -ErrorAction SilentlyContinue).ProcessName`).stdout.trim();
+    fail(`The app window is not in the foreground (it is "${owner || 'another program'}"), so the test will not click. Close or minimise other programs, do not touch the PC while it runs, and run it again.`);
+  }
+}
+
 let app = null;
 const ffmpegBefore = ffmpegProcessCount();
 try {
@@ -94,6 +113,8 @@ try {
   await page.waitForLoadState('domcontentloaded');
   await page.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 30000 });
   step('app starts and shows the library', (await page.title()) || 'Rough Cut');
+  await assertAppInForeground(app);
+  step('app window is in the foreground (safe to use real mouse input)');
 
   // --- Recorder panel and devices
   await page.getByRole('button', { name: 'Record', exact: true }).click();
@@ -126,20 +147,7 @@ try {
   // One real OS mouse click on the app's own title text, so the global hook has a click at a known position.
   // Safety: never click another program's window. Bring the app to the front and check that it really is there.
   await wait(2500);
-  await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    window.show();
-    window.focus();
-    window.moveTop();
-  });
-  await wait(1000);
-  const foreground = powershell(`
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class F{[DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);}'
-$p = 0; [F]::GetWindowThreadProcessId([F]::GetForegroundWindow(), [ref]$p) | Out-Null; $p`).stdout.trim();
-  if (String(app.process().pid) !== foreground) {
-    const owner = powershell(`(Get-Process -Id ${Number(foreground) || 0} -ErrorAction SilentlyContinue).ProcessName`).stdout.trim();
-    fail(`The app window is not in the foreground (it is "${owner || 'another program'}"), so the test will not click. Close or minimise other programs, do not touch the PC while it runs, and run it again.`);
-  }
+  await assertAppInForeground(app);
   const title = page.locator('h1, h2').first();
   const rect = await title.boundingBox();
   if (!rect) fail('Could not locate a heading to click.');

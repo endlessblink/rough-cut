@@ -124,6 +124,16 @@ async function main() {
   record('Windows packaging script exists', existsSync(join(root, 'scripts', 'package-windows.mjs')));
   const packaged = findPackagedApp();
   record('packaged app contains Rough Cut.exe + ffmpeg.exe + ffprobe.exe', packaged.ok, packaged.detail);
+
+  // --- The packaged app driven through its real UI: record (mic + system audio + camera), real click, stop, export.
+  // Needs the PC to be left alone: the app window must be in the foreground because the test makes real mouse input.
+  if (packaged.ok) {
+    const ui = await runStreaming('node', [join('scripts', 'windows', 'ui-e2e.mjs')], root);
+    const failedLine = ui.out.split('\n').find((line) => /UI E2E FAILED/.test(line));
+    record('UI end-to-end test of the packaged app (record, click, stop, export, ffprobe)', ui.code === 0 && /UI E2E PASSED/.test(ui.out), failedLine ? failedLine.replace(/^UI E2E FAILED at /, '').slice(0, 220) : '');
+  } else {
+    record('UI end-to-end test of the packaged app (record, click, stop, export, ffprobe)', false, 'build the package first');
+  }
   record('Windows click/key telemetry is the real hook (uiohook), not a stub', clickListenerIsReal());
 
   // --- The expensive, authoritative checks
