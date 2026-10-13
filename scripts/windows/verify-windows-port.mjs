@@ -116,8 +116,7 @@ async function main() {
 
   // --- Real devices: mic + system audio (a tone is played) + camera, through the real session and a styled export.
   const hardware = await runStreaming('node', [join('scripts', 'windows', 'smoke-windows-recording.mjs')], root, { ROUGH_CUT_WIN_SMOKE_SOURCES: 'all', ROUGH_CUT_WIN_SMOKE_MS: '5000' });
-  record('all-sources recording smoke (mic + system audio + camera, tone audible, camera linked)', hardware.code === 0 && /"allSources":true/.test(hardware.out) && /"ok":true/.test(hardware.out), hardware.code === 0 ? '' : hardware.out.trim().split('
-').filter((l) => /FAILED|needs a mic/.test(l)).slice(-1)[0]?.slice(0, 220) ?? 'see output');
+  record('all-sources recording smoke (mic + system audio + camera, tone audible, camera linked)', hardware.code === 0 && /"allSources":true/.test(hardware.out) && /"ok":true/.test(hardware.out), hardware.code === 0 ? '' : hardware.out.trim().split('\n').filter((l) => /FAILED|needs a mic/.test(l)).slice(-1)[0]?.slice(0, 220) ?? 'see output');
 
   // --- Structure
   const ci = existsSync(join(root, '.github/workflows/ci.yml')) ? readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8') : '';
