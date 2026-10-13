@@ -1,0 +1,15 @@
+# Source is LF on every platform. Tests read source files as text and Linux-built
+# artifacts must not pick up CRLF from a Windows checkout.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
