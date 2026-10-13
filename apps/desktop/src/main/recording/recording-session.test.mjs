@@ -844,7 +844,7 @@ test('recording session keeps recording when the cursor source returns the same 
   });
 
   await session.start();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 200));
   const stopped = await session.stop();
 
   assert.equal(stopped.state, 'saved');
@@ -906,7 +906,7 @@ test('cursor event frames stay anchored to recording-start, not shifted by onFir
   });
 
   await session.start();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 200));
   // Simulate ffmpeg muxing its first frame ~1.5 s after recording-start. If
   // onFirstFrame ever re-anchors cursor events, this is when it'd happen.
   if (firstFrameCallback) firstFrameCallback(startedAt + 1500);
@@ -1261,7 +1261,7 @@ test('terminateChildren registers the xinput button listener once telemetry star
   await session.start();
   // startTelemetryAfterIpcReturn defers via setTimeout(0); the cursor sample
   // and listener registration land within a few ms.
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 200));
 
   const reaped = session.terminateChildren();
   const byName = Object.fromEntries(reaped.map((entry) => [entry.name, entry]));
@@ -1324,7 +1324,7 @@ test('stop() reports signed cursorAnchors without touching raw cursor events', a
   });
 
   await session.start();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 200));
   if (firstFrameCallback) firstFrameCallback(startedAt + 1500);
   const stopped = await session.stop();
 

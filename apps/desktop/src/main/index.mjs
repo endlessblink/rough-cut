@@ -2013,6 +2013,22 @@ function reapAndExit(signal) {
 process.on('SIGTERM', () => reapAndExit('SIGTERM'));
 process.on('SIGINT', () => reapAndExit('SIGINT'));
 
+if (process.platform === 'win32') {
+  // Windows never delivers SIGTERM to this process on quit, and ffmpeg.exe children outlive their parent, so a
+  // quit mid-recording would leave a capture running forever. Reap on will-quit and, as a last resort, on exit.
+  const reapWindowsChildren = (why) => {
+    try {
+      activeAudioPreview?.handle?.kill?.('SIGTERM');
+      const reaped = recordingSession.terminateChildren('SIGTERM');
+      if (reaped.length > 0) console.warn(`[recording] ${why}: terminated ${reaped.length} child process(es): ${reaped.map((c) => `${c.name}(${c.pid ?? '?'})`).join(', ')}`);
+    } catch (err) {
+      console.error(`[recording] ${why}: reap failed`, err);
+    }
+  };
+  app.on('will-quit', () => reapWindowsChildren('will-quit'));
+  process.on('exit', () => reapWindowsChildren('exit'));
+}
+
 function registerHiddenRecordingStopShortcut(window) {
   globalShortcut.unregister(recordingStopShortcut);
   globalShortcut.unregister(recordingRestartShortcut);
