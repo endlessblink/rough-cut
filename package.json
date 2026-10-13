@@ -79,7 +79,8 @@
     "tools:prepare": "node scripts/prepare-bundled-tools.mjs",
     "test:release": "ROUGH_CUT_RELEASE_ARTIFACT=1 pnpm package:linux && node --test scripts/package-linux-portable.test.mjs scripts/ui-visual-proof.test.mjs && pnpm test",
     "gate:windows": "node scripts/windows/verify-windows-port.mjs",
-    "gate:windows:quick": "node scripts/windows/verify-windows-port.mjs --quick"
+    "gate:windows:quick": "node scripts/windows/verify-windows-port.mjs --quick",
+    "gate:windows:guided": "node scripts/windows/guided-checks.mjs"
   },
   "devDependencies": {
     "electron-builder": "26.15.3",
