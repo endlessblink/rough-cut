@@ -40,3 +40,4 @@ applications/
 # Windows bundled tools (fetched and verified by scripts/prepare-windows-tools.mjs)
 build-resources/windows-tools/
 build-resources/.windows-tools-cache/
+release/
