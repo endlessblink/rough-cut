@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { buildRecordingDiagnosticsReport, diagnosticsPathForRecording } from './recording-diagnostics.mjs';
 
 const recording = {
@@ -66,6 +67,6 @@ test('buildRecordingDiagnosticsReport flags remux frame drop or queue warnings',
 });
 
 test('diagnosticsPathForRecording writes next to output mp4', () => {
-  assert.equal(diagnosticsPathForRecording('/tmp/foo/bar.mp4'), '/tmp/foo/bar.diagnostics.json');
-  assert.equal(diagnosticsPathForRecording('/tmp/foo/bar.m4v'), '/tmp/foo/bar.m4v.diagnostics.json');
+  assert.equal(diagnosticsPathForRecording('/tmp/foo/bar.mp4'), join('/tmp/foo', 'bar.diagnostics.json'));
+  assert.equal(diagnosticsPathForRecording('/tmp/foo/bar.m4v'), join('/tmp/foo', 'bar.m4v.diagnostics.json'));
 });

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { constants as osConstants, setPriority, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
@@ -3010,8 +3010,8 @@ const DEFAULT_EXPORT_MEMORY_MAX = '32G';
 const DEFAULT_EXPORT_CPU_QUOTA = '400%';
 const DEFAULT_EXPORT_IO_WEIGHT = '20';
 
-export function memoryCappedCommand(command, args) {
-  if (command !== 'ffmpeg' || process.platform !== 'linux') return null;
+export function memoryCappedCommand(command, args, platform = process.platform) {
+  if (command !== 'ffmpeg' || platform !== 'linux') return null;
   const cap = (process.env.ROUGH_CUT_EXPORT_MEMORY_MAX ?? DEFAULT_EXPORT_MEMORY_MAX).trim();
   const cpuQuota = (process.env.ROUGH_CUT_EXPORT_CPU_QUOTA ?? DEFAULT_EXPORT_CPU_QUOTA).trim();
   const ioWeight = (process.env.ROUGH_CUT_EXPORT_IO_WEIGHT ?? DEFAULT_EXPORT_IO_WEIGHT).trim();
@@ -3119,7 +3119,11 @@ async function run(command, args, options = {}) {
 
 function spawnProcess(command, args, { onStdout = () => undefined, signal = null } = {}) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    // Windows has no systemd scope for the CPU/IO limits Linux applies; below-normal priority keeps the editor responsive.
+    if (process.platform === 'win32' && command === 'ffmpeg' && proc.pid) {
+      try { setPriority(proc.pid, osConstants.priority.PRIORITY_BELOW_NORMAL); } catch { /* best effort */ }
+    }
     let stdout = '';
     let stderr = '';
     let cancelled = false;

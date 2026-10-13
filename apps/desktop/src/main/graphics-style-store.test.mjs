@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { createGraphicsStyleStore, defaultGraphicsStylePath, normalizeGraphicsStyle } from './graphics-style-store.mjs';
 
 test('the style lives under appData, not the per-build userData', () => {
-  assert.equal(defaultGraphicsStylePath('/home/u/.config'), '/home/u/.config/rough-cut-mvp/graphics-style.json');
+  assert.equal(defaultGraphicsStylePath('/home/u/.config'), join('/home/u/.config', 'rough-cut-mvp', 'graphics-style.json'));
 });
 
 test('bad colours and font names fall back to the defaults', () => {

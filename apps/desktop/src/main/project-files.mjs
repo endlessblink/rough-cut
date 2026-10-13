@@ -424,7 +424,8 @@ function prepareAssetForSave(projectDir, asset) {
   const metadata = asset.metadata && typeof asset.metadata === 'object' ? asset.metadata : {};
   return {
     ...asset,
-    filePath: relativeFilePath,
+    // Always '/' in the saved document so a project made on Windows opens on Linux and back.
+    filePath: relativeFilePath.split(sep).join('/'),
     pathMode: 'relative',
     metadata: {
       ...metadata,

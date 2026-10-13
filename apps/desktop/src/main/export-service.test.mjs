@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createProjectForImport, createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
 import { buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildGraphicsFailureResult, workingExportPath, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+
+// These tests plant fake ffmpeg/ffprobe bash scripts on PATH; Windows cannot execute them. Linux CI still runs them.
+const BASH_STUBS = process.platform === 'win32' ? 'uses #!/usr/bin/env bash ffmpeg stubs' : false;
 
 test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
   const previous = {
@@ -16,7 +20,8 @@ test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
   delete process.env.ROUGH_CUT_EXPORT_CPU_QUOTA;
   delete process.env.ROUGH_CUT_EXPORT_IO_WEIGHT;
   try {
-    const scoped = memoryCappedCommand('ffmpeg', ['-version']);
+    const scoped = memoryCappedCommand('ffmpeg', ['-version'], 'linux');
+    assert.equal(memoryCappedCommand('ffmpeg', ['-version'], 'win32'), null);
     assert.deepEqual(scoped.args.slice(0, 14), [
       '--user', '--scope', '-q', '--collect',
       '-p', 'MemoryMax=32G', '-p', 'MemorySwapMax=0',
@@ -229,7 +234,7 @@ test('raw timeline export args compact canonical edit segments with aligned audi
   assert(joined.includes('-metadata rough_cut_style=raw-timeline'));
 });
 
-test('raw export accepts a compact canonical timeline after ripple deletion', async () => {
+test('raw export accepts a compact canonical timeline after ripple deletion', { skip: BASH_STUBS }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-raw-timeline-'));
   const binDir = join(root, 'bin');
   const sourcePath = join(root, 'source.mp4');
@@ -438,7 +443,7 @@ test('experimental headless export mode reports a composition plan and falls bac
   assert(progress.some((event) => event.phase === 'rendering-styled' && event.fallback?.to === 'ffmpeg-styled'), 'fallback styled progress should stay visible');
 });
 
-test('experimental headless export encodes successful rendered frame artifacts without styled fallback', async () => {
+test('experimental headless export encodes successful rendered frame artifacts without styled fallback', { skip: BASH_STUBS }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-success-'));
   const binDir = join(root, 'bin');
   const frameDir = join(root, 'frames');
@@ -526,7 +531,7 @@ printf headless-mp4 > "${'$'}out"
   }
 });
 
-test('experimental headless export falls back to styled export when artifact encode fails', async () => {
+test('experimental headless export falls back to styled export when artifact encode fails', { skip: BASH_STUBS }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-encode-fallback-'));
   const binDir = join(root, 'bin');
   const frameDir = join(root, 'frames');
@@ -704,7 +709,7 @@ test('experimental headless export plan samples shared composition frames', () =
   assert(plan.frames.every((frame) => frame.background.startColor && frame.background.endColor));
   assert(plan.frames.some((frame) => frame.screen?.zoomTransform));
   assert.equal(plan.frames[0].screen.sourcePath, '/tmp/source.mp4');
-  assert.match(plan.frames[0].screen.sourceUrl, /^file:\/\/\/tmp\/source\.mp4$/);
+  assert.equal(plan.frames[0].screen.sourceUrl, pathToFileURL('/tmp/source.mp4').href);
   assert.equal(plan.frames[0].screen.fps, 30);
   assert.equal(plan.frames[0].screen.frameSource, 'background-padding');
   assert.deepEqual(plan.frames[0].screen.frame, { x: 0.133203, y: 0.133333, w: 0.733594, h: 0.733333 });
@@ -741,7 +746,7 @@ test('experimental headless export plan carries background gradient colors', () 
   assert.equal(plan.frames[0].background.endColor, '#778899');
   assert.equal(plan.frames[0].background.gradient, 'linear-gradient(135deg, #112233 0%, #445566 45%, #778899 100%)');
   assert.equal(plan.frames[0].background.image, 'backgrounds/dark-waves.png');
-  assert.match(plan.frames[0].background.imagePath, /apps\/desktop\/src\/renderer\/public\/backgrounds\/dark-waves\.png$|dist\/renderer\/backgrounds\/dark-waves\.png$/);
+  assert.match(plan.frames[0].background.imagePath, /apps[\\/]desktop[\\/]src[\\/]renderer[\\/]public[\\/]backgrounds[\\/]dark-waves\.png$|dist[\\/]renderer[\\/]backgrounds[\\/]dark-waves\.png$/);
   assert.match(plan.frames[0].background.imageUrl, /^file:\/\//);
   assert.match(plan.frames[0].background.imageUrl, /backgrounds\/dark-waves\.png$/);
   assert.equal(plan.frames[0].background.styleKind, 'gradient');
@@ -1628,10 +1633,10 @@ test('styled export draws the faint background grid behind everything only when 
 });
 
 test('the in-progress video lives under a hidden name beside the real file, never under the real name', () => {
-  assert.equal(workingExportPath('/home/me/Videos/Demo 2026-10-02_1335.mp4'), '/home/me/Videos/.Demo 2026-10-02_1335.rendering.mp4');
-  assert.equal(workingExportPath('/x/out.mp4', 'finishing'), '/x/.out.finishing.mp4');
+  assert.equal(workingExportPath('/home/me/Videos/Demo 2026-10-02_1335.mp4'), join('/home/me/Videos', '.Demo 2026-10-02_1335.rendering.mp4'));
+  assert.equal(workingExportPath('/x/out.mp4', 'finishing'), join('/x', '.out.finishing.mp4'));
   assert.notEqual(workingExportPath('/x/out.mp4'), '/x/out.mp4');
-  assert.equal(workingExportPath('/x/out.mp4').startsWith('/x/.'), true);
+  assert.equal(basename(workingExportPath('/x/out.mp4')).startsWith('.'), true);
 });
 
 test('a failed graphics pass keeps the finished styled video and carries the reason', () => {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createAppSettingsStore, defaultAppSettingsPath } from './app-settings-store.mjs';
 
@@ -21,9 +21,9 @@ test('no settings file means the default projects folder', async () => {
 
 test('a chosen projects folder is saved and read back', async () => {
   await withStore(async ({ store, filePath }) => {
-    assert.equal(store.setProjectsDir('/data/My Videos/rough-cut'), '/data/My Videos/rough-cut');
-    assert.equal(store.getProjectsDir(), '/data/My Videos/rough-cut');
-    assert.equal(JSON.parse(await readFile(filePath, 'utf8')).projectsDir, '/data/My Videos/rough-cut');
+    assert.equal(store.setProjectsDir('/data/My Videos/rough-cut'), normalize('/data/My Videos/rough-cut'));
+    assert.equal(store.getProjectsDir(), normalize('/data/My Videos/rough-cut'));
+    assert.equal(JSON.parse(await readFile(filePath, 'utf8')).projectsDir, normalize('/data/My Videos/rough-cut'));
   });
 });
 
@@ -50,12 +50,12 @@ test('the exports folder is saved, read back, reset, and kept apart from the pro
   await withStore(async ({ store, filePath }) => {
     assert.equal(store.getExportsDir(), null);
     store.setProjectsDir('/data/projects');
-    assert.equal(store.setExportsDir('/data/My Exports'), '/data/My Exports');
-    assert.equal(store.getExportsDir(), '/data/My Exports');
-    assert.equal(store.getProjectsDir(), '/data/projects');
+    assert.equal(store.setExportsDir('/data/My Exports'), normalize('/data/My Exports'));
+    assert.equal(store.getExportsDir(), normalize('/data/My Exports'));
+    assert.equal(store.getProjectsDir(), normalize('/data/projects'));
     assert.throws(() => store.setExportsDir('relative'), /full path/);
     store.resetExportsDir();
     assert.equal(store.getExportsDir(), null);
-    assert.equal(JSON.parse(await readFile(filePath, 'utf8')).projectsDir, '/data/projects');
+    assert.equal(JSON.parse(await readFile(filePath, 'utf8')).projectsDir, normalize('/data/projects'));
   });
 });

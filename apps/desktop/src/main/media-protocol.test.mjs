@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createMediaFetchResponse, createMediaFileResponse, parseByteRange, toMediaUrl } from './media-protocol.mjs';
 
@@ -24,7 +25,7 @@ test('createMediaFetchResponse delegates to file URL fetch with request headers'
   assert.equal(await result.text(), 'ok');
   assert.equal(result.headers.get('access-control-allow-origin'), 'null');
   assert.equal(result.headers.get('vary'), 'Origin');
-  assert.equal(calls[0].url, 'file:///tmp/Rough%20Cut/clip.mp4');
+  assert.equal(calls[0].url, pathToFileURL('/tmp/Rough Cut/clip.mp4').toString());
   assert.equal(calls[0].options.headers, headers);
 });
 

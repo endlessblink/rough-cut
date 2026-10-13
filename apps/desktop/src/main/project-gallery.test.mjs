@@ -249,7 +249,7 @@ test('projects are found loose in the folder and inside one folder per video, bu
     await mkdir(join(root, '.roughcut-visuals'));
     await writeFile(join(root, '.roughcut-visuals', 'cache.roughcut'), '{}');
     const found = (await listRecordingProjectPaths(root)).map((path) => path.slice(root.length + 1)).sort();
-    assert.deepEqual(found, ['2026-10-02_1405 Demo/Demo.roughcut', 'old-loose.roughcut']);
+    assert.deepEqual(found.map((name) => name.replaceAll('\\', '/')), ['2026-10-02_1405 Demo/Demo.roughcut', 'old-loose.roughcut']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

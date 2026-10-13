@@ -39,9 +39,20 @@ test('runtime log rotates instead of growing forever', async () => {
 
 test('default log path never depends on the working directory unless dev/dock asks for it', () => {
   assert.equal(defaultRuntimeLogPath({ ROUGH_CUT_LOG_PATH: '/x/log' }, '/'), '/x/log');
-  assert.equal(defaultRuntimeLogPath({ XDG_CONFIG_HOME: '/cfg' }, '/'), '/cfg/rough-cut-mvp/logs/app-runtime.log');
-  assert.equal(defaultRuntimeLogPath({ ROUGH_CUT_DOCK_LAUNCH: '1' }, '/repo/dist/app'), '/repo/.logs/app-runtime.log');
-  assert.ok(!defaultRuntimeLogPath({}, '/').startsWith('/.logs'));
+  assert.equal(defaultRuntimeLogPath({ XDG_CONFIG_HOME: '/cfg' }, '/', 'linux'), '/cfg/rough-cut-mvp/logs/app-runtime.log');
+  assert.equal(defaultRuntimeLogPath({ ROUGH_CUT_DOCK_LAUNCH: '1' }, '/repo/dist/app', 'linux'), '/repo/.logs/app-runtime.log');
+  assert.ok(!defaultRuntimeLogPath({}, '/', 'linux', '/home/u').startsWith('/.logs'));
+});
+
+test('on Windows the log lives under %APPDATA%, never under a .config folder', () => {
+  assert.equal(
+    defaultRuntimeLogPath({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'C:\\', 'win32'),
+    'C:\\Users\\u\\AppData\\Roaming\\rough-cut-mvp\\logs\\app-runtime.log',
+  );
+  assert.equal(
+    defaultRuntimeLogPath({}, 'C:\\', 'win32', 'C:\\Users\\u'),
+    'C:\\Users\\u\\AppData\\Roaming\\rough-cut-mvp\\logs\\app-runtime.log',
+  );
 });
 
 test('an unwritable log location does not throw (startup must survive it)', async () => {
