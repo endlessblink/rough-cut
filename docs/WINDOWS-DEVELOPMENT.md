@@ -23,6 +23,8 @@ pnpm install
 | Desktop tests | `pnpm --filter @rough-cut/desktop test` |
 | Real recording pipeline smoke | `node scripts/windows/smoke-windows-recording.mjs` |
 | Same, with mic + system audio + camera | `$env:ROUGH_CUT_WIN_SMOKE_SOURCES='all'; node scripts/windows/smoke-windows-recording.mjs` |
+| UI end-to-end, quiet (synthetic recording, no devices, no input) | `node scripts/windows/ui-e2e-editor.mjs` |
+| UI end-to-end, full (real mic, system audio, camera, a real mouse click) | `node scripts/windows/ui-e2e.mjs` |
 | The completion gate | `pnpm gate:windows` (`:quick` skips build and tests) |
 | Portable package | `node scripts/prepare-windows-tools.mjs; node scripts/package-windows.mjs` |
 | Installer + zip | `node scripts/build-windows-release.mjs` (output in `release\windows`) |
@@ -70,9 +72,19 @@ windows-devices.mjs: dshow device lists, camera mode probing, display info (phys
 
 **Coordinates**: every Windows input is already physical, so the session is created with `inputCoordinatesArePhysical` and does not multiply by the display scale factor again (without it, clicks land 25% off at 125% scaling). Polled cursor points come from `screen.dipToScreenPoint`, which is correct per monitor on mixed-DPI setups.
 
+**Fractional display scaling**: Electron reports rounded logical sizes, so `1707 x 1.5 = 2560.5` for a 2560-wide screen, and `dipToScreenRect` rounds up to 2561 as well. Asking gdigrab for that extra pixel fails with "extends outside window area". `physicalExtent()` in `windows-devices.mjs` rounds down to an even number (the same clamp is used for regions in `region-selector.mjs`). Found by the UI test on a 150% display; unit tests use these exact numbers.
+
+**A capture that dies at startup** now fails the take with ffmpeg's reason (`assertScreenCaptureStayedUp`, 1.5 s window) and the failed start releases everything, instead of leaving a recorder UI that says "recording".
+
+**Export opens the standard Save dialog** (`pickSavePath`). No UI driver can click it, so the tests set `ROUGH_CUT_UI_SMOKE_EXPORT_PATH`, the app's own hook, and a person verifies the dialog (`export-playable`). "Preparing export" in the UI is that dialog waiting. The app logs `[export] finished ok=true` only when the file is complete; the MP4 appears earlier while ffmpeg is still writing it, so tests wait for the log line.
+
 **Project files** store relative paths with `/` on every platform so a project made on Windows opens on Linux and back.
 
 **Packaging**: `app.isPackaged` is true once `electron.exe` is renamed to `Rough Cut.exe`, so the built renderer loads without environment variables. A packaged Windows app opens in editor mode like the Linux launcher. FFmpeg is pinned by URL and SHA-256 (`scripts/bundled-tools-windows.lock.json`). Git for Windows puts a GNU `tar` first on PATH that reads `C:` as a remote host, so scripts call `%SystemRoot%\System32\tar.exe`.
+
+## The UI tests (how they stay safe)
+
+`ui-e2e.mjs` makes one real OS mouse click so the global hook has a click at a known position. It must never click another program, so before recording anything (and again just before the click) it pins the app window on top, computes the physical screen point of the app's title text, and checks with `WindowFromPoint` that the window there belongs to the exact `Rough Cut.exe` it launched. If not, it stops with a message instead of clicking. It also records the mic, the screen and the camera and plays a tone, so run it when the PC is free. The tone is found as a burst that stands out anywhere in the take, because the take starts a variable time before the UI reports it. Selectors that work: the export toggle is `[data-ui-region="export-popover-toggle"]` and the go button is `button.exportGo` (their accessible names are "Show/Hide export panel", not "Export").
 
 ## Windows gotchas for contributors
 
