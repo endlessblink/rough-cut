@@ -104,13 +104,19 @@ try {
   await page.locator('button.exportGo[data-export-action="export"]').first().waitFor({ state: 'visible', timeout: 15000 });
   await page.locator('button.exportGo[data-export-action="export"]').first().click();
   step('export started from the Export panel');
-  let exported = null;
-  for (let i = 0; i < 150 && !exported; i += 1) {
+  // The app logs "[export] finished ok=true ..." only when the file is complete and verified; the file itself appears
+  // earlier, while ffmpeg is still writing it.
+  let exportLog = '';
+  for (let i = 0; i < 240; i += 1) {
     await wait(1000);
-    exported = listFiles(exportsDir).find((f) => /\.mp4$/i.test(f) && !/^\.|rendering|finishing/.test(f.split(/[\\/]/).pop()));
+    exportLog = appLog.join('');
+    if (/\[export\] finished ok=true/.test(exportLog)) break;
+    if (/\[export\] finished ok=false|Export failed/.test(exportLog)) fail(`The app reported a failed export: ${exportLog.split('\n').filter((line) => /export/i.test(line)).slice(-4).join(' | ').slice(0, 600)}`);
   }
-  if (!exported) fail(`No exported MP4 appeared in ${exportsDir} within 2.5 minutes. App log: ${appLog.join('').split('\n').filter((line) => /export|ffmpeg|error|fail/i.test(line)).slice(-12).join(' | ').slice(0, 1500)} Panel text: ${(await page.locator('body').innerText()).slice(-500).replace(/\s+/g, ' ')}`);
-  await wait(2500);
+  if (!/\[export\] finished ok=true/.test(exportLog)) fail(`The export did not finish within 4 minutes. App log: ${exportLog.split('\n').filter((line) => /export|ffmpeg|error|fail/i.test(line)).slice(-12).join(' | ').slice(0, 1200)} Panel text: ${(await page.locator('body').innerText()).slice(-400).replace(/\s+/g, ' ')}`);
+  const exported = listFiles(exportsDir).find((f) => /\.mp4$/i.test(f) && !/^\.|rendering|finishing/.test(f.split(/[\\/]/).pop()));
+  if (!exported) fail(`The export finished but no MP4 is in ${exportsDir}.`);
+  await wait(1000);
 
   // 4. Check the exported file.
   const out = join(exportsDir, exported);

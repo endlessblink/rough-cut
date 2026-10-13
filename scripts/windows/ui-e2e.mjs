@@ -44,11 +44,13 @@ function ffprobeJson(file, entries) {
   if (run.status !== 0) fail(`ffprobe failed on ${file}: ${run.stderr}`);
   return JSON.parse(run.stdout);
 }
-function maxVolume(file, start, length) {
-  const run = spawnSync('ffmpeg', ['-hide_banner', '-ss', String(start), '-t', String(length), '-i', file, '-vn', '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' });
-  const match = /max_volume: (-?[\d.]+|-inf) dB/.exec(run.stderr ?? '');
-  return match ? Number(match[1]) : -Infinity;
+// Peak level (dB) of every half second of the recording's audio. The take starts a variable time before the UI reports
+// it, so the tone cannot be looked for at a fixed offset; look for a burst that stands out anywhere in the take.
+function peakLevels(file) {
+  const run = spawnSync('ffmpeg', ['-hide_banner', '-v', 'error', '-i', file, '-vn', '-af', 'asetnsamples=n=24000:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level:file=-', '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return [...(run.stdout ?? '').matchAll(/Peak_level=(-?[\d.]+|-inf)/g)].map((match) => Number(match[1]));
 }
+const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 function ffmpegProcessCount() {
   const out = spawnSync('tasklist', ['/FI', 'IMAGENAME eq ffmpeg.exe', '/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout ?? '';
   return out.split('\n').filter((line) => /ffmpeg\.exe/i.test(line)).length;
@@ -76,23 +78,38 @@ function writeToneWav(path) {
   writeFileSync(path, Buffer.concat([header, data]));
 }
 
-// Safety: the test makes real mouse input, so it must never act on another program. Bring the app to the front and
-// check that the foreground window really belongs to it; if not, stop BEFORE recording or clicking anything.
-async function assertAppInForeground(app) {
+// Safety: the test makes real mouse input, so it must never click another program. Pin the app window on top, work
+// out the physical screen point of its title text, and check that the window under that point belongs to the app.
+// If not, stop BEFORE recording or clicking anything. Returns the point.
+async function locateClickTarget(app, page) {
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.show();
-    window.focus();
+    window.setAlwaysOnTop(true, 'screen-saver');
     window.moveTop();
   });
-  await wait(1000);
-  const foreground = powershell(`
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class F{[DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);}'
-$p = 0; [F]::GetWindowThreadProcessId([F]::GetForegroundWindow(), [ref]$p) | Out-Null; $p`).stdout.trim();
-  if (String(app.process().pid) !== foreground) {
-    const owner = powershell(`(Get-Process -Id ${Number(foreground) || 0} -ErrorAction SilentlyContinue).ProcessName`).stdout.trim();
-    fail(`The app window is not in the foreground (it is "${owner || 'another program'}"), so the test will not click. Close or minimise other programs, do not touch the PC while it runs, and run it again.`);
+  await wait(800);
+  const rect = await page.locator('h1, h2').first().boundingBox();
+  if (!rect) fail('Could not locate a heading to click.');
+  const target = await app.evaluate(({ BrowserWindow, screen }, point) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    const content = window.getContentBounds();
+    const physical = screen.dipToScreenPoint({ x: Math.round(content.x + point.x), y: Math.round(content.y + point.y) });
+    return { x: physical.x, y: physical.y };
+  }, { x: rect.x + Math.min(rect.width / 2, 20), y: rect.y + rect.height / 2 });
+  const owner = powershell(`
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class W{[StructLayout(LayoutKind.Sequential)]public struct PT{public int X;public int Y;}[DllImport("user32.dll")]public static extern bool SetProcessDPIAware();[DllImport("user32.dll")]public static extern IntPtr WindowFromPoint(PT p);[DllImport("user32.dll")]public static extern IntPtr GetAncestor(IntPtr h,uint f);[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);}'
+[W]::SetProcessDPIAware() | Out-Null
+$pt = New-Object W+PT; $pt.X = ${target.x}; $pt.Y = ${target.y}
+$h = [W]::GetAncestor([W]::WindowFromPoint($pt), 2); $p = 0; [W]::GetWindowThreadProcessId($h, [ref]$p) | Out-Null; $p`).stdout.trim();
+  // The owning process must be running the exact executable this test launched (Electron's windows can belong to a
+  // sibling of the process Playwright reports, so the path is compared rather than the pid).
+  const ownerPath = powershell(`(Get-Process -Id ${Number(owner) || 0} -ErrorAction SilentlyContinue).Path`).stdout.trim();
+  const same = (a, b) => a.replaceAll('\\', '/').toLowerCase() === b.replaceAll('\\', '/').toLowerCase();
+  if (!ownerPath || !same(ownerPath, exe)) {
+    fail(`The window at the click point (${target.x},${target.y}) belongs to "${ownerPath || 'another program'}", not to the app, so the test will not click. Close or minimise other programs, do not touch the PC while it runs, and run it again.`);
   }
+  return target;
 }
 
 let app = null;
@@ -122,8 +139,8 @@ try {
   await page.waitForLoadState('domcontentloaded');
   await page.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 30000 });
   step('app starts and shows the library', (await page.title()) || 'Rough Cut');
-  await assertAppInForeground(app);
-  step('app window is in the foreground (safe to use real mouse input)');
+  await locateClickTarget(app, page);
+  step('the app window is on top where the test will click (safe to use real mouse input)');
 
   // --- Recorder panel and devices
   await page.getByRole('button', { name: 'Record', exact: true }).click();
@@ -154,18 +171,9 @@ try {
   setTimeout(() => spawn('powershell.exe', ['-NoProfile', '-Command', `(New-Object Media.SoundPlayer '${tonePath}').PlaySync()`], { windowsHide: true, stdio: 'ignore' }), 2000);
 
   // One real OS mouse click on the app's own title text, so the global hook has a click at a known position.
-  // Safety: never click another program's window. Bring the app to the front and check that it really is there.
+  // Safety: re-check right before clicking that the window under the cursor is the app's own.
   await wait(2500);
-  await assertAppInForeground(app);
-  const title = page.locator('h1, h2').first();
-  const rect = await title.boundingBox();
-  if (!rect) fail('Could not locate a heading to click.');
-  const target = await app.evaluate(({ BrowserWindow, screen }, point) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    const content = window.getContentBounds();
-    const physical = screen.dipToScreenPoint({ x: Math.round(content.x + point.x), y: Math.round(content.y + point.y) });
-    return { x: physical.x, y: physical.y };
-  }, { x: rect.x + Math.min(rect.width / 2, 20), y: rect.y + rect.height / 2 });
+  const target = await locateClickTarget(app, page);
   const clickScript = `
 Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class M{[DllImport("user32.dll")]public static extern bool SetCursorPos(int x,int y);[DllImport("user32.dll")]public static extern bool SetProcessDPIAware();[DllImport("user32.dll")]public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e);}'
 [M]::SetProcessDPIAware() | Out-Null
@@ -199,9 +207,14 @@ Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;publ
   if (!audio) fail('The recording has no audio stream although mic and system audio were selected.');
   step('screen recording is valid h264 with audio', `${video.width}x${video.height}, ${recordedSeconds.toFixed(1)} s`);
 
-  const tone = maxVolume(screenPath, 2.0, 1.4);
-  if (!(tone > -45)) fail(`The system-audio tone was not audible in the recording (${tone} dB). Is the output volume muted?`);
-  step('system-audio tone is audible in the recording', `${tone} dB`);
+  const levels = peakLevels(screenPath).filter((level) => Number.isFinite(level));
+  if (levels.length < 6) fail(`Could not measure the audio levels (${levels.length} readings).`);
+  const loudest = Math.max(...levels);
+  const background = median(levels);
+  if (!(loudest > -35 && loudest - background >= 10)) {
+    fail(`The system-audio tone was not found in the recording: loudest half second ${loudest} dB, typical ${background} dB. Is the output volume muted?`);
+  }
+  step('system-audio tone is audible in the recording', `loudest ${loudest} dB, typical ${background} dB`);
 
   if (withCamera) {
     if (!cameraMp4) fail(`No camera file was produced. Found: ${files.join(', ')}`);
@@ -227,13 +240,19 @@ Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;publ
   await page.locator('button.exportGo[data-export-action="export"]').first().waitFor({ state: 'visible', timeout: 15000 });
   await page.locator('button.exportGo[data-export-action="export"]').first().click();
   step('export started from the Export panel');
-  let exported = null;
-  for (let i = 0; i < 120 && !exported; i += 1) {
+  // The app logs "[export] finished ok=true ..." only when the file is complete and verified; the file itself appears
+  // earlier, while ffmpeg is still writing it.
+  let exportLog = '';
+  for (let i = 0; i < 240; i += 1) {
     await wait(1000);
-    exported = listFiles(exportsDir).find((f) => /\.mp4$/i.test(f) && !/^\.|rendering|finishing/.test(f.split(/[\\/]/).pop()));
+    exportLog = appLog.join('');
+    if (/\[export\] finished ok=true/.test(exportLog)) break;
+    if (/\[export\] finished ok=false|Export failed/.test(exportLog)) fail(`The app reported a failed export: ${exportLog.split('\n').filter((line) => /export/i.test(line)).slice(-4).join(' | ').slice(0, 600)}`);
   }
-  if (!exported) fail(`No exported MP4 appeared in ${exportsDir} within 2 minutes. UI shows: ${(await page.locator('body').innerText()).slice(-400)}`);
-  await wait(2500);
+  if (!/\[export\] finished ok=true/.test(exportLog)) fail(`The export did not finish within 4 minutes. UI shows: ${(await page.locator('body').innerText()).slice(-400).replace(/\s+/g, ' ')}`);
+  const exported = listFiles(exportsDir).find((f) => /\.mp4$/i.test(f) && !/^\.|rendering|finishing/.test(f.split(/[\\/]/).pop()));
+  if (!exported) fail(`The export finished but no MP4 is in ${exportsDir}.`);
+  await wait(1000);
   const exportedPath = join(exportsDir, exported);
   const exportProbe = ffprobeJson(exportedPath, ['-show_entries', 'stream=codec_type,codec_name,width,height:format=duration']);
   const exportVideo = exportProbe.streams.find((s) => s.codec_type === 'video');
