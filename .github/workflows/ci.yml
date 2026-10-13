@@ -29,3 +29,25 @@ jobs:
       # Repo-level script tests, then the tests of every package.
       - run: node --test scripts/export-benchmark-utils.test.mjs scripts/export-test-lock.test.mjs scripts/release-metadata.test.mjs
       - run: pnpm -r --sort test
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # The app and its tests call ffmpeg/ffprobe from PATH, as an installed user would.
+      - name: Install FFmpeg
+        run: choco install ffmpeg --no-progress -y
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: node --test scripts/windows/verify-windows-port.test.mjs
+      - run: pnpm --filter @rough-cut/desktop test
+      # Real capture of the runner's desktop through the real recording session: capture, remux, project, exports.
+      - name: Windows recording pipeline smoke
+        run: node scripts/windows/smoke-windows-recording.mjs
