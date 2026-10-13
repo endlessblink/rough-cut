@@ -87,7 +87,7 @@ Planned, no dates. Automatic zoom is deferred; existing experimental code is not
 
 Recording and editing stay local. There is no analytics service or automatic crash upload. Help → Crash reports is off by default; each local JSON export shows its exact contents before you choose to save it.
 
-Public update checks are disabled. Graphic prompts and design context go to Claude only when you request generation; recent requests and answers are kept in local diagnostics. Recordings and exports default below `~/Documents/Rough Cut MVP`; settings and logs use the Linux configuration directory (on Windows, `%APPDATA%ough-cut-mvp`).
+Public update checks are disabled. Graphic prompts and design context go to Claude only when you request generation; recent requests and answers are kept in local diagnostics. Recordings and exports default below `~/Documents/Rough Cut MVP`; settings and logs use the Linux configuration directory (on Windows, `%APPDATA%\rough-cut-mvp`).
 
 ## Source, support and license
 
