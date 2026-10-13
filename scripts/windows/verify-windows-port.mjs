@@ -66,9 +66,9 @@ function pnpmCommand() {
   return run('pnpm', ['--version'], { shell: true }).status === 0 ? ['pnpm'] : ['npx', '-y', 'pnpm@9.15.0'];
 }
 
-function runStreaming(command, args, cwd) {
+function runStreaming(command, args, cwd, extraEnv = {}) {
   return new Promise((resolveRun) => {
-    const child = spawn(command, args, { cwd, shell: true, windowsHide: true });
+    const child = spawn(command, args, { cwd, shell: true, windowsHide: true, env: { ...process.env, ...extraEnv } });
     let out = '';
     child.stdout.on('data', (chunk) => { out += chunk; });
     child.stderr.on('data', (chunk) => { out += chunk; });
@@ -113,6 +113,11 @@ async function main() {
   // --- The whole recording pipeline through the real session: capture, stop, remux, project, raw + styled export.
   const smoke = await runStreaming('node', [join('scripts', 'windows', 'smoke-windows-recording.mjs')], root);
   record('recording pipeline smoke (capture, remux, project, raw + styled export)', smoke.code === 0 && /"ok":true/.test(smoke.out), smoke.code === 0 ? '' : smoke.out.trim().split('\n').slice(-2).join(' | ').slice(0, 200));
+
+  // --- Real devices: mic + system audio (a tone is played) + camera, through the real session and a styled export.
+  const hardware = await runStreaming('node', [join('scripts', 'windows', 'smoke-windows-recording.mjs')], root, { ROUGH_CUT_WIN_SMOKE_SOURCES: 'all', ROUGH_CUT_WIN_SMOKE_MS: '5000' });
+  record('all-sources recording smoke (mic + system audio + camera, tone audible, camera linked)', hardware.code === 0 && /"allSources":true/.test(hardware.out) && /"ok":true/.test(hardware.out), hardware.code === 0 ? '' : hardware.out.trim().split('
+').filter((l) => /FAILED|needs a mic/.test(l)).slice(-1)[0]?.slice(0, 220) ?? 'see output');
 
   // --- Structure
   const ci = existsSync(join(root, '.github/workflows/ci.yml')) ? readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8') : '';

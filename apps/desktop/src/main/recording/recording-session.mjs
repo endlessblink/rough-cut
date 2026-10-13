@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
 import { createUiohookButtonListener } from './uiohook-button-listener.mjs';
+import { LOOPBACK_SOURCE_ID, createLoopbackFeed } from './system-audio-loopback.mjs';
 import { probeVideoStreamStartOffsets } from '../media-probe.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 import { createProjectFolder } from '../project-folders.mjs';
@@ -42,6 +43,8 @@ export function createRecordingSession({
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
   videoStreamStartProbe = probeVideoStreamStartOffsets,
+  // Windows system audio: a local feed that turns WASAPI loopback into an ffmpeg input. Null elsewhere.
+  systemAudioFeedFactory = process.platform === 'win32' ? createLoopbackFeed : null,
 }) {
   let active = null;
   let stopping = null;
@@ -176,6 +179,19 @@ export function createRecordingSession({
       ...displayInfo,
     };
 
+    if (systemAudioSource === LOOPBACK_SOURCE_ID && typeof systemAudioFeedFactory === 'function') {
+      try {
+        session.systemAudioFeed = await systemAudioFeedFactory();
+        session.systemAudioInput = session.systemAudioFeed.url;
+        registerChild(session, 'system-audio-loopback', { kill: () => closeSystemAudioFeed(session) });
+      } catch (err) {
+        // Same fallback shape as a missing camera: keep recording the screen, say what was lost.
+        session.systemAudioError = err instanceof Error ? err.message : String(err);
+        session.systemAudioSource = null;
+        console.warn(`[recording-session] system audio disabled: ${session.systemAudioError}`);
+      }
+    }
+
     eventLogger.event('recording-start', {
       startedAt: session.startedAt,
       fps: session.fps,
@@ -195,16 +211,21 @@ export function createRecordingSession({
     await writeRecoveryMarker(session);
 
     active = session;
-    await startActiveSegment(active, {
-      captureFactory,
-      cameraCaptureFactory,
-      unifiedCaptureFactory,
-      cameraWarmupMs,
-      now,
-      getCursorPoint,
-      sampleIntervalMs,
-      buttonListenerFactory,
-    });
+    try {
+      await startActiveSegment(active, {
+        captureFactory,
+        cameraCaptureFactory,
+        unifiedCaptureFactory,
+        cameraWarmupMs,
+        now,
+        getCursorPoint,
+        sampleIntervalMs,
+        buttonListenerFactory,
+      });
+    } catch (err) {
+      closeSystemAudioFeed(session);
+      throw err;
+    }
     return status();
   }
 
@@ -313,6 +334,7 @@ export function createRecordingSession({
     if (!session.paused) {
       await stopCurrentSegment(session, 'stop', now, { videoStreamStartProbe });
     }
+    closeSystemAudioFeed(session);
     const rawPath = session.segments.length > 1 ? session.rawPath : session.segments[0]?.rawPath ?? session.rawPath;
     let cameraRawPath = session.unifiedCapture ? rawPath : session.cameraSegments[0]?.rawPath ?? null;
     let cameraError = session.cameraError ?? null;
@@ -377,6 +399,7 @@ export function createRecordingSession({
   async function cancelActiveSession(session) {
     session.stopped = true;
     stopTelemetry(session);
+    closeSystemAudioFeed(session);
     if (session.eventLogger) session.eventLogger.event('recording-cancel');
     await Promise.allSettled([
       cancelCapture(session.capture),
@@ -494,7 +517,7 @@ async function startActiveSegment(session, {
         cameraDevicePath: session.cameraDevicePath,
         micSource: session.micSource,
         micGainPercent: session.micGainPercent,
-        systemAudioSource: session.systemAudioSource,
+        systemAudioSource: session.systemAudioInput ?? session.systemAudioSource,
         systemAudioGainPercent: session.systemAudioGainPercent,
         onFirstFrame: noteFirstFrame,
         maxAttempts: 6,
@@ -519,7 +542,7 @@ async function startActiveSegment(session, {
       height: session.height,
       micSource: session.micSource,
       micGainPercent: session.micGainPercent,
-      systemAudioSource: session.systemAudioSource,
+      systemAudioSource: session.systemAudioInput ?? session.systemAudioSource,
       systemAudioGainPercent: session.systemAudioGainPercent,
       onFirstFrame: noteFirstFrame,
     });
@@ -635,6 +658,13 @@ function segmentPaths(session, index) {
     rawPath: join(dirname(session.rawPath), `rough-cut-${session.stamp}-segment-${index}.mkv`),
     cameraRawPath: session.cameraOutputPath ? join(dirname(session.rawPath), `rough-cut-${session.stamp}-segment-${index}-camera.mkv`) : null,
   };
+}
+
+function closeSystemAudioFeed(session) {
+  const feed = session?.systemAudioFeed;
+  if (!feed) return;
+  session.systemAudioFeed = null;
+  try { feed.close(); } catch { /* already closed */ }
 }
 
 function stopTelemetry(session) {

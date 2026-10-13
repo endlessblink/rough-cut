@@ -9,6 +9,8 @@
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { spawn, spawnSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRecordingSession } from '../../apps/desktop/src/main/recording/recording-session.mjs';
 import { stopRecordingAndCreateProject } from '../../apps/desktop/src/main/recording-stop-handler.mjs';
@@ -16,12 +18,18 @@ import { remuxMkvToMp4 } from '../../apps/desktop/src/main/remux-service.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from '../../apps/desktop/src/main/media-probe.mjs';
 import { openProjectFile, saveProjectForRecording } from '../../apps/desktop/src/main/project-files.mjs';
 import { EXPORT_MODES, exportProjectToMp4 } from '../../apps/desktop/src/main/export-service.mjs';
+import { listDshowCameraSources, listDshowMicSources, listDshowSystemAudioSources } from '../../apps/desktop/src/main/recording/windows-devices.mjs';
+import { LOOPBACK_SOURCE_ID } from '../../apps/desktop/src/main/recording/system-audio-loopback.mjs';
 
 const width = Number(process.env.ROUGH_CUT_WIN_SMOKE_WIDTH ?? 640);
 const height = Number(process.env.ROUGH_CUT_WIN_SMOKE_HEIGHT ?? 360);
 const durationMs = Number(process.env.ROUGH_CUT_WIN_SMOKE_MS ?? 3500);
 const runStyled = process.env.ROUGH_CUT_WIN_SMOKE_STYLED !== '0';
 const keep = process.env.ROUGH_CUT_WIN_SMOKE_KEEP === '1';
+// ROUGH_CUT_WIN_SMOKE_SOURCES=all also records the first microphone, system audio (a tone is played during the
+// take) and the first camera. This uses real devices: the mic hears the room and the camera sees the user.
+// Everything is written to a temp folder and deleted afterwards unless ROUGH_CUT_WIN_SMOKE_KEEP=1.
+const allSources = process.env.ROUGH_CUT_WIN_SMOKE_SOURCES === 'all';
 
 let phase = 'init';
 const setPhase = (name) => { phase = name; console.info(`[win-smoke] ${name}`); };
@@ -43,9 +51,24 @@ try {
     },
   });
 
+  const startOptions = {};
+  let expectCamera = null;
+  if (allSources) {
+    const [mic] = await listDshowMicSources();
+    const [camera] = await listDshowCameraSources();
+    const system = await listDshowSystemAudioSources();
+    if (!mic || !camera || !system.some((d) => d.id === LOOPBACK_SOURCE_ID)) fail(`all-sources mode needs a mic, a camera and system-audio loopback; found mic=${mic?.name ?? 'none'} camera=${camera?.name ?? 'none'} loopback=${system.some((d) => d.id === LOOPBACK_SOURCE_ID)}`);
+    startOptions.micSource = mic.id;
+    startOptions.systemAudioSource = LOOPBACK_SOURCE_ID;
+    startOptions.cameraDevicePath = camera.id;
+    expectCamera = camera.id;
+    console.info(`[win-smoke] sources: mic="${mic.name}" camera="${camera.name}" system=loopback`);
+  }
+
   setPhase('start');
-  await session.start({});
+  await session.start(startOptions);
   setPhase('recording');
+  if (allSources) playTone(join(root, 'tone.wav'), 700, 1500);
   await new Promise((resolve) => setTimeout(resolve, durationMs));
 
   setPhase('stop-and-save');
@@ -67,10 +90,18 @@ try {
   const cursorEvents = asset?.metadata?.cursorEvents;
   if (!Array.isArray(cursorEvents) || cursorEvents.length < 3) fail(`Expected cursor events from the session; got ${cursorEvents?.length ?? 0}.`);
 
-  setPhase('raw-export');
-  const rawPath = join(root, 'raw-export.mp4');
-  await exportProjectToMp4({ project: reopened.document, outputPath: rawPath, mode: EXPORT_MODES.RAW });
-  await assertReadableMp4(rawPath);
+  if (allSources) {
+    setPhase('verify-sources');
+    verifyAllSources({ stopped, reopened, expectCamera });
+  }
+
+  // Raw export is single-recording only; a take with a camera is exported through the styled path (as on Linux).
+  if (!expectCamera) {
+    setPhase('raw-export');
+    const rawPath = join(root, 'raw-export.mp4');
+    await exportProjectToMp4({ project: reopened.document, outputPath: rawPath, mode: EXPORT_MODES.RAW });
+    await assertReadableMp4(rawPath);
+  }
 
   let styledOk = null;
   if (runStyled) {
@@ -81,7 +112,7 @@ try {
     styledOk = true;
   }
 
-  console.info(JSON.stringify({ ok: true, root: keep ? root : '(removed)', recordingPath: stopped.outputPath, cursorEvents: cursorEvents.length, rawExport: true, styledExport: styledOk }));
+  console.info(JSON.stringify({ ok: true, allSources, root: keep ? root : '(removed)', recordingPath: stopped.outputPath, cursorEvents: cursorEvents.length, rawExport: !expectCamera, styledExport: styledOk }));
 } catch (error) {
   console.error(`[win-smoke] FAILED in phase "${phase}": ${error instanceof Error ? error.message : error}`);
   console.error(`[win-smoke] artifacts kept at ${root}`);
@@ -89,3 +120,55 @@ try {
 }
 if (!keep) await rm(root, { recursive: true, force: true });
 process.exit(0);
+
+// 1.2 s 880 Hz tone through the default output, started after a delay so the take has silence on both sides.
+function playTone(path, delayMs, _unused) {
+  const rate = 48000;
+  const frames = Math.round(rate * 1.2);
+  const data = Buffer.alloc(frames * 4);
+  for (let i = 0; i < frames; i += 1) {
+    const v = Math.round(Math.sin((2 * Math.PI * 880 * i) / rate) * 9000);
+    data.writeInt16LE(v, i * 4);
+    data.writeInt16LE(v, i * 4 + 2);
+  }
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0); header.writeUInt32LE(36 + data.length, 4); header.write('WAVEfmt ', 8);
+  header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(2, 22);
+  header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate * 4, 28); header.writeUInt16LE(4, 32); header.writeUInt16LE(16, 34);
+  header.write('data', 36); header.writeUInt32LE(data.length, 40);
+  writeFileSync(path, Buffer.concat([header, data]));
+  setTimeout(() => {
+    spawn('powershell.exe', ['-NoProfile', '-Command', `(New-Object Media.SoundPlayer '${path}').PlaySync()`], { windowsHide: true, stdio: 'ignore' });
+  }, delayMs);
+}
+
+function ffprobeJson(args) {
+  const result = spawnSync('ffprobe', ['-v', 'error', '-of', 'json', ...args], { encoding: 'utf8' });
+  if (result.status !== 0) fail(`ffprobe failed: ${result.stderr}`);
+  return JSON.parse(result.stdout);
+}
+
+function verifyAllSources({ stopped, reopened, expectCamera }) {
+  const document = reopened.document;
+  const recordingAsset = document.assets.find((asset) => asset.type === 'recording');
+  const cameraAsset = document.assets.find((asset) => asset.type === 'video' && asset.metadata?.isCamera === true);
+  if (!recordingAsset?.cameraAssetId || !cameraAsset) fail('The camera was not recorded and linked (no camera asset on the project).');
+  if (recordingAsset.cameraAssetId !== cameraAsset.id) fail('cameraAssetId does not point at the camera asset.');
+  if (cameraAsset.metadata?.devicePath !== expectCamera) fail(`Camera device not persisted; got ${cameraAsset.metadata?.devicePath ?? 'missing'}.`);
+
+  const probe = ffprobeJson(['-show_entries', 'stream=codec_type,codec_name,width,height,duration', stopped.outputPath]);
+  const audio = probe.streams.filter((stream) => stream.codec_type === 'audio');
+  const video = probe.streams.filter((stream) => stream.codec_type === 'video');
+  if (audio.length === 0) fail('The screen recording has no audio stream even though mic and system audio were requested.');
+  if (video.length === 0) fail('The screen recording has no video stream.');
+
+  // The tone plays ~0.7 s into the take; it must be audible in the mixed audio, with quiet before it.
+  const vol = (start, length) => {
+    const run = spawnSync('ffmpeg', ['-hide_banner', '-ss', String(start), '-t', String(length), '-i', stopped.outputPath, '-vn', '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' });
+    const match = /max_volume: (-?[\d.]+|-inf) dB/.exec(run.stderr ?? '');
+    return match ? Number(match[1]) : -Infinity;
+  };
+  const toneMax = vol(1.0, 1.0);
+  console.info(`[win-smoke] audio: streams=${audio.length} toneWindowMax=${toneMax} dB`);
+  if (!(toneMax > -45)) fail(`System audio tone was not audible in the recording (max ${toneMax} dB in the tone window).`);
+}

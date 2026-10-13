@@ -44,9 +44,25 @@ test('dshow listing separates cameras, mics and loopback audio', async () => {
   const run = (_cmd, _args, _opts, cb) => cb(new Error('exit 1'), '', DSHOW_OUTPUT);
   assert.deepEqual((await listDshowCameraSources({ run })).map((d) => d.name), ['Integrated Camera', 'OBS Virtual Camera']);
   assert.deepEqual((await listDshowMicSources({ run })).map((d) => d.name), ['Microphone (Realtek(R) Audio)']);
-  const system = await listDshowSystemAudioSources({ run });
+  const system = await listDshowSystemAudioSources({ run, loopbackAvailable: () => false });
   assert.deepEqual(system.map((d) => d.name), ['Stereo Mix (Realtek(R) Audio)']);
   assert.equal(system[0].monitor, true);
+});
+
+test('real WASAPI loopback is offered first when the native module is available, with no Stereo Mix needed', async () => {
+  const noDevices = (_cmd, _args, _opts, cb) => cb(new Error('exit 1'), '', '');
+  const system = await listDshowSystemAudioSources({ run: noDevices, loopbackAvailable: () => true });
+  assert.deepEqual(system.map((d) => d.id), ['wasapi-loopback']);
+  assert.equal(system[0].monitor, true);
+  const run = (_cmd, _args, _opts, cb) => cb(new Error('exit 1'), '', DSHOW_OUTPUT);
+  const both = await listDshowSystemAudioSources({ run, loopbackAvailable: () => true });
+  assert.deepEqual(both.map((d) => d.id), ['wasapi-loopback', 'Stereo Mix (Realtek(R) Audio)']);
+});
+
+test('on Windows a tcp:// system-audio source is read as raw s16le, never as a dshow device', () => {
+  assert.deepEqual(audioInputArgs('tcp://127.0.0.1:5555', { platform: 'win32' }), ['-f', 's16le', '-ar', '48000', '-ac', '2', '-i', 'tcp://127.0.0.1:5555']);
+  assert.equal(audioInputArgs('tcp://127.0.0.1:5555', { platform: 'win32' }).includes('-use_wallclock_as_timestamps'), false);
+  assert.deepEqual(audioInputArgs('Microphone (USB)', { platform: 'win32' }), ['-f', 'dshow', '-ac', '2', '-ar', '48000', '-i', 'audio=Microphone (USB)']);
 });
 
 test('windows display info is in physical pixels with an offset-shaped display string', () => {

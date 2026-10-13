@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { LOOPBACK_SOURCE_ID, isLoopbackAvailable } from './system-audio-loopback.mjs';
 
 // Windows DirectShow device discovery via
 // `ffmpeg -list_devices true -f dshow -i dummy` (it prints to stderr and exits
@@ -42,11 +43,18 @@ export async function listDshowMicSources({ run = execFile } = {}) {
   return audio.filter((device) => !LOOPBACK_NAME.test(device.name));
 }
 
-export async function listDshowSystemAudioSources({ run = execFile } = {}) {
+// "What you hear" first: real WASAPI loopback through the feed in system-audio-loopback.mjs. Stereo Mix style
+// DirectShow devices stay listed after it for machines whose drivers provide one.
+export async function listDshowSystemAudioSources({ run = execFile, loopbackAvailable = isLoopbackAvailable } = {}) {
   const { audio } = parseDshowDevices(await runDshowList(run));
-  return audio
+  const dshow = audio
     .filter((device) => LOOPBACK_NAME.test(device.name))
     .map((device) => ({ ...device, monitor: true }));
+  if (!loopbackAvailable()) return dshow;
+  return [
+    { id: LOOPBACK_SOURCE_ID, name: LOOPBACK_SOURCE_ID, label: 'System audio (everything you hear)', state: 'RUNNING', monitor: true },
+    ...dshow,
+  ];
 }
 
 /**

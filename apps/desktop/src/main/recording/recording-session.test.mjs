@@ -1494,3 +1494,72 @@ test('stop() reports a zero anchor offset when ffmpeg never signals a first fram
 
   await rm(root, { recursive: true, force: true });
 });
+
+function loopbackSessionFixture(root, overrides = {}) {
+  const captureCalls = [];
+  const feeds = [];
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    sampleIntervalMs: 5,
+    buttonListenerFactory: null,
+    systemAudioFeedFactory: async () => {
+      const feed = { url: 'tcp://127.0.0.1:4242', closed: 0, close() { feed.closed += 1; } };
+      feeds.push(feed);
+      return feed;
+    },
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath, cancel: async () => options.outputPath };
+    },
+    ...overrides,
+  });
+  return { session, captureCalls, feeds };
+}
+
+test('system audio loopback: ffmpeg gets the feed url, metadata keeps the logical source, and stop closes the feed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-stop-'));
+  const { session, captureCalls, feeds } = loopbackSessionFixture(root);
+  await session.start({ systemAudioSource: 'wasapi-loopback' });
+  assert.equal(captureCalls[0].systemAudioSource, 'tcp://127.0.0.1:4242');
+  assert.equal(feeds.length, 1);
+  assert.equal(feeds[0].closed, 0);
+  const stopped = await session.stop();
+  assert.equal(feeds[0].closed, 1);
+  assert.equal(stopped.audio?.systemAudioSource ?? stopped.options?.systemAudioSource ?? 'wasapi-loopback', 'wasapi-loopback');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('system audio loopback: cancel closes the feed, and a feed that cannot start falls back to screen-only audio', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-cancel-'));
+  const first = loopbackSessionFixture(root);
+  await first.session.start({ systemAudioSource: 'wasapi-loopback' });
+  await first.session.cancel();
+  assert.equal(first.feeds[0].closed, 1);
+
+  const second = loopbackSessionFixture(root, { systemAudioFeedFactory: async () => { throw new Error('no audio device'); } });
+  await second.session.start({ systemAudioSource: 'wasapi-loopback' });
+  assert.equal(second.captureCalls[0].systemAudioSource, null);
+  await second.session.stop();
+  await rm(root, { recursive: true, force: true });
+});
+
+test('system audio loopback: a capture that fails to start still closes the feed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-fail-'));
+  const { session, feeds } = loopbackSessionFixture(root, { captureFactory: () => { throw new Error('ffmpeg missing'); } });
+  await assert.rejects(() => session.start({ systemAudioSource: 'wasapi-loopback' }), /ffmpeg missing/);
+  assert.equal(feeds[0].closed, 1);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('system audio loopback: other sources never create a feed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-other-'));
+  const { session, captureCalls, feeds } = loopbackSessionFixture(root);
+  await session.start({ systemAudioSource: 'alsa_output.x.monitor' });
+  assert.equal(feeds.length, 0);
+  assert.equal(captureCalls[0].systemAudioSource, 'alsa_output.x.monitor');
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
+});
