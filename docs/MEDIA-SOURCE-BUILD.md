@@ -27,3 +27,11 @@ The app/source archives are local candidates. For public distribution, publish t
 GitHub Releases at endlessblink/rough-cut, beta channel, is the approved destination. No artifact was published and no signing credential was created. The updater remains disabled until an owner-approved public key is pinned and signed update/install acceptance passes. Manual beta distribution with checksums and corresponding source does not require enabling that updater. Owner hardware acceptance remains a separate release gate.
 
 References: https://www.gnu.org/licenses/gpl-3.0.html (sections 1 and 6(d)); https://www.ffmpeg.org/legal.html.
+
+## Windows package (FFmpeg 9.0.2)
+
+The Windows package does not use the Ubuntu source build described above. It bundles the unmodified Gyan.dev "full" FFmpeg 9.0.2 build (GPL-3.0-or-later; libx264 and others), fetched from the publisher's GitHub release and verified against the SHA-256 recorded in `scripts/bundled-tools-windows.lock.json`. That pin was taken from the publisher's own winget manifest, an independent source from the download. `node scripts/prepare-windows-tools.mjs` repeats the download and verification; it refuses to extract anything on a mismatch.
+
+Corresponding source: the official FFmpeg 9.0.2 release source from https://ffmpeg.org/releases/, plus the sources of the third-party libraries named in the `README.txt` that ships next to the licence in `resources/licenses/media-tools`. The Gyan.dev build is built by its publisher; this project has not rebuilt it or checked it for reproducibility. Before distributing the Windows package publicly, publish the matching source (or a written offer) with equivalent access, as for the Linux package. This is not a legal compliance certification, and the owner should review it.
+
+The two native input modules (`uiohook-napi`, `loopback-capture`) are described in `THIRD_PARTY_NOTICES.md`.

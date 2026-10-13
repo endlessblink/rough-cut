@@ -65,9 +65,9 @@ Graphics use the official Claude Code CLI through your own Claude subscription. 
 
 | | |
 | --- | --- |
-| Platform | Linux x86_64 with an **X11** session and glibc 2.35 or newer. Wayland is not supported yet. |
-| Tools | FFmpeg/FFprobe, xdotool, xinput and pactl are bundled with their libraries and notices. No Node.js or source checkout needed. |
-| Tested on | KDE Plasma with an NVIDIA GPU. Other desktops and GPUs still need testing. |
+| Platform | Linux x86_64 with an **X11** session and glibc 2.35 or newer (Wayland is not supported yet), **or** Windows 10 2004 / Windows 11, 64-bit (preview: see [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md)). |
+| Tools | On Linux FFmpeg/FFprobe, xdotool, xinput and pactl are bundled with their libraries and notices. On Windows FFmpeg/FFprobe are bundled. No Node.js or source checkout needed. |
+| Tested on | Linux: KDE Plasma with an NVIDIA GPU. Windows: one Windows 11 laptop. Other desktops, GPUs and multi-monitor setups still need testing. |
 | Claude graphics | Optional. Needs the `claude` command, logged in. |
 | Transcription | Optional. Needs a compatible local engine and model (not bundled). See [CONTRIBUTING.md](CONTRIBUTING.md). |
 
@@ -81,13 +81,13 @@ Planned, no dates. Automatic zoom is deferred; existing experimental code is not
 - **Automatic subtitles** from local transcription, styled and burned into the export.
 - **Describe an edit** and let an agent cut, zoom and caption a take for you. The result lands on the same timeline, so you can keep editing it by hand.
 - **More AI models for graphics**, so they do not depend on one subscription.
-- **Wayland recording**, then **Windows** (a port is in progress) and **macOS**. The website has a Mac and Windows waitlist.
+- **Wayland recording**, then **macOS**. **Windows** is in preview (unsigned installer, one machine tested); the website has a Mac and Windows waitlist.
 
 ## Privacy
 
 Recording and editing stay local. There is no analytics service or automatic crash upload. Help → Crash reports is off by default; each local JSON export shows its exact contents before you choose to save it.
 
-Public update checks are disabled. Graphic prompts and design context go to Claude only when you request generation; recent requests and answers are kept in local diagnostics. Recordings and exports default below `~/Documents/Rough Cut MVP`; settings and logs use the Linux configuration directory.
+Public update checks are disabled. Graphic prompts and design context go to Claude only when you request generation; recent requests and answers are kept in local diagnostics. Recordings and exports default below `~/Documents/Rough Cut MVP`; settings and logs use the Linux configuration directory (on Windows, `%APPDATA%ough-cut-mvp`).
 
 ## Source, support and license
 
