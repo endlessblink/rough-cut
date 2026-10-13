@@ -120,7 +120,7 @@ async function main() {
   record('Windows packaging script exists', existsSync(join(root, 'scripts', 'package-windows.mjs')));
   const packaged = findPackagedApp();
   record('packaged app contains Rough Cut.exe + ffmpeg.exe + ffprobe.exe', packaged.ok, packaged.detail);
-  record('no placeholder markers left in the Windows port', noTodoMarkers());
+  record('Windows click/key telemetry is the real hook (uiohook), not a stub', clickListenerIsReal());
 
   // --- The expensive, authoritative checks
   if (quick) {
@@ -204,10 +204,11 @@ function findPackagedApp() {
   return { ok: false, detail: candidates.length ? 'incomplete package' : 'no dist/*win* package found' };
 }
 
-function noTodoMarkers() {
-  const files = ['platform-capture.mjs', 'windows-devices.mjs', 'noop-button-listener.mjs'].map((f) => join(root, 'apps/desktop/src/main/recording', f));
-  // The click listener must be real before the port is complete.
-  return files.every((f) => !existsSync(f) || !/not available on this platform yet/.test(readFileSync(f, 'utf8')));
+// The Windows click/key listener must be the real hook, wired as the default, with the stub deleted.
+function clickListenerIsReal() {
+  const dir = join(root, 'apps/desktop/src/main/recording');
+  const session = existsSync(join(dir, 'recording-session.mjs')) ? readFileSync(join(dir, 'recording-session.mjs'), 'utf8') : '';
+  return existsSync(join(dir, 'uiohook-button-listener.mjs')) && !existsSync(join(dir, 'noop-button-listener.mjs')) && /win32'\s*\?\s*createUiohookButtonListener/.test(session);
 }
 
 function confirm(key, note) {

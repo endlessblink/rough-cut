@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
-import { createNoopButtonListener } from './noop-button-listener.mjs';
+import { createUiohookButtonListener } from './uiohook-button-listener.mjs';
 import { probeVideoStreamStartOffsets } from '../media-probe.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 import { createProjectFolder } from '../project-folders.mjs';
@@ -38,7 +38,7 @@ export function createRecordingSession({
   now = () => new Date(),
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
   cameraWarmupMs = DEFAULT_CAMERA_WARMUP_MS,
-  buttonListenerFactory = process.platform === 'win32' ? createNoopButtonListener : createXinputButtonListener,
+  buttonListenerFactory = process.platform === 'win32' ? createUiohookButtonListener : createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
   videoStreamStartProbe = probeVideoStreamStartOffsets,

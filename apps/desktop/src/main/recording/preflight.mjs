@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { isXinputAvailable } from './xinput-button-listener.mjs';
 import { isXdotoolAvailable } from './xdotool-cursor.mjs';
+import { isUiohookAvailable } from './uiohook-button-listener.mjs';
 import { buildInstallHint, readDistroFamily } from './missing-tools-hint.mjs';
 
 const MIN_FREE_BYTES_30_MIN = 8 * 1024 * 1024 * 1024;
@@ -21,7 +22,7 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
   const ffprobeAvailable = commandAvailable('ffprobe');
   const onWindows = platform === 'win32';
   const xdotoolAvailable = onWindows || isXdotoolAvailable();
-  const xinputAvailable = onWindows ? false : isXinputAvailable();
+  const xinputAvailable = onWindows ? isUiohookAvailable() : isXinputAvailable();
 
   const checks = [
     createCheck('session', sessionLabel(platform), sessionSeverity(platform), sessionDetail(platform)),
@@ -30,7 +31,7 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
     createCheck('ffmpeg', 'FFmpeg', ffmpegAvailable ? 'ok' : 'critical', ffmpegAvailable ? 'Available' : 'Missing; recording/export cannot start safely'),
     createCheck('ffprobe', 'FFprobe', ffprobeAvailable ? 'ok' : 'critical', ffprobeAvailable ? 'Available' : 'Missing; saved media cannot be verified'),
     createCheck('xdotool', 'Cursor position', xdotoolAvailable ? 'ok' : 'warn', onWindows ? 'Windows cursor polling' : xdotoolAvailable ? 'xdotool available' : 'xdotool missing; cursor tracking may be unreliable'),
-    createCheck('xinput', 'Click telemetry', xinputAvailable ? 'ok' : 'warn', onWindows ? 'Not available on Windows yet; auto-zoom uses the cursor-jump heuristic' : xinputAvailable ? 'xinput available' : 'xinput missing; click telemetry may be skipped'),
+    createCheck('xinput', 'Click telemetry', xinputAvailable ? 'ok' : 'warn', onWindows ? (xinputAvailable ? 'Windows input hook available' : 'Windows input hook unavailable; auto-zoom uses the cursor-jump heuristic') : xinputAvailable ? 'xinput available' : 'xinput missing; click telemetry may be skipped'),
     optionalSourceCheck('mic', 'Microphone', options.recordMic, selectedMic, micSources.length),
     optionalSourceCheck('system-audio', 'System audio', options.recordSystemAudio, selectedSystemAudio, systemAudioSources.length),
     optionalSourceCheck('camera', 'Camera', options.recordCamera, selectedCamera, cameraSources.length),

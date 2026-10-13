@@ -11,7 +11,6 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRecordingSession } from '../../apps/desktop/src/main/recording/recording-session.mjs';
-import { createNoopButtonListener } from '../../apps/desktop/src/main/recording/noop-button-listener.mjs';
 import { stopRecordingAndCreateProject } from '../../apps/desktop/src/main/recording-stop-handler.mjs';
 import { remuxMkvToMp4 } from '../../apps/desktop/src/main/remux-service.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from '../../apps/desktop/src/main/media-probe.mjs';
@@ -42,7 +41,6 @@ try {
       t += 1;
       return { x: Math.round(width / 2 + (width / 4) * Math.cos(t / 8)), y: Math.round(height / 2 + (height / 4) * Math.sin(t / 8)) };
     },
-    buttonListenerFactory: createNoopButtonListener,
   });
 
   setPhase('start');
