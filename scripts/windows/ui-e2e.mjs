@@ -105,7 +105,16 @@ try {
   mkdirSync(profile, { recursive: true });
   writeFileSync(join(profile, 'app-settings.json'), JSON.stringify({ projectsDir: recordings, exportsDir }));
 
-  app = await _electron.launch({ executablePath: exe, args: [`--user-data-dir=${profile}`], timeout: 60000 });
+  // Export normally opens the standard Windows "Save as" dialog, which no UI driver can click. The app's own test
+  // hook answers it with this path, so the rest of the export still runs for real. The dialog itself is covered by
+  // the "export-playable" check that a person records.
+  mkdirSync(join(exportsDir, 'take'), { recursive: true });
+  app = await _electron.launch({
+    executablePath: exe,
+    args: [`--user-data-dir=${profile}`],
+    env: { ...process.env, ROUGH_CUT_UI_SMOKE_EXPORT_PATH: join(exportsDir, 'take', 'take-export.mp4') },
+    timeout: 60000,
+  });
   const appLog = [];
   app.process().stdout.on('data', (chunk) => appLog.push(String(chunk)));
   app.process().stderr.on('data', (chunk) => appLog.push(String(chunk)));
@@ -168,7 +177,7 @@ Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;publ
 
   await page.getByRole('button', { name: 'Stop recording' }).click();
   // The take is saved and the editor opens with the export controls.
-  await page.getByText('Export', { exact: true }).first().waitFor({ timeout: 60000 });
+  await page.locator('[data-ui-region="export-popover-toggle"]').first().waitFor({ timeout: 60000 });
   step('stop saved the take and the editor opened');
 
   // --- Check what was recorded
@@ -214,10 +223,9 @@ Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;publ
   step('click recorded at the right place', `${events.length} cursor events, click off by ${nearest.toFixed(1)} px`);
 
   // --- Export through the UI
-  await page.getByText('Export', { exact: true }).first().click();
-  await page.getByRole('button', { name: 'Hide export panel' }).waitFor({ timeout: 15000 });
-  // Two elements read "Export": the tool tab and the panel's button, which comes last.
-  await page.getByText('Export', { exact: true }).last().click();
+  await page.locator('[data-ui-region="export-popover-toggle"]').first().click();
+  await page.locator('button.exportGo[data-export-action="export"]').first().waitFor({ state: 'visible', timeout: 15000 });
+  await page.locator('button.exportGo[data-export-action="export"]').first().click();
   step('export started from the Export panel');
   let exported = null;
   for (let i = 0; i < 120 && !exported; i += 1) {

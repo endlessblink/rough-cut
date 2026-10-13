@@ -125,6 +125,16 @@ async function main() {
   const packaged = findPackagedApp();
   record('packaged app contains Rough Cut.exe + ffmpeg.exe + ffprobe.exe', packaged.ok, packaged.detail);
 
+  // --- The packaged app's editor and export driven through its real UI, from a synthetic recording. Quiet: no devices,
+  // no recording, no mouse input.
+  if (packaged.ok) {
+    const editorUi = await runStreaming('node', [join('scripts', 'windows', 'ui-e2e-editor.mjs')], root);
+    const editorFailed = editorUi.out.split('\n').find((line) => /UI E2E EDITOR FAILED/.test(line));
+    record('UI end-to-end test of the packaged editor and export (synthetic recording)', editorUi.code === 0 && /UI E2E EDITOR PASSED/.test(editorUi.out), editorFailed ? editorFailed.replace(/^UI E2E EDITOR FAILED at /, '').slice(0, 220) : '');
+  } else {
+    record('UI end-to-end test of the packaged editor and export (synthetic recording)', false, 'build the package first');
+  }
+
   // --- The packaged app driven through its real UI: record (mic + system audio + camera), real click, stop, export.
   // Needs the PC to be left alone: the app window must be in the foreground because the test makes real mouse input.
   if (packaged.ok) {
