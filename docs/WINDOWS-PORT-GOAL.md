@@ -21,6 +21,18 @@ On a clean Windows 11 machine with no dev tools:
 7. Quit mid-recording: no orphaned `ffmpeg.exe`. Recording recovery works after a forced kill.
 8. CI is green on both `ubuntu-latest` and `windows-latest`.
 
+## The gate
+
+The Definition of done above is enforced by one command. The port is not done until it prints .
+
+\
+- **Automated checks** (Windows only): LF endings pinned; ffmpeg/ffprobe with libx264, gdigrab and dshow; a real 3 s gdigrab capture through the app's own argument builder, stopped with  and validated by ffprobe; CI has a  job; the Windows packaging script exists and its output contains , , ; the click-telemetry stub is gone; build, typecheck and desktop tests have zero failures.
+- **User evidence** for what needs hardware or eyes: recorded by the user with . It refuses to run without an interactive terminal, so Claude cannot record it. Keys: , , , , , , , , . Stored in  (not committed).
+- Do not weaken the gate to make it pass. If a check is wrong, change it in its own commit and say why.
+
+### Active goal (paste into Claude Code)
+
+\pnpm gate:windows\
 ## Phases
 
 Each phase ends with a commit and with its checks passing.
@@ -87,4 +99,5 @@ Each phase ends with a commit and with its checks passing.
 
 | Date | Phase | Note |
 | --- | --- | --- |
+| 2026-10-13 | 0 | Gate added (`pnpm gate:windows`). Baseline on Windows: build + typecheck pass; desktop tests 1078 pass / 45 fail (CRLF fixed via .gitattributes; rest: POSIX-path test expectations, ffmpeg not installed, Linux-args tests running on win32, claude-cli lookup). Live gdigrab capture verified on this machine. |
 | 2026-10-13 | 0 | Merged `master` into `feat/windows-port` (conflicts in README, site and `package.json` resolved to `master`). |

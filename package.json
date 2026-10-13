@@ -77,7 +77,9 @@
     "electron:install": "pnpm --filter @rough-cut/desktop exec install-electron",
     "release:linux": "pnpm package:linux && node scripts/build-linux-release.mjs",
     "tools:prepare": "node scripts/prepare-bundled-tools.mjs",
-    "test:release": "ROUGH_CUT_RELEASE_ARTIFACT=1 pnpm package:linux && node --test scripts/package-linux-portable.test.mjs scripts/ui-visual-proof.test.mjs && pnpm test"
+    "test:release": "ROUGH_CUT_RELEASE_ARTIFACT=1 pnpm package:linux && node --test scripts/package-linux-portable.test.mjs scripts/ui-visual-proof.test.mjs && pnpm test",
+    "gate:windows": "node scripts/windows/verify-windows-port.mjs",
+    "gate:windows:quick": "node scripts/windows/verify-windows-port.mjs --quick"
   },
   "devDependencies": {
     "electron-builder": "26.15.3",
