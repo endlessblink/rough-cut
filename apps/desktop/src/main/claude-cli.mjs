@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { inspectClaudeSubscription } from './claude-connection.mjs';
 
 export const DEFAULT_CLAUDE_MODEL = 'sonnet';
@@ -39,13 +39,25 @@ async function writeDebugRecord(debugDir, record) {
  * Where the `claude` binary is. A dock-launched app does not inherit an
  * interactive shell's PATH, so the usual install locations are checked too.
  */
-export function resolveClaudeBinary({ env = process.env, home = homedir(), exists = existsSync } = {}) {
+export function resolveClaudeBinary({ env = process.env, home = homedir(), exists = existsSync, platform = process.platform } = {}) {
   if (env.ROUGH_CUT_CLAUDE_BIN) return exists(env.ROUGH_CUT_CLAUDE_BIN) ? env.ROUGH_CUT_CLAUDE_BIN : null;
+  const pathDirs = String(env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : ':').filter(Boolean);
+  if (platform === 'win32') {
+    // The native installer and winget both provide claude.exe. An npm claude.cmd shim is not used: Node refuses
+    // to spawn .cmd files without a shell, and the prompt arguments must not pass through one.
+    const candidates = [
+      ...pathDirs.map((dir) => win32.join(dir, 'claude.exe')),
+      win32.join(home, '.local', 'bin', 'claude.exe'),
+      win32.join(home, '.claude', 'local', 'claude.exe'),
+      ...(env.LOCALAPPDATA ? [win32.join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'claude.exe')] : []),
+    ];
+    return candidates.find((candidate) => exists(candidate)) ?? null;
+  }
   const candidates = [
-    ...String(env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, 'claude')),
-    join(home, '.npm-global', 'bin', 'claude'),
-    join(home, '.local', 'bin', 'claude'),
-    join(home, '.claude', 'local', 'claude'),
+    ...pathDirs.map((dir) => posix.join(dir, 'claude')),
+    posix.join(home, '.npm-global', 'bin', 'claude'),
+    posix.join(home, '.local', 'bin', 'claude'),
+    posix.join(home, '.claude', 'local', 'claude'),
     '/usr/local/bin/claude',
     '/usr/bin/claude',
   ];

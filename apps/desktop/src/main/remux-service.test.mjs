@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startFfmpegCapture } from './recording/ffmpeg-capture.mjs';
 import { assertReadableMp4 } from './media-probe.mjs';
-import { remuxMkvSegmentsToMp4, remuxMkvToMp4, RemuxIncompleteError, validateRemuxedMp4 } from './remux-service.mjs';
+import { escapeConcatPath, remuxMkvSegmentsToMp4, remuxMkvToMp4, RemuxIncompleteError, validateRemuxedMp4 } from './remux-service.mjs';
 
 test('remuxes a short mkv recording to readable mp4', { timeout: 30_000 }, async (t) => {
   const display = ':0+0,0';
@@ -180,4 +180,10 @@ test('remuxMkvToMp4 propagates RemuxIncompleteError from the validator', async (
     }),
     (err) => err instanceof RemuxIncompleteError,
   );
+});
+
+test('concat list paths use forward slashes on Windows and escape quotes everywhere', () => {
+  assert.equal(escapeConcatPath('C:\\Users\\me\\Rough Cut\\one.mkv', 'win32'), 'C:/Users/me/Rough Cut/one.mkv');
+  assert.equal(escapeConcatPath("/home/me/it's.mkv", 'linux'), "/home/me/it'\\''s.mkv");
+  assert.equal(escapeConcatPath('/home/me/a\\b.mkv', 'linux'), '/home/me/a\\b.mkv');
 });

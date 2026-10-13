@@ -27,10 +27,19 @@ const GOOD = {
 
 test('the claude binary is found in the usual install locations when PATH lacks it', () => {
   const home = '/home/someone';
-  const found = resolveClaudeBinary({ env: { PATH: '/usr/bin' }, home, exists: (path) => path === '/home/someone/.npm-global/bin/claude' });
+  const found = resolveClaudeBinary({ env: { PATH: '/usr/bin' }, home, exists: (path) => path === '/home/someone/.npm-global/bin/claude', platform: 'linux' });
   assert.equal(found, '/home/someone/.npm-global/bin/claude');
-  assert.equal(resolveClaudeBinary({ env: { PATH: '' }, home, exists: () => false }), null);
+  assert.equal(resolveClaudeBinary({ env: { PATH: '' }, home, exists: () => false, platform: 'linux' }), null);
   assert.equal(resolveClaudeBinary({ env: { ROUGH_CUT_CLAUDE_BIN: '/x/claude' }, home, exists: (p) => p === '/x/claude' }), '/x/claude');
+});
+
+test('on Windows the claude.exe from the native installer is found, and PATH is split on semicolons', () => {
+  const home = 'C:\\Users\\someone';
+  const native = 'C:\\Users\\someone\\.local\\bin\\claude.exe';
+  assert.equal(resolveClaudeBinary({ env: { PATH: 'C:\\Windows;C:\\tools' }, home, exists: (p) => p === native, platform: 'win32' }), native);
+  assert.equal(resolveClaudeBinary({ env: { PATH: 'C:\\Windows;C:\\tools' }, home, exists: (p) => p === 'C:\\tools\\claude.exe', platform: 'win32' }), 'C:\\tools\\claude.exe');
+  // An npm .cmd shim is deliberately not used: Node cannot spawn it without a shell.
+  assert.equal(resolveClaudeBinary({ env: { PATH: 'C:\\npm' }, home, exists: (p) => p === 'C:\\npm\\claude.cmd', platform: 'win32' }), null);
 });
 
 test('the call is one-shot, tool-less and ignores personal settings and MCP servers', () => {
@@ -95,11 +104,13 @@ process.stdin.on('end', () => {
   }
 }
 
-test('a real child process is spawned with the prompt on stdin', async () => {
+const NEEDS_SHEBANG = process.platform === 'win32' ? 'fixture is a #!/usr/bin/env node script; Windows cannot execute it' : false;
+
+test('a real child process is spawned with the prompt on stdin', { skip: NEEDS_SHEBANG }, async () => {
   await assertRealChildPrompt(tmpdir());
 });
 
-test('real child stdin capture preserves x-containing temp directory paths', async () => {
+test('real child stdin capture preserves x-containing temp directory paths', { skip: NEEDS_SHEBANG }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'claude-x-parent-'));
   try {
     const tempRoot = join(root, 'sandbox', 'tmp with x');
@@ -135,13 +146,14 @@ test('two bad answers fail closed with the reasons', async () => {
 test('missing Claude, empty requests and a failing process give plain reasons', async () => {
   assert.match((await generateGraphic({ request: 'x', binary: null })).reason, /not installed/);
   assert.match((await generateGraphic({ request: '  ', binary: '/fake' })).reason, /Describe/);
+  if (NEEDS_SHEBANG) return; // the failing-process half needs an executable #! fixture
   const { bin } = await fakeClaude('process.stderr.write("Please run /login"); process.exit(1);');
   const result = await generateGraphic({ request: 'x', binary: bin });
   assert.equal(result.ok, false);
   assert.match(result.reason, /login/);
 });
 
-test('cancelling stops the child and reports it as cancelled', async () => {
+test('cancelling stops the child and reports it as cancelled', { skip: NEEDS_SHEBANG }, async () => {
   const { bin } = await fakeClaude('setTimeout(() => {}, 60000);');
   const controller = new AbortController();
   const pending = runClaudeOnce({ binary: bin, args: [], prompt: '', signal: controller.signal, cwd: tmpdir() });
