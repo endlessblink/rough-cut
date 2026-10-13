@@ -99,7 +99,7 @@ test('raw export mode keeps byte-for-byte copy behavior', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test('trimmed ffmpeg export can be cancelled and removes partial output', async () => {
+test('trimmed ffmpeg export can be cancelled and removes partial output', { skip: BASH_STUBS }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-cancel-'));
   const binDir = join(root, 'bin');
   const sourcePath = join(root, 'source.mp4');

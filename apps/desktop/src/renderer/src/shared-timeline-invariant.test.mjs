@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
-const root = process.cwd().endsWith('/apps/desktop') ? '../..' : '.';
+const root = fileURLToPath(new URL('../../../../../', import.meta.url));
 const doc = readFileSync(join(root, 'docs/shared-timeline-architecture.md'), 'utf8');
 const mainSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/main.tsx'), 'utf8');
 

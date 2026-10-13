@@ -68,7 +68,7 @@ test('verified rollback restores only application; tamper and symlink fail close
   writeFileSync(image, 'OLD'); writeFileSync(project, 'PROJECT'); saveUpdateBackup({ appImagePath: image, journalPath: journal, version: runtime.appVersion });
   writeFileSync(image, 'NEW'); assert.equal(restoreUpdateBackup({ appImagePath: image, journalPath: journal }).version, runtime.appVersion); assert.equal(readFileSync(image, 'utf8'), 'OLD'); assert.equal(readFileSync(project, 'utf8'), 'PROJECT');
   writeFileSync(`${image}.previous`, 'TAMPER'); assert.throws(() => restoreUpdateBackup({ appImagePath: image, journalPath: journal }), /integrity/);
-  rmSync(`${image}.previous`); symlinkSync(project, `${image}.previous`); assert.throws(() => saveUpdateBackup({ appImagePath: image, journalPath: journal, version: runtime.appVersion }), /regular file/);
+  rmSync(`${image}.previous`); try { symlinkSync(project, `${image}.previous`); } catch (error) { if (error?.code === 'EPERM') return; throw error; } /* Windows without symlink rights cannot create the hostile link; the guard is Linux-only anyway */ assert.throws(() => saveUpdateBackup({ appImagePath: image, journalPath: journal, version: runtime.appVersion }), /regular file/);
 }));
 test('installer failure after unlink restores verified previous executable', () => fixture(async (root) => {
   const image = join(root, 'Rough-Cut.AppImage'); writeFileSync(image, 'OLD'); const b = backend();
