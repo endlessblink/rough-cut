@@ -637,7 +637,7 @@ export function StyledVideoPreview({
   const lastPublishedTimeRef = React.useRef({ atMs: 0, timeSec: 0 });
   const [internalPlaying, setInternalPlaying] = React.useState(false);
   const [sourceMediaDuration, setSourceMediaDuration] = React.useState<number | null>(null);
-  const [cameraMediaDuration, setCameraMediaDuration] = React.useState<number | null>(null);
+  const [, setCameraMediaDuration] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [cursorOffscreen, setCursorOffscreen] = React.useState<CursorOffscreenStatus>(null);
   const editablePreview = Boolean(onScreenFrameChange || onCameraFrameChange);
@@ -730,8 +730,12 @@ export function StyledVideoPreview({
   const sourceWidth = project.recording?.width ?? 1920;
   const sourceHeight = project.recording?.height ?? 1080;
   const fps = project.recording?.fps ?? 30;
-  const cameraSourceInFrames = (project.recording?.camera as { sourceInFrames?: number } | null | undefined)?.sourceInFrames ?? 0;
-  const cameraSourceOffsetSec = Math.max(0, cameraSourceInFrames / fps);
+  const cameraClock = project.recording?.camera as { sourceInFrames?: number; mediaTimeOffsetSec?: number; cameraDelayFrames?: number; cameraClockVersion?: number; boundaryHoldSeconds?: number } | undefined;
+  const cameraSourceInFrames = cameraClock?.sourceInFrames ?? 0;
+  const cameraSourceOffsetSec = typeof cameraClock?.mediaTimeOffsetSec === 'number'
+    ? cameraClock.mediaTimeOffsetSec : Math.max(0, cameraSourceInFrames / fps);
+  const cameraBoundaryHoldSec = cameraClock?.cameraClockVersion === 1 ? cameraClock.boundaryHoldSeconds ?? 0.5 : 0;
+  const cameraEarliestVisibleSourceSec = cameraClock?.cameraClockVersion === 1 ? Math.max(0, (cameraClock.cameraDelayFrames ?? 0) / fps - cameraBoundaryHoldSec) : 0;
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const canvasResolution = getStyledCanvasResolution({
     aspectRatio,
@@ -755,10 +759,7 @@ export function StyledVideoPreview({
     background.bgInsetColor ?? '',
   ].join('|');
   const metadataSourceDurationSec = Math.max(0.1, (project.recording?.duration ?? 1) / fps);
-  const cameraTimelineDurationSec = Number.isFinite(cameraMediaDuration) && cameraMediaDuration !== null && cameraMediaDuration > cameraSourceOffsetSec
-    ? Math.max(0.1, cameraMediaDuration - cameraSourceOffsetSec - 1 / fps)
-    : null;
-  const sourceDurationSec = Math.max(0.1, Math.min(metadataSourceDurationSec, sourceMediaDuration ?? metadataSourceDurationSec, cameraTimelineDurationSec ?? metadataSourceDurationSec));
+  const sourceDurationSec = Math.max(0.1, Math.min(metadataSourceDurationSec, sourceMediaDuration ?? metadataSourceDurationSec));
   const effectiveTrimEndSec = Math.min(trimEndSec ?? sourceDurationSec, sourceDurationSec);
   // Last frame the decoder can actually present: seeking to exactly the end of the
   // media yields no frame (black canvas), so parked/clamped seeks hold one frame short.
@@ -1837,7 +1838,8 @@ export function StyledVideoPreview({
         cameraVideo &&
         cameraSrc &&
         cameraVideo.seeking &&
-        cameraCoversSourceTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps)
+        video.currentTime >= cameraEarliestVisibleSourceSec &&
+        cameraCoversSourceTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps, cameraBoundaryHoldSec)
       ) {
         recordPlaybackDebug('render-skip-camera-seeking', {
           renderLoopId,
@@ -2135,7 +2137,8 @@ export function StyledVideoPreview({
         cameraSrc &&
         cameraVideo.readyState >= 2 &&
         frame.cameraPresentation?.visible !== false &&
-        cameraCoversSourceTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps),
+        (screenLayer?.sourceFrame ?? sourceFrame) / fps >= cameraEarliestVisibleSourceSec &&
+        cameraCoversSourceTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps, cameraBoundaryHoldSec),
       );
       let cameraFrameForDraw: { x: number; y: number; w: number; h: number } | null = null;
       let cameraSourceForDraw: { sx: number; sy: number; sw: number; sh: number } | null = null;
@@ -2707,6 +2710,7 @@ export function StyledVideoPreview({
         <video
           key={`screen-${slot}`}
           ref={screenSlotRefCallbacks[slot]}
+          crossOrigin="anonymous"
           src={src}
           preload="auto"
           playsInline
@@ -2766,6 +2770,7 @@ export function StyledVideoPreview({
         <video
           key={`camera-${slot}`}
           ref={cameraSlotRefCallbacks[slot]}
+          crossOrigin="anonymous"
           src={cameraSrc}
           preload="auto"
           playsInline

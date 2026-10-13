@@ -24,7 +24,7 @@ const headlessExportRendererSource = readFileSync(join(root, 'apps/desktop/src/m
 const headlessExportRendererTestSource = readFileSync(join(root, 'apps/desktop/src/main/headless-export-renderer.test.mjs'), 'utf8');
 const exportServiceSource = readFileSync(join(root, 'apps/desktop/src/main/export-service.mjs'), 'utf8');
 const exportServiceTestSource = readFileSync(join(root, 'apps/desktop/src/main/export-service.test.mjs'), 'utf8');
-const masterPlanSource = readFileSync(join(root, 'MASTER_PLAN.md'), 'utf8');
+const renderingPolicySource = readFileSync(join(root, 'docs/architecture/rendering-default-policy.md'), 'utf8');
 const screenLayerRendererCapabilitiesSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/screen-layer-renderer-capabilities.ts'), 'utf8');
 const screenLayerRendererSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/screen-layer-renderer.ts'), 'utf8');
 const compositionLayoutSource = readFileSync(join(root, 'packages/frame-resolver/src/composition-layout.ts'), 'utf8');
@@ -124,14 +124,9 @@ test('GPU-C compositor migration note and task sequence stay in place', () => {
     assert.match(note, new RegExp(phrase));
   }
   for (let taskId = 239; taskId <= 247; taskId += 1) {
-    assert.match(masterPlanSource, new RegExp(`TASK-${taskId}`));
     assert.match(note, new RegExp(`TASK-${taskId}`));
   }
-  assert.match(masterPlanSource, /TASK-249/);
-  assert.match(
-    masterPlanSource,
-    /Sequence: TASK-239, TASK-240, TASK-241, TASK-242, TASK-243, TASK-244, TASK-245, TASK-249, TASK-246, TASK-247/,
-  );
+  assert.match(renderingPolicySource, /Experimental headless export remains opt-in/);
 });
 
 test('GPU-C WebGL preview flag is forwarded to the renderer as a runtime query param', () => {
@@ -473,13 +468,9 @@ test('GPU-C experimental headless export smoke stays explicit and fallback-backe
   assert.match(experimentalHeadlessExportSmokeSource, /zoomedCursorSharpness/);
 });
 
-test('TASK-247 Slice 1 keeps preview default policy separate from export default policy', () => {
-  assert.match(masterPlanSource, /### TASK-247 Make GPU compositor default and retire legacy visual composition logic/);
-  assert.match(masterPlanSource, /TASK-247 Slice 1/);
-  assert.match(masterPlanSource, /Do not flip the export default in this slice/);
-  assert.match(masterPlanSource, /TASK-246 proves the experimental\s+headless path can complete as an opt-in backend/);
-  assert.match(masterPlanSource, /`headlessWebglFrameCount: 0`/);
-  assert.match(masterPlanSource, /styled-baseline parity still has known frame deltas/);
+test('preview default policy stays separate from export default policy', () => {
+  assert.match(renderingPolicySource, /separate policies/);
+  assert.match(renderingPolicySource, /UI flag alone does not enable it/);
 
   assert.match(desktopMainSource, /function webgpuPreviewDefaultEnabled\(\)/);
   assert.match(desktopMainSource, /if \(webgpuPreviewDefaultEnabled\(\)\) params\.set\('screenLayerRenderer', 'auto'\)/);
@@ -499,18 +490,10 @@ test('TASK-247 Slice 1 keeps preview default policy separate from export default
   assert.match(headlessExportRendererTestSource, /ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI: '1'/);
 });
 
-test('TASK-247 Slice 4 keeps experimental runtime export opt-in until true speed and parity proof', () => {
-  assert.match(masterPlanSource, /TASK-247 Slice 4 - Export default readiness audit/);
-  assert.match(masterPlanSource, /Export default decision: keep the experimental runtime export opt-in/);
-  assert.match(masterPlanSource, /do not\s+claim the runtime export is faster\s+yet/);
-  assert.match(masterPlanSource, /rough-cut-task247-slice4-default-benchmark\.json/);
-  assert.match(masterPlanSource, /rough-cut-task247-slice4-enabled-benchmark\.json/);
-  assert.match(masterPlanSource, /rough-cut-headless-runtime-export-1rxQRj\/headless-runtime-result\.json/);
-  assert.match(masterPlanSource, /`durationMs: 2050`/);
-  assert.match(masterPlanSource, /`speedMultiplier: 0\.488`/);
-  assert.match(masterPlanSource, /`headlessWebglFrameCount: 0`/);
-  assert.match(masterPlanSource, /Styled\s+parity still failed on frame indexes 5 and 25/);
-  assert.match(masterPlanSource, /A future default flip requires a true Electron-runtime benchmark/);
+test('experimental runtime export stays opt-in until runtime speed and parity proof', () => {
+  assert.match(renderingPolicySource, /remains opt-in/);
+  assert.match(renderingPolicySource, /true Electron-runtime benchmark/);
+  assert.match(renderingPolicySource, /styled parity proof/);
 
   assert.match(exportServiceSource, /export function normalizeExportMode\(mode = EXPORT_MODES\.RAW\)/);
   assert.match(headlessExportRendererSource, /ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT !== '1'/);

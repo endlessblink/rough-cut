@@ -1,5 +1,6 @@
 /** IPC channels -- the contract between main and renderer */
 export const IPC_CHANNELS = {
+  CLAUDE_CONNECTION_STATUS: 'claude:connection-status',
   // Project I/O
   PROJECT_OPEN: 'project:open',
   PROJECT_SAVE: 'project:save',

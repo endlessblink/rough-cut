@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "approvedDestination": "https://github.com/endlessblink/rough-cut/releases/",
+  "installedUpdater": "electron-updater 6.8.9",
+  "signatureKind": "custom Ed25519 publisherSignature field in beta-linux.yml; not OS code signing",
+  "publisherPublicKeyFile": "docs/publisher-public-key.pem",
+  "publisherPublicKeyFingerprintSha256": "9c524b910bb2c4986f49a209b76dcacb45653946c652a3ccf35276f802442be1",
+  "sourcePinPrepared": true,
+  "packagedPinVerified": false,
+  "activated": false,
+  "ownerLocalPrivateKeyPath": "$HOME/.local/share/rough-cut-signing/private.pem",
+  "ownerLocalPublicKeyPath": "$HOME/.local/share/rough-cut-signing/public.pem",
+  "keyGeneration": "Owner supplied public key after local generation. Do not generate a replacement key.",
+  "custody": {
+    "privateKey": "Keep the encrypted PKCS8 private key owner-only, mode 0600, under an owner-only directory.",
+    "backup": "Keep a separately recoverable encrypted private-key backup; keep the passphrase separately and verify recovery locally.",
+    "secretAccess": "The release tool reads a local explicit --key path and protected passphrase FD only; it has no secret-manager integration."
+  },
+  "signerMapping": {
+    "privateKey": "Explicit --key path; private.pem is valid.",
+    "passphrase": "Explicit --passphrase-fd >=3, read from local owner prompt. Existing passphrase storage labels are not inputs this signer reads; no Doppler/environment adapter exists.",
+    "publicKey": "Explicit --public-key path; public.pem is valid."
+  },
+  "ownerSteps": [
+    "Copy the existing encrypted private.pem to owner-selected separate backup storage; keep the passphrase separately and verify recovery locally. Do not overwrite it or generate another key.",
+    "When the final AppImage and unsigned manifest exist, sign locally with private.pem, entering the passphrase only at the terminal prompt.",
+    "Verify the signature against the pinned public key and exact final AppImage before metadata publication.",
+    "Keep updater inactive until genuine signed bootstrap/download/install/restart/rollback acceptance and explicit activation decision."
+  ],
+  "commandsPreparedNotExecuted": {
+    "metadataPreparation": "node scripts/release-metadata.mjs prepare --version 0.1.0-beta.8 --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x86_64.AppImage --output /absolute/path/unsigned-beta.json",
+    "metadataSigning": "node scripts/release-metadata.mjs sign --metadata /absolute/path/unsigned-beta.json --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x86_64.AppImage --key \"$HOME/.local/share/rough-cut-signing/private.pem\" --passphrase-fd 3 --output /absolute/path/beta-linux.yml",
+    "verification": "node scripts/release-metadata.mjs verify --metadata /absolute/path/beta-linux.yml --appimage /absolute/path/Rough-Cut-0.1.0-beta.8-x86_64.AppImage --public-key docs/publisher-public-key.pem --current-version 0.1.0-beta.7"
+  },
+  "evidenceBoundary": "Synthetic signatures made with public test keys prove verifier behavior only. They do not prove signing with the owner key, private-key recoverability or real update acceptance.",
+  "manualOnlyReleaseViable": true,
+  "manualOnlyConditions": "activated:false causes zero updater backend/network calls. Manual publication still requires exact artifact/source/checksum/license verification and truthful acceptance limits.",
+  "ownerLocalSigningHelper": "bash scripts/sign-owner-release.sh /absolute/final.AppImage /absolute/unsigned-beta.json /absolute/beta-linux.yml; helper prompts locally, verifies the fixed public pin and exact AppImage, and refuses to overwrite the output."
+}

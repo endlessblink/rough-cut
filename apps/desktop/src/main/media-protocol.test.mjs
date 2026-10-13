@@ -21,7 +21,9 @@ test('createMediaFetchResponse delegates to file URL fetch with request headers'
     return response;
   });
 
-  assert.equal(result, response);
+  assert.equal(await result.text(), 'ok');
+  assert.equal(result.headers.get('access-control-allow-origin'), 'null');
+  assert.equal(result.headers.get('vary'), 'Origin');
   assert.equal(calls[0].url, 'file:///tmp/Rough%20Cut/clip.mp4');
   assert.equal(calls[0].options.headers, headers);
 });
@@ -58,4 +60,17 @@ test('media file response rejects invalid ranges with 416', async () => {
 
   assert.equal(response.status, 416);
   assert.equal(response.headers.get('content-range'), 'bytes */10');
+});
+
+
+test('anonymous editor audio keeps CORS headers on partial and unsatisfiable ranges', async () => {
+ const dir = await mkdtemp(join(tmpdir(), 'rough-cut-audio-cors-'));
+ const file = join(dir, 'audio.mp4'); await writeFile(file, '0123456789');
+ for (const range of [null, 'bytes=1-4', 'bytes=100-200']) {
+  const result = await createMediaFileResponse(file, range);
+  assert.equal(result.headers.get('access-control-allow-origin'), 'null');
+  assert.equal(result.headers.get('access-control-allow-credentials'), null);
+  assert.equal(result.headers.get('vary'), 'Origin');
+  await result.arrayBuffer();
+ }
 });

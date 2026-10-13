@@ -1,12 +1,11 @@
-# Security
+# Security and privacy — 0.1.0-beta.7 candidate
 
-Rough Cut runs locally. The app code makes no network calls of its own (no telemetry, analytics, crash reporting or auto-update). The embedded Chromium engine may make DNS-related connections on its own. The optional graphics and AI features call the Claude CLI you have installed and logged in, which sends your prompt to Anthropic.
+The candidate pins supported Electron 43.7.7. Every window runs with Chromium sandboxing enabled; recording/edit windows retain context isolation and no Node integration. Launchers reject sandbox-disabling arguments. No host security-setting changes are required or performed by this work.
 
-## Reporting a vulnerability
+GitHub Releases at `endlessblink/rough-cut` is approved as the destination; updater activation remains off. With activation approved, the Linux x64 AppImage controller verifies custom Ed25519 metadata against a pinned publisher SPKI public key before downloading. The signature binds version, platform, architecture, asset basenames and SHA512 checksums. electron-updater 6.8.9 then verifies downloaded bytes; a SHA256-verified previous AppImage is retained for explicit rollback. This custom signature is separate from OS code signing and unreleased electron-builder v27 signed-manifest features. The private signing key remains outside source and application packages, encrypted under owner custody. Checks/install never transmit projects or recordings; install/restore require idle recording/export and explicit user action. Production signing, public release and actual install/restart/rollback acceptance remain pending. Debian uses the normal package manager; the application never requests sudo or bypasses repository authentication.
 
-Open a private security advisory on the GitHub repository (Security tab > Report a vulnerability). Please do not file public issues for security problems. We aim to reply within a week.
+Rough Cut sends no analytics or crash uploads. Crash reporting is off by default; opt-in holds a minimal allowlisted event in memory. Every local export shows the exact payload and destination and requires confirmation. Memory dumps, error messages/stacks, user identifiers, file paths, recordings and project content are excluded. Browser-process termination loses the in-memory event. Updater staged-rollout identifiers are disabled and their request header is removed; this behavior is covered by the integration probe for the pinned dependency.
 
-## Known limitations
+Optional AI graphics use the separately installed Claude CLI/login and send prompts through that service. Chromium may perform network activity of its own. Existing local runtime logs are separate from the report export and are never attached by this feature.
 
-- Rough Cut 0.1.0-beta ships Electron 35, which is out of support and has published advisories. The upgrade to a supported Electron is planned for 0.1.1. The app loads only local content, and AI graphics run in sandboxed frames with no network access.
-- Beta software: it has been tested on one setup (KDE Plasma, NVIDIA, X11).
+Report security issues privately to the project's maintainers through an approved project contact once the public repository/contact is chosen. No placeholder contact address or external crash account was invented. This local candidate is not a public release; see the source requirements matrix for remaining gates.

@@ -14,10 +14,9 @@ const cancelFlow = process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1';
 
 await mkdir(smokeRoot, { recursive: true });
 
-const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb', appPath], {
+const result = spawnSync(electron, ['--enable-sandbox', '--force-color-profile=srgb', appPath], {
   env: {
     ...process.env,
-    ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     ROUGH_CUT_UI_SMOKE_RECORD_FLOW: '1',
     ROUGH_CUT_UI_SMOKE_CAMERA_WARNING: cancelFlow ? '' : '1',
     ROUGH_CUT_UI_SMOKE_CANCEL_FLOW: cancelFlow ? '1' : '',

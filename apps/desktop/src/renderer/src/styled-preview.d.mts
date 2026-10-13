@@ -53,6 +53,7 @@ export function cameraCoversSourceTime(
   cameraOffsetSec: number,
   cameraDurationSec: number,
   frameRate?: number,
+  boundaryHoldSec?: number,
 ): boolean;
 
 export function coverSourceRect(

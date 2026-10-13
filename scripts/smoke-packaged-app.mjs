@@ -6,9 +6,9 @@ import { createDefaultRecordingPresentation, createZoomMarker } from '../package
 import { saveProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
 
 const root = process.cwd();
-const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
+const artifactRoot = process.env.ROUGH_CUT_SMOKE_ARTIFACT_ROOT ?? join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appPath = join(artifactRoot, 'resources', 'app');
-const electron = join(artifactRoot, 'electron');
+const electron = process.env.ROUGH_CUT_SMOKE_EXECUTABLE ?? join(artifactRoot, 'electron');
 const smokeRoot = await mkdtemp(join(tmpdir(), 'rough-cut-package-smoke-'));
 const mediaPath = join(smokeRoot, 'preview-source.mp4');
 const exportPath = join(smokeRoot, 'export.mp4');
@@ -77,10 +77,9 @@ project = await saveProjectFile(project.path, {
 });
 const projectPath = project.path;
 
-const result = await runPackagedSmokeApp(electron, ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${userDataPath}`, appPath], {
+const result = await runPackagedSmokeApp(electron, ['--enable-sandbox', '--force-color-profile=srgb', `--user-data-dir=${userDataPath}`, ...(process.env.ROUGH_CUT_SMOKE_EXECUTABLE ? [] : [appPath])], {
   env: {
     ...process.env,
-    ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: projectPath,
     ROUGH_CUT_UI_SMOKE_EXPORT_PATH: exportPath,
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,

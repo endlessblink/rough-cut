@@ -59,6 +59,19 @@ export async function probeMp4Integrity(filePath, { runner = run } = {}) {
   };
 }
 
+// Header-only availability probe. Raw multi-stream containers can advertise a
+// shared duration, so camera bounds must come from its finalized media stream.
+export async function probeCameraMediaTiming(filePath, { runner = run } = {}) {
+  const result = await runner('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=start_time,duration,nb_frames', '-of', 'json', filePath]);
+  if (result.code !== 0) throw new Error('Could not read finalized camera timing');
+  const stream = JSON.parse(result.stdout).streams?.[0];
+  const startTimeSeconds = Number(stream?.start_time);
+  const durationSeconds = Number(stream?.duration);
+  if (!Number.isFinite(startTimeSeconds) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error('Finalized camera timing is unavailable');
+  const frames = Number(stream.nb_frames);
+  return { startTimeSeconds, durationSeconds, durationFrames: Number.isFinite(frames) && frames > 0 ? Math.round(frames) : null };
+}
+
 export async function probeVideoTiming(filePath, { fps = 30, runner = run } = {}) {
   const result = await runner('ffprobe', [
     '-v', 'error',
@@ -152,7 +165,7 @@ export async function probeVideoStreamStartOffsets(filePath, { runner = run } = 
   });
 }
 
-export function computeSyncedRecordingTiming({ screen, camera = null, cameraSourceInFrames = 0, fps = 30 }) {
+export function computeSyncedRecordingTiming({ screen, camera = null, cameraSourceInFrames = 0, cameraDelayFrames = null, fps = 30 }) {
   const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
   const screenFrames = Math.max(1, Math.round(screen?.durationFrames ?? 1));
   if (!camera) {
@@ -166,27 +179,30 @@ export function computeSyncedRecordingTiming({ screen, camera = null, cameraSour
   }
   const cameraFrames = Math.max(1, Math.round(camera.durationFrames ?? 1));
   const cameraOffset = Math.max(0, Math.round(cameraSourceInFrames || 0));
+  const virtualCameraClock = Number.isFinite(cameraDelayFrames);
+  const cameraDelay = virtualCameraClock ? Math.round(cameraDelayFrames) : 0;
   const screenSeconds = finitePositiveNumber(screen.durationSeconds);
   const cameraSeconds = finitePositiveNumber(camera.durationSeconds);
   const cameraOffsetSeconds = cameraOffset / safeFps;
   const durationFromSeconds = screenSeconds !== null && cameraSeconds !== null
-    ? Math.max(1, Math.round(Math.min(screenSeconds, Math.max(0, cameraSeconds - cameraOffsetSeconds)) * safeFps))
-    : Math.max(1, Math.min(screenFrames, Math.max(0, cameraFrames - cameraOffset)));
+    ? Math.max(1, Math.round(Math.min(screenSeconds, Math.max(0, cameraSeconds - cameraOffsetSeconds + cameraDelay / safeFps)) * safeFps))
+    : Math.max(1, Math.min(screenFrames, Math.max(0, cameraFrames - cameraOffset + cameraDelay)));
   const syncedDurationFrames = Math.max(
     1,
-    Math.min(screenFrames, durationFromSeconds),
+    virtualCameraClock ? screenFrames : Math.min(screenFrames, durationFromSeconds),
   );
-  const lostFrames = screenFrames - syncedDurationFrames;
+  const lostFrames = screenFrames - durationFromSeconds;
   const warningThresholdFrames = Math.max(15, Math.round(safeFps * 0.5));
   return {
     screenFrames,
     cameraFrames,
     cameraSourceInFrames: cameraOffset,
+    ...(virtualCameraClock ? { cameraDelayFrames: cameraDelay } : {}),
     screenDurationSeconds: screenSeconds,
     cameraDurationSeconds: cameraSeconds,
     syncedDurationFrames,
     syncWarning: lostFrames >= warningThresholdFrames
-      ? `Camera overlap is ${lostFrames} frames shorter than screen capture; timeline was trimmed to the synced overlap.`
+      ? virtualCameraClock ? `Camera ends ${lostFrames} frames before screen capture; its last frame is held for at most 0.5 seconds, then the camera is hidden.` : `Camera overlap is ${lostFrames} frames shorter than screen capture; timeline was trimmed to the synced overlap.`
       : null,
   };
 }

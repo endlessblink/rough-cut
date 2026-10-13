@@ -42,8 +42,9 @@ writeFileSync(projectPath, `${JSON.stringify(document, null, 2)}\n`);
 
 const { _electron: electron } = loadPlaywright();
 const app = await electron.launch({
+    chromiumSandbox: true,
   executablePath: join(artifactRoot, 'dock-launch.sh'),
-  args: ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${join(out, 'user-data')}`, join(artifactRoot, 'resources', 'app')],
+  args: ['--enable-sandbox', '--force-color-profile=srgb', `--user-data-dir=${join(out, 'user-data')}`, join(artifactRoot, 'resources', 'app')],
   env: {
     ...process.env,
     ROUGH_CUT_DOCK_LAUNCH: '1',

@@ -55,7 +55,7 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
       </a>
       <nav aria-label="Main navigation">
         <a href="#proof">The workflow</a>
-        <a href="#mac-status">Mac coming soon</a>
+        <a href="#mac-status">Mac &amp; Windows waitlist</a>
       </nav>
       <a class="source-action" href="https://github.com/endlessblink/rough-cut"
         >View source <span aria-hidden="true">↗</span></a
@@ -70,7 +70,7 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
           </h1>
           <p class="lead">Screen recording and editing, together on Linux.</p>
           <div class="hero-actions">
-            <a class="primary-action" href="https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta/rough-cut-0.1.0-linux-x64.tar.gz" data-linux-cta
+            <a class="primary-action" href="https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.9/Rough-Cut-0.1.0-beta.9-x86_64.AppImage" data-linux-cta
               ><span data-linux-label>Download for Linux</span
               ><span class="arrow-dot" aria-hidden="true"
                 ><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M6.5 10.5 12 16l5.5-5.5M5 20h14"/></svg></span></a
@@ -122,7 +122,7 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
       <div class="dark-zone">
       <section class="proof" id="proof" aria-labelledby="proof-title">
         <div class="section-head">
-          <h2 id="proof-title">Four moments from the real editor.</h2>
+          <h2 id="proof-title">Straight from the real editor.</h2>
           <a class="pill-link" href="https://github.com/endlessblink/rough-cut"
             >View source <span aria-hidden="true">↗</span></a
           >
@@ -132,10 +132,10 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
             <div class="panel-copy">
               <h3>Describe a graphic. Claude draws it over your video.</h3>
               <p>
-                Type a sentence and a graphic lands on its own lane in the
-                timeline, drawn live over the recording. Real editor capture,
-                generation wait not shown. Optional: graphics need an eligible
-                Claude subscription.
+                Type a sentence, and the graphic lands on its own layer over
+                the recording. Move it and resize it like any other clip. Real
+                editor capture, generation wait sped up. Optional: graphics
+                need an eligible Claude subscription.
               </p>
             </div>
             <figure class="panel-media">
@@ -145,16 +145,92 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
                 loop
                 playsinline
                 preload="metadata"
-                width="1280"
-                height="672"
-                poster="assets/proof-graphic-mcp.webp"
-                aria-label="Rough Cut editor: a graphic titled What is an MCP? appears over the video."
+                width="1160"
+                height="820"
+                poster="assets/proof-claude-graphics.webp"
+                aria-label="Rough Cut editor: a prompt is typed, Claude designs an isometric graphic, and it is moved and resized over the recording."
               >
-                <source src="assets/proof-graphic-mcp.mp4" type="video/mp4" />
+                <source src="assets/proof-claude-graphics.webm" type="video/webm" />
+                <source src="assets/proof-claude-graphics.mp4" type="video/mp4" />
               </video>
             </figure>
           </article>
           <article class="panel panel-wide panel-flip">
+            <div class="panel-copy">
+              <h3>Every graphic is drawn fresh.</h3>
+              <p>
+                No template library. Each prompt gets its own original design,
+                played live over your recording and kept on its own lane.
+              </p>
+            </div>
+            <figure class="panel-media">
+              <video
+                autoplay
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                width="1160"
+                height="820"
+                poster="assets/proof-graphics-reel.webp"
+                aria-label="Three different graphics made by Claude playing over Rough Cut recordings."
+              >
+                <source src="assets/proof-graphics-reel.webm" type="video/webm" />
+                <source src="assets/proof-graphics-reel.mp4" type="video/mp4" />
+              </video>
+            </figure>
+          </article>
+          <article class="panel">
+            <figure class="panel-media">
+              <video
+                autoplay
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                width="1160"
+                height="652"
+                poster="assets/proof-backgrounds.webp"
+                aria-label="Rough Cut editor: clicking colors, gradients and wallpapers changes the background behind the recording."
+              >
+                <source src="assets/proof-backgrounds.webm" type="video/webm" />
+                <source src="assets/proof-backgrounds.mp4" type="video/mp4" />
+              </video>
+            </figure>
+            <div class="panel-copy">
+              <h3>One click, a new background.</h3>
+              <p>
+                Colors, gradients and wallpapers sit behind your recording.
+                Pick one and the preview changes on the spot.
+              </p>
+            </div>
+          </article>
+          <article class="panel">
+            <figure class="panel-media">
+              <video
+                autoplay
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                width="1160"
+                height="652"
+                poster="assets/proof-layouts.webp"
+                aria-label="Rough Cut editor: the same recording switches between widescreen, vertical story, square and side-by-side layouts."
+              >
+                <source src="assets/proof-layouts.webm" type="video/webm" />
+                <source src="assets/proof-layouts.mp4" type="video/mp4" />
+              </video>
+            </figure>
+            <div class="panel-copy">
+              <h3>One recording, any layout.</h3>
+              <p>
+                Widescreen, vertical story, square or side by side. Screen and
+                camera rearrange themselves; you don't record again.
+              </p>
+            </div>
+          </article>
+          <article class="panel panel-wide">
             <div class="panel-copy">
               <h3>Let it find the dead air for you.</h3>
               <p>
@@ -232,26 +308,26 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
       </section>
       <section class="compare" id="compare" aria-labelledby="compare-title">
         <div class="section-head">
-          <h2 id="compare-title">How it sits next to the Linux options.</h2>
+          <h2 id="compare-title">How it compares.</h2>
         </div>
         <div class="compare-scroll" tabindex="0" role="region" aria-label="Feature comparison table, scrolls sideways on small screens">
           <table>
             <caption class="sr">Feature comparison of Rough Cut with other Linux screen recorders and editors</caption>
-            <thead><tr><th scope="col"><span class="sr">Feature</span></th><th scope="col" class="us">Rough Cut</th><th scope="col">Recordly</th><th scope="col">OBS Studio</th><th scope="col">Kdenlive</th><th scope="col">DaVinci Resolve</th><th scope="col">Kooha</th></tr></thead>
+            <thead><tr><th scope="col"><span class="sr">Feature</span></th><th scope="col" class="us">Rough Cut</th><th scope="col">Screenix</th><th scope="col">Screen Studio</th><th scope="col">FocuSee</th><th scope="col">Recordly</th><th scope="col">OBS Studio</th><th scope="col">Kdenlive</th><th scope="col">DaVinci Resolve</th><th scope="col">Kooha</th></tr></thead>
             <tbody>
-              <tr class="hero-row"><th scope="row">Graphics Claude makes for you</th><td class="us">Yes · describe it, Claude draws it. Needs a Claude subscription</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
-              <tr><th scope="row">Price and licence</th><td class="us">Free · AGPL</td><td>Free · AGPL-3.0</td><td>Free · open source</td><td>Free · open source</td><td>Free · Studio $295</td><td>Free</td></tr>
-              <tr><th scope="row">Runs on Linux</th><td class="us">Yes · X11 only, beta</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
-              <tr><th scope="row">Records the screen</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td>Yes</td></tr>
-              <tr><th scope="row">Timeline editor</th><td class="us">Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td>Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
-              <tr><th scope="row">Zoom that follows the cursor</th><td class="us">Manual zoom markers</td><td>Suggested + manual</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
-              <tr><th scope="row">Camera bubble</th><td class="us">Yes</td><td>Yes</td><td>Webcam as a source</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
-              <tr><th scope="row">Styled background and cursor</th><td class="us">Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr class="hero-row"><th scope="row">Graphics Claude makes for you</th><td class="us">Yes · describe it, Claude draws it. Needs a Claude subscription</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr><th scope="row">Price and licence</th><td class="us">Free · AGPL</td><td>$39/year or $59 once</td><td>$9/month yearly, $29 monthly</td><td>From $49.99/year</td><td>Free · AGPL-3.0</td><td>Free · open source</td><td>Free · open source</td><td>Free · Studio $295</td><td>Free</td></tr>
+              <tr><th scope="row">Runs on Linux</th><td class="us">Yes · X11 only, beta</td><td>Yes</td><td>No · Mac only</td><td>No · Mac and Windows</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">Records the screen</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td>Yes</td></tr>
+              <tr><th scope="row">Timeline editor</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td>Yes</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr><th scope="row">Zoom that follows the cursor</th><td class="us">Manual zoom markers</td><td>Automatic from clicks</td><td>Automatic + manual</td><td>Automatic</td><td>Suggested + manual</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr><th scope="row">Camera bubble</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Webcam as a source</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
+              <tr><th scope="row">Styled background and cursor</th><td class="us">Yes</td><td>Cursor motion</td><td>Cursor styles</td><td>Cursor effects</td><td>Yes</td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr">Not listed</span></td></tr>
             </tbody>
           </table>
         </div>
         <p class="compare-note">
-          A dash means the product's own page does not list it. Checked on 5 October 2026 against each project's website or README. Rough Cut's limits today: X11 only (no Wayland), the Linux beta is not downloadable yet, and graphics need an eligible Claude subscription.
+          A dash means the product's own page does not list it. Checked on 5 October 2026 (Screenix, Screen Studio and FocuSee on 9 October 2026) against each project's website or README; prices are the published list prices. Rough Cut's limits today: Linux x86_64 with X11 (no Wayland), glibc 2.35 or later, and graphics need an eligible Claude subscription. The Linux beta is available as an AppImage, Debian package or portable archive.
         </p>
       </section>
       <section class="roadmap" id="roadmap" aria-labelledby="roadmap-title">
@@ -281,6 +357,11 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
             Rough Cut is AGPL-licensed and built in the open. Linux first, on
             X11 today.
           </p>
+          <p>
+            Recording, editing and export stay on your computer: no account,
+            nothing uploaded, works offline. Only Claude graphics go online,
+            through your own Claude login.
+          </p>
           <a class="pill-link pill-light" href="https://github.com/endlessblink/rough-cut"
             >View on GitHub <span aria-hidden="true">↗</span></a
           >
@@ -290,14 +371,14 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
         <details id="linux-status">
           <summary>
             <span>Linux beta</span
-            ><span data-linux-summary>Release in preparation</span
+            ><span data-linux-summary>Linux beta on GitHub Releases</span
             ><span class="plus" aria-hidden="true">+</span>
           </summary>
           <div class="release-copy">
             <p data-linux-copy>
-              The tested local candidate targets Linux x86_64 with X11. No
-              verified public download URL is configured yet. Wayland is
-              unsupported.
+              Download the Linux x86_64 beta from GitHub Releases as an
+              AppImage, Debian package or portable archive. X11 and glibc
+              2.35 or later are required; Wayland is unsupported.
             </p>
             <p>
               Recording and editing run locally. Optional Claude graphics
@@ -309,13 +390,46 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
             >
           </div>
         </details>
-        <details id="mac-status">
+        <details id="mac-status" open>
           <summary>
-            <span>Mac</span><span>Coming soon</span
+            <span>Mac &amp; Windows</span><span>Waitlist open</span
             ><span class="plus" aria-hidden="true">+</span>
           </summary>
           <div class="release-copy">
-            <p>No verified Mac build, release date or active email waitlist.</p>
+            <p>
+              No Mac or Windows build or date yet. Each one gets built once
+              enough people ask for it. Leave your email and we will write once,
+              when yours is ready.
+            </p>
+            <form class="waitlist" data-waitlist novalidate>
+              <fieldset class="waitlist-platforms">
+                <legend>Which computer?</legend>
+                <label
+                  ><input type="checkbox" name="platform" value="Mac" />
+                  <span>Mac</span></label
+                >
+                <label
+                  ><input type="checkbox" name="platform" value="Windows" />
+                  <span>Windows</span></label
+                >
+              </fieldset>
+              <div class="waitlist-row">
+                <label class="visually-hidden" for="waitlist-email">Email</label>
+                <input
+                  id="waitlist-email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  inputmode="email"
+                  placeholder="you@example.com"
+                  required
+                />
+                <button type="submit" class="pill-link pill-light">
+                  Join the waitlist
+                </button>
+              </div>
+              <p class="waitlist-status" data-waitlist-status role="status" aria-live="polite"></p>
+            </form>
             <a href="https://github.com/endlessblink/rough-cut"
               >Follow development on GitHub <span aria-hidden="true">↗</span></a
             >
@@ -326,6 +440,8 @@ FORM: One owner-pinned reference-based hero and first transition. Second referen
     </main>
     <footer>
       <span>rough cut / open source</span
+      ><a href="https://buymeacoffee.com/noamnau"
+        >Support Noam <span aria-hidden="true">↗</span></a
       ><a href="LICENSE.txt"
         >AGPL-3.0 license <span aria-hidden="true">↗</span></a
       >

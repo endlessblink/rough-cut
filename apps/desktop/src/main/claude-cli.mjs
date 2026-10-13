@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { inspectClaudeSubscription } from './claude-connection.mjs';
 
 export const DEFAULT_CLAUDE_MODEL = 'sonnet';
 export const CLAUDE_TIMEOUT_MS = 240_000;
@@ -153,6 +154,7 @@ export async function askClaudeForJson({
   signal = null,
   binary = resolveClaudeBinary(),
   runOnce = runClaudeOnce,
+  connectionCheck = inspectClaudeSubscription,
   attempts = 2,
   label = 'claude',
   debugDir = null,
@@ -164,6 +166,8 @@ export async function askClaudeForJson({
     log(`[claude:${label}] not installed — no claude binary found`);
     return { ok: false, reason: CLAUDE_MISSING_REASON };
   }
+  const connection = await connectionCheck({ binary });
+  if (!connection.ok) return { ok: false, reason: connection.reason };
   const args = buildClaudeArgs({ systemPrompt, schema, model });
   const cwd = await mkdtemp(join(tmpdir(), 'rough-cut-claude-'));
   try {
