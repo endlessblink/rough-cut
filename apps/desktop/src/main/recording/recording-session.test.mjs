@@ -1656,3 +1656,61 @@ test('a screen capture that dies at startup fails the take with ffmpeg\'s reason
   await session.stop();
   await rm(root, { recursive: true, force: true });
 });
+
+function cameraPrerollFixture(root, { measure }) {
+  const opts = { screen: null, camera: null };
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    buttonListenerFactory: null,
+    unifiedCaptureFactory: null,
+    cameraWarmupMs: 0,
+    measureCameraPrerollFromBanner: measure,
+    captureFactory: (options) => { opts.screen = options; return { outputPath: options.outputPath, stop: async () => options.outputPath, cancel: async () => options.outputPath }; },
+    cameraCaptureFactory: (options) => { opts.camera = options; return { outputPath: options.outputPath, stop: async () => options.outputPath, cancel: async () => options.outputPath }; },
+  });
+  return { session, opts };
+}
+
+test('Windows camera head start comes from the real first-frame times, not from when the process was spawned', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-preroll-'));
+  const { session, opts } = cameraPrerollFixture(root, { measure: true });
+  await session.start({ cameraDevicePath: 'USB Camera' });
+  assert.equal(typeof opts.camera.onFirstFrame, 'function', 'the camera capture reports its first frame');
+  // The camera's first frame was 1.8 s before the screen's, whatever the spawn timing was.
+  opts.camera.onFirstFrame(1_000_000);
+  opts.screen.onFirstFrame(1_001_800);
+  const stopped = await session.stop();
+  assert.equal(stopped.camera.prerollMs, 1800);
+  assert.equal(stopped.camera.sourceInFrames, 54);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('measured camera preroll works whichever first frame arrives first, and never goes negative', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-preroll-order-'));
+  const first = cameraPrerollFixture(root, { measure: true });
+  await first.session.start({ cameraDevicePath: 'USB Camera' });
+  first.opts.screen.onFirstFrame(2_000_000); // screen first
+  first.opts.camera.onFirstFrame(1_999_000);
+  assert.equal((await first.session.stop()).camera.prerollMs, 1000);
+
+  const second = cameraPrerollFixture(root, { measure: true });
+  await second.session.start({ cameraDevicePath: 'USB Camera' });
+  second.opts.camera.onFirstFrame(3_000_500); // camera started AFTER the screen: no head start
+  second.opts.screen.onFirstFrame(3_000_000);
+  assert.equal((await second.session.stop()).camera.prerollMs, 0);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('without the option (Linux) the camera preroll estimate is used unchanged and no first-frame hook is attached', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-preroll-linux-'));
+  const { session, opts } = cameraPrerollFixture(root, { measure: false });
+  await session.start({ cameraDevicePath: '/dev/video0' });
+  assert.equal(opts.camera.onFirstFrame, undefined);
+  opts.screen.onFirstFrame(5_000_000);
+  const stopped = await session.stop();
+  assert.ok(stopped.camera.prerollMs < 1000, 'the spawn-based estimate, not a measurement');
+  await rm(root, { recursive: true, force: true });
+});

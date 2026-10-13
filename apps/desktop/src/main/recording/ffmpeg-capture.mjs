@@ -177,6 +177,7 @@ export function startFfmpegCameraCapture({
   devicePath,
   width = 1280,
   height = 720,
+  onFirstFrame = null,
 }) {
   const args = buildFfmpegCameraCaptureArgs({ outputPath, fps, devicePath, width, height });
   console.info('[ffmpeg-camera] Starting:', 'ffmpeg', args.join(' '));
@@ -184,6 +185,13 @@ export function startFfmpegCameraCapture({
   const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
   let stderr = '';
   let exitInfo = null;
+  // The input banner's `start:` is the wall-clock time of the camera's first frame (the input uses wall-clock stamps).
+  // A DirectShow camera takes seconds to open, so this is the only accurate way to know how far ahead of the screen it started.
+  if (typeof onFirstFrame === 'function') {
+    const fireFirstFrame = makeFirstFrameEmitter(onFirstFrame, '[ffmpeg-camera]');
+    const banner = createInputBannerAnchorParser({ onStart: (ms, meta) => fireFirstFrame(ms, { source: 'banner', ...meta }) });
+    proc.stderr?.on('data', (chunk) => banner.observe(chunk.toString()));
+  }
   proc.stdout?.on('data', (chunk) => logProcessOutput('[ffmpeg-camera:stdout]', chunk.toString()));
   proc.stderr?.on('data', (chunk) => {
     const text = chunk.toString();

@@ -162,13 +162,13 @@ function verifyAllSources({ stopped, reopened, expectCamera }) {
   if (audio.length === 0) fail('The screen recording has no audio stream even though mic and system audio were requested.');
   if (video.length === 0) fail('The screen recording has no video stream.');
 
-  // The tone plays ~0.7 s into the take; it must be audible in the mixed audio, with quiet before it.
-  const vol = (start, length) => {
-    const run = spawnSync('ffmpeg', ['-hide_banner', '-ss', String(start), '-t', String(length), '-i', stopped.outputPath, '-vn', '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' });
-    const match = /max_volume: (-?[\d.]+|-inf) dB/.exec(run.stderr ?? '');
-    return match ? Number(match[1]) : -Infinity;
-  };
-  const toneMax = vol(1.0, 1.0);
-  console.info(`[win-smoke] audio: streams=${audio.length} toneWindowMax=${toneMax} dB`);
-  if (!(toneMax > -45)) fail(`System audio tone was not audible in the recording (max ${toneMax} dB in the tone window).`);
+  // The tone must be audible in the mixed audio as a burst that stands out. Its position in the take varies (the take
+  // starts a variable time before the session reports it), so measure the peak of every half second and look for it.
+  const run = spawnSync('ffmpeg', ['-hide_banner', '-v', 'error', '-i', stopped.outputPath, '-vn', '-af', 'asetnsamples=n=24000:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level:file=-', '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const levels = [...(run.stdout ?? '').matchAll(/Peak_level=(-?[\d.]+|-inf)/g)].map((match) => Number(match[1])).filter(Number.isFinite);
+  if (levels.length < 4) fail(`Could not measure audio levels (${levels.length} readings).`);
+  const loudest = Math.max(...levels);
+  const typical = [...levels].sort((a, b) => a - b)[Math.floor(levels.length / 2)];
+  console.info(`[win-smoke] audio: streams=${audio.length} loudest=${loudest} dB typical=${typical} dB`);
+  if (!(loudest > -35 && loudest - typical >= 10)) fail(`System audio tone was not found in the recording (loudest ${loudest} dB, typical ${typical} dB).`);
 }

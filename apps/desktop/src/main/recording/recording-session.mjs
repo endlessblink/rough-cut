@@ -34,7 +34,11 @@ export function createRecordingSession({
   getCursorPoint = null,
   captureFactory = startFfmpegCapture,
   cameraCaptureFactory = startFfmpegCameraCapture,
-  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture ? startFfmpegUnifiedCapture : null,
+  // One ffmpeg for screen + camera is used on Linux only. On Windows (measured, ffmpeg 9, 2560x1440) that combined
+  // process drags BOTH video streams down to roughly the camera's rate: the screen recorded ~9 fps instead of 30 while
+  // the camera was re-encoded in the same process. Separate processes keep the screen at 30 fps, so Windows uses the
+  // separate camera capture (the same path Linux falls back to).
+  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture && process.platform !== 'win32' ? startFfmpegUnifiedCapture : null,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
@@ -48,6 +52,9 @@ export function createRecordingSession({
   // Windows hands us physical pixels from every input (low-level hook, screen.dipToScreenPoint), so they must not be
   // multiplied by the display scale factor again. Linux keeps its original behaviour.
   inputCoordinatesArePhysical = process.platform === 'win32',
+  // Windows: take the camera's head start from its real first-frame time (a DirectShow camera takes ~2 s to open, so
+  // 'screen start minus camera spawn' overshoots and the editor would trim that much real footage). Linux keeps the estimate.
+  measureCameraPrerollFromBanner = process.platform === 'win32',
 }) {
   let active = null;
   let stopping = null;
@@ -180,6 +187,7 @@ export function createRecordingSession({
       // starts. Each entry is `{ name, getPid, kill }`.
       children: [],
       inputsArePhysical: inputCoordinatesArePhysical,
+      measureCameraPreroll: measureCameraPrerollFromBanner,
       ...displayInfo,
     };
 
@@ -468,12 +476,28 @@ async function startActiveSegment(session, {
   // and attach it when the segment record is created below.
   let pendingFirstFrameMs = null;
   let pendingFirstFrameMeta = null;
+  let cameraFirstFrameMs = null;
+  // When both the screen's and the camera's real first-frame times are known, the camera's head start is their difference.
+  const applyMeasuredCameraPreroll = () => {
+    if (!session.measureCameraPreroll || session.segmentIndex !== 1 || !session.cameraDevicePath) return;
+    if (!Number.isFinite(cameraFirstFrameMs) || !Number.isFinite(pendingFirstFrameMs)) return;
+    const measuredMs = Math.max(0, pendingFirstFrameMs - cameraFirstFrameMs);
+    session.eventLogger?.event('camera-preroll-measured', { measuredMs, estimatedMs: session.cameraPrerollMs, cameraFirstFrameMs, screenFirstFrameMs: pendingFirstFrameMs });
+    session.cameraPrerollMs = measuredMs;
+    session.cameraPrerollFrames = Math.max(0, Math.round((measuredMs / 1000) * DEFAULT_FPS));
+  };
+  const noteCameraFirstFrame = (firstFrameMs) => {
+    if (!Number.isFinite(firstFrameMs) || cameraFirstFrameMs !== null) return;
+    cameraFirstFrameMs = firstFrameMs;
+    applyMeasuredCameraPreroll();
+  };
   const noteFirstFrame = (firstFrameMs, meta = null) => {
     session.eventLogger?.event('first-frame-anchor', { firstFrameMs, segmentIndex: session.segmentIndex, ...(meta ?? {}) });
     if (!Number.isFinite(firstFrameMs)) return;
     if (pendingFirstFrameMs === null) {
       pendingFirstFrameMs = firstFrameMs;
       pendingFirstFrameMeta = meta;
+      applyMeasuredCameraPreroll();
     }
     if (session.currentSegment
       && session.currentSegment.index === session.segmentIndex
@@ -493,6 +517,7 @@ async function startActiveSegment(session, {
         factory: cameraCaptureFactory,
         outputPath: paths.cameraRawPath,
         devicePath: session.cameraDevicePath,
+        onFirstFrame: session.measureCameraPreroll ? noteCameraFirstFrame : null,
         maxAttempts: 6,
         earlyExitWindowMs: 1500,
         backoffMs: 500,
@@ -562,6 +587,8 @@ async function startActiveSegment(session, {
   if (session.segmentIndex === 1) {
     session.cameraPrerollMs = cameraCapture ? cameraPrerollMs : 0;
     session.cameraPrerollFrames = cameraCapture ? Math.max(0, Math.round((cameraPrerollMs / 1000) * DEFAULT_FPS)) : 0;
+    // The measured value (if both first frames were already seen) wins over this estimate.
+    applyMeasuredCameraPreroll();
   }
 
   session.capture = capture;
@@ -704,6 +731,7 @@ async function spawnCameraCaptureWithRetry({
   factory,
   outputPath,
   devicePath,
+  onFirstFrame = null,
   maxAttempts = 6,
   earlyExitWindowMs = 1500,
   backoffMs = 500,
@@ -716,6 +744,7 @@ async function spawnCameraCaptureWithRetry({
       devicePath,
       width: 1280,
       height: 720,
+      ...(onFirstFrame ? { onFirstFrame } : {}),
     });
     // Test mocks may not expose whenExited; in that case skip the early-exit
     // race entirely and assume the spawn succeeded. Real ffmpeg-camera

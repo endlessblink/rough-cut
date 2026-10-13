@@ -220,8 +220,18 @@ Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;publ
     if (!cameraMp4) fail(`No camera file was produced. Found: ${files.join(', ')}`);
     const cameraProbe = ffprobeJson(join(recordings, projectDir, cameraMp4), ['-show_entries', 'stream=codec_type,codec_name,width,height:format=duration']);
     if (!cameraProbe.streams.some((s) => s.codec_type === 'video' && s.codec_name === 'h264')) fail('The camera file has no h264 video.');
-    if (Math.abs(Number(cameraProbe.format.duration) - recordedSeconds) > 2) fail(`Camera length ${cameraProbe.format.duration}s differs from the screen recording (${recordedSeconds}s).`);
-    step('camera was recorded and matches the screen length');
+    // The camera starts before the screen (its device takes time to open), so its file is longer by that head start,
+    // and the project trims the head. What must hold: the project keeps the WHOLE take, and the camera still covers
+    // all of it after the trim. (A wrong head-start estimate once cut 2.2 s of real footage out of every take.)
+    const cameraSeconds = Number(cameraProbe.format.duration);
+    const saved = JSON.parse(readFileSync(join(recordings, projectDir, projectFile), 'utf8'));
+    const cameraAsset = saved.assets.find((asset) => asset.metadata?.isCamera === true);
+    const fps = saved.settings?.frameRate ?? 30;
+    const headTrimSeconds = (cameraAsset?.metadata?.sourceInFrames ?? 0) / fps;
+    const timelineSeconds = saved.composition.duration / fps;
+    if (timelineSeconds < recordedSeconds - 1.5) fail(`The project is ${timelineSeconds.toFixed(1)} s but the take is ${recordedSeconds.toFixed(1)} s: footage was cut off (camera head trim ${headTrimSeconds.toFixed(1)} s, camera clip ${cameraSeconds.toFixed(1)} s).`);
+    if (cameraSeconds - headTrimSeconds < recordedSeconds - 1.5) fail(`After its ${headTrimSeconds.toFixed(1)} s head trim the camera covers ${(cameraSeconds - headTrimSeconds).toFixed(1)} s of the ${recordedSeconds.toFixed(1)} s take.`);
+    step('camera was recorded and the project keeps the whole take', `camera ${cameraSeconds.toFixed(1)} s, head trim ${headTrimSeconds.toFixed(1)} s, project ${timelineSeconds.toFixed(1)} s`);
   }
 
   // Cursor data: the click must be recorded where it happened, in physical pixels (this catches display-scaling bugs).
