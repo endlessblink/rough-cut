@@ -973,7 +973,8 @@ test('cursor sampling drives cursor data via getCursorPoint polling', async () =
   });
 
   await session.start();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  // Windows timers tick at ~15 ms, so give the 5 ms poll enough wall time to fire a few times.
+  await new Promise((resolve) => setTimeout(resolve, 200));
   await session.stop();
 
   // Expect at least the seed sample plus a few polling samples. If a future

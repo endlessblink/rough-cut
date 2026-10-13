@@ -28,6 +28,7 @@ function indexesOf(args, value) {
 
 test('screen capture uses CRF-only H.264 without VBV/CBR constraints', () => {
   const args = buildFfmpegCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/capture.mp4',
     fps: 30,
     display: ':0+0,0',
@@ -49,6 +50,7 @@ test('screen capture uses CRF-only H.264 without VBV/CBR constraints', () => {
 
 test('camera capture uses v4l2 input and writes silent h264 video', () => {
   const args = buildFfmpegCameraCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/camera.mkv',
     fps: 30,
     devicePath: '/dev/video2',
@@ -66,6 +68,7 @@ test('camera capture uses v4l2 input and writes silent h264 video', () => {
 
 test('camera preview uses main-process v4l2 ffmpeg and emits mjpeg frames', () => {
   const args = buildFfmpegCameraPreviewArgs({
+    platform: 'linux',
     devicePath: '/dev/video2',
     fps: 15,
     width: 1280,
@@ -99,6 +102,7 @@ test('mjpeg frame parser extracts split jpeg frames and discards junk', () => {
 
 test('unified capture maps screen and camera as separate video streams', () => {
   const args = buildFfmpegUnifiedCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/unified.mkv',
     fps: 30,
     display: ':0+0,0',
@@ -126,6 +130,7 @@ test('unified capture maps screen and camera as separate video streams', () => {
 
 test('unified capture keeps camera audio disabled while preserving mic and system mix', () => {
   const args = buildFfmpegUnifiedCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/unified.mkv',
     fps: 30,
     display: ':0+0,0',
@@ -146,6 +151,7 @@ test('unified capture keeps camera audio disabled while preserving mic and syste
 
 test('camera capture sets v4l2 reliability flags so shutdown does not wedge in D-state', () => {
   const args = buildFfmpegCameraCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/camera.mkv',
     fps: 30,
     devicePath: '/dev/video0',
@@ -169,6 +175,7 @@ test('camera capture sets v4l2 reliability flags so shutdown does not wedge in D
 
 test('screen capture maps microphone audio when a mic source is selected', () => {
   const args = buildFfmpegCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/capture.mkv',
     fps: 30,
     display: ':0+0,0',
@@ -187,6 +194,7 @@ test('screen capture maps microphone audio when a mic source is selected', () =>
 
 test('screen capture maps system audio monitor when selected', () => {
   const args = buildFfmpegCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/capture.mkv',
     fps: 30,
     display: ':0+0,0',
@@ -202,6 +210,7 @@ test('screen capture maps system audio monitor when selected', () => {
 
 test('screen capture mixes system audio and microphone when both are selected', () => {
   const args = buildFfmpegCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/capture.mkv',
     fps: 30,
     display: ':0+0,0',
@@ -218,6 +227,7 @@ test('screen capture mixes system audio and microphone when both are selected', 
 
 test('screen capture applies recorded mic and system gain before mixing', () => {
   const args = buildFfmpegCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/capture.mkv',
     fps: 30,
     display: ':0+0,0',
@@ -235,6 +245,7 @@ test('screen capture applies recorded mic and system gain before mixing', () => 
 
 test('screen capture applies mic-only gain and clamps gain to 200 percent', () => {
   const args = buildFfmpegCaptureArgs({
+    platform: 'linux',
     outputPath: '/tmp/capture.mkv',
     fps: 30,
     display: ':0+0,0',
@@ -250,6 +261,7 @@ test('screen capture applies mic-only gain and clamps gain to 200 percent', () =
 
 test('audio level probe reads the selected gained mix without playing it', () => {
   const args = buildFfmpegAudioLevelProbeArgs({
+    platform: 'linux',
     micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
     micGainPercent: 125,
     systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',

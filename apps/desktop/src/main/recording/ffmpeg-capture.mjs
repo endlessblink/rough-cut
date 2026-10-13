@@ -402,6 +402,7 @@ export function buildFfmpegCameraCaptureArgs({
   devicePath,
   width = 1280,
   height = 720,
+  platform = process.platform,
 }) {
   if (typeof devicePath !== 'string' || devicePath.trim().length === 0) {
     throw new Error('Camera device path is required.');
@@ -440,7 +441,7 @@ export function buildFfmpegCameraCaptureArgs({
     // YUYV by default and the recorded camera stream is 10 fps regardless
     // of -framerate, making playback look "stuttery". Verified via
     // `v4l2-ctl --list-formats-ext` and a direct ffmpeg run.
-    ...cameraInputArgs({ fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
+    ...cameraInputArgs({ platform, fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
     '-an',
     '-c:v',
     'libx264',
@@ -466,6 +467,7 @@ export function buildFfmpegCameraPreviewArgs({
   width = 1280,
   height = 720,
   previewWidth = 320,
+  platform = process.platform,
 }) {
   if (typeof devicePath !== 'string' || devicePath.trim().length === 0) {
     throw new Error('Camera device path is required for preview.');
@@ -484,7 +486,7 @@ export function buildFfmpegCameraPreviewArgs({
     'low_delay',
     '-thread_queue_size',
     '1024',
-    ...cameraInputArgs({ fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
+    ...cameraInputArgs({ platform, fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
     '-an',
     '-vf',
     `fps=${frameRate},scale=${outputWidth}:-1`,
@@ -621,6 +623,7 @@ export function buildFfmpegCaptureArgs({
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  platform = process.platform,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -644,7 +647,7 @@ export function buildFfmpegCaptureArgs({
     // Input 0: x11grab video
     '-thread_queue_size',
     '512',
-    ...screenInputArgs({ fps: fps, width, height, display }),
+    ...screenInputArgs({ platform, fps: fps, width, height, display }),
   ];
 
   // Input 1 (if present): system audio monitor
@@ -652,7 +655,7 @@ export function buildFfmpegCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(systemAudioSource),
+      ...audioInputArgs(systemAudioSource, { platform }),
     );
   }
 
@@ -661,7 +664,7 @@ export function buildFfmpegCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(micSource),
+      ...audioInputArgs(micSource, { platform }),
     );
   }
 
@@ -726,6 +729,7 @@ export function buildFfmpegUnifiedCaptureArgs({
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  platform = process.platform,
 }) {
   if (typeof cameraDevicePath !== 'string' || cameraDevicePath.trim().length === 0) {
     throw new Error('Camera device path is required for unified capture.');
@@ -746,14 +750,14 @@ export function buildFfmpegUnifiedCaptureArgs({
     '0.05',
     '-thread_queue_size',
     '1024',
-    ...screenInputArgs({ fps: frameRate, width, height, display }),
+    ...screenInputArgs({ platform, fps: frameRate, width, height, display }),
     '-use_wallclock_as_timestamps',
     '1',
     '-fflags',
     'nobuffer',
     '-thread_queue_size',
     '1024',
-    ...cameraInputArgs({ fps: frameRate, width: captureCameraWidth, height: captureCameraHeight, device: cameraDevicePath }),
+    ...cameraInputArgs({ platform, fps: frameRate, width: captureCameraWidth, height: captureCameraHeight, device: cameraDevicePath }),
   ];
 
   let nextInputIndex = 2;
@@ -764,14 +768,14 @@ export function buildFfmpegUnifiedCaptureArgs({
     args.push(
       '-thread_queue_size',
       '1024',
-      ...audioInputArgs(systemAudioSource),
+      ...audioInputArgs(systemAudioSource, { platform }),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '1024',
-      ...audioInputArgs(micSource),
+      ...audioInputArgs(micSource, { platform }),
     );
   }
 
@@ -1122,6 +1126,7 @@ export function buildFfmpegAudioCaptureArgs({
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  platform = process.platform,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -1135,14 +1140,14 @@ export function buildFfmpegAudioCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(systemAudioSource),
+      ...audioInputArgs(systemAudioSource, { platform }),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(micSource),
+      ...audioInputArgs(micSource, { platform }),
     );
   }
 
@@ -1165,6 +1170,7 @@ export function buildFfmpegAudioLevelProbeArgs({
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  platform = process.platform,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -1176,14 +1182,14 @@ export function buildFfmpegAudioLevelProbeArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(systemAudioSource),
+      ...audioInputArgs(systemAudioSource, { platform }),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(micSource),
+      ...audioInputArgs(micSource, { platform }),
     );
   }
 
