@@ -37,7 +37,7 @@ pnpm gate:windows:quick    # fast checks only; can never print GATE PASSED
 ### Active goal (paste into Claude Code)
 
 ```
-/goal Windows port complete: running `pnpm gate:windows` in this repo prints GATE PASSED and exits 0, shown in the transcript. Work through docs/WINDOWS-PORT-GOAL.md phases in order and commit after each phase. Never edit the gate to make it pass. Never record user evidence; ask me for it and say exactly what to check. If only user-evidence checks remain, stop and list them for me. Stop after 60 turns.
+/goal A Windows build the user can check works end to end. Done when, shown in the transcript: (1) `node scripts/windows/ui-e2e.mjs` prints UI E2E PASSED, driving the packaged "Rough Cut.exe" through its real UI (start a take with mic, system audio and camera, stop, open the editor, export an MP4, ffprobe the file); (2) `pnpm gate:windows` shows every automated check PASS (only user-evidence checks may remain); (3) the installer and zip in release\windows are rebuilt from the final commit and their SHA-256 printed; (4) everything is committed. Fix every bug the UI test exposes. Never edit the gate or the UI test to make it pass, and never record user evidence. Then stop and hand me a short checklist of exactly what to try. Stop after 60 turns.
 ```
 
 ## Phases
