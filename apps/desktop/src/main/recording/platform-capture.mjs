@@ -1,3 +1,4 @@
+import { getDshowCameraMode } from './windows-devices.mjs';
 // Per-platform FFmpeg input arguments. Linux output is byte-identical to the
 // args that used to be inlined in ffmpeg-capture.mjs (guarded by
 // ffmpeg-capture-args.test.mjs); the win32 branches are the Windows port.
@@ -73,6 +74,23 @@ export function audioInputArgs(source, { platform = process.platform } = {}) {
 
 export function cameraInputArgs({ fps, width, height, device, platform = process.platform }) {
   if (platform === 'win32') {
+    // Open the camera in a mode it really advertises (see windows-devices.mjs). Requesting a rate or size it does not
+    // offer fails with "I/O error"; the preview and capture filters lower the rate afterwards. An unprobed camera
+    // falls back to the requested values.
+    const mode = getDshowCameraMode(device, { width, height, fps });
+    if (mode) {
+      return [
+        '-f',
+        'dshow',
+        ...(mode.kind === 'codec' ? ['-vcodec', mode.format] : ['-pixel_format', mode.format]),
+        '-framerate',
+        String(mode.fps),
+        '-video_size',
+        `${mode.width}x${mode.height}`,
+        '-i',
+        `video=${device}`,
+      ];
+    }
     return [
       '-f',
       'dshow',

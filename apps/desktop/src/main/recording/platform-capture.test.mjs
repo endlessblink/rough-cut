@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { audioInputArgs, cameraInputArgs, captureSupported, parseDisplayOffset, screenInputArgs } from './platform-capture.mjs';
-import { getPrimaryWindowsDisplayInfo, listDshowCameraSources, listDshowMicSources, listDshowSystemAudioSources, parseDshowDevices } from './windows-devices.mjs';
+import { getPrimaryWindowsDisplayInfo, parseDshowCameraModes, pickDshowCameraMode, setDshowCameraModesForTest, listDshowCameraSources, listDshowMicSources, listDshowSystemAudioSources, parseDshowDevices } from './windows-devices.mjs';
 
 const DSHOW_OUTPUT = `[dshow @ 000001] "Integrated Camera" (video)
 [dshow @ 000001]   Alternative name "@device_pnp_\\\\?\\usb#vid_04f2"
@@ -74,4 +74,43 @@ test('windows display info is in physical pixels with an offset-shaped display s
   assert.equal(info.display, 'desktop+0,0');
   assert.equal(info.width, 1920);
   assert.equal(info.height, 1080);
+});
+
+// Real `ffmpeg -list_options` output from the USB webcam this port was developed against: 30 fps only at 720p.
+const WEBCAM_OPTIONS = [
+  '[in#0 @ 0000015007910d00] DirectShow video device options (from video devices)',
+  '[in#0 @ 0000015007910d00]   vcodec=mjpeg  min s=1280x720 fps=30 max s=1280x720 fps=30',
+  '[in#0 @ 0000015007910d00]   vcodec=mjpeg  min s=640x480 fps=30 max s=640x480 fps=30',
+  '[in#0 @ 0000015007910d00]   pixel_format=yuyv422  min s=1280x720 fps=10 max s=1280x720 fps=10',
+  '[in#0 @ 0000015007910d00]   pixel_format=yuyv422  min s=640x480 fps=30 max s=640x480 fps=30',
+].join('\n');
+
+test('camera modes are parsed from list_options output', () => {
+  const modes = parseDshowCameraModes(WEBCAM_OPTIONS);
+  assert.deepEqual(modes[0], { kind: 'codec', format: 'mjpeg', width: 1280, height: 720, fps: 30 });
+  assert.equal(modes.length, 4);
+  assert.deepEqual(parseDshowCameraModes('nothing useful'), []);
+});
+
+test('the picker prefers MJPEG at the wanted size and opens at a rate the camera really has', () => {
+  const modes = parseDshowCameraModes(WEBCAM_OPTIONS);
+  // The preview asks for 15 fps; this camera has no 15 fps mode, so it is opened at 30 and lowered by a filter.
+  assert.deepEqual(pickDshowCameraMode(modes, { width: 1280, height: 720, fps: 15 }), { kind: 'codec', format: 'mjpeg', width: 1280, height: 720, fps: 30 });
+  // A size it lacks falls to the closest one that is not smaller.
+  assert.equal(pickDshowCameraMode(modes, { width: 800, height: 600, fps: 30 }).width, 1280);
+  assert.equal(pickDshowCameraMode([], { width: 1280, height: 720, fps: 30 }), null);
+});
+
+test('a probed camera is opened in its advertised mode; an unprobed one keeps the requested values', () => {
+  setDshowCameraModesForTest('Test Cam', parseDshowCameraModes(WEBCAM_OPTIONS));
+  try {
+    assert.deepEqual(cameraInputArgs({ fps: 15, width: 1280, height: 720, device: 'Test Cam', platform: 'win32' }), [
+      '-f', 'dshow', '-vcodec', 'mjpeg', '-framerate', '30', '-video_size', '1280x720', '-i', 'video=Test Cam',
+    ]);
+  } finally {
+    setDshowCameraModesForTest('Test Cam', null);
+  }
+  assert.deepEqual(cameraInputArgs({ fps: 15, width: 1280, height: 720, device: 'Test Cam', platform: 'win32' }), [
+    '-f', 'dshow', '-framerate', '15', '-video_size', '1280x720', '-i', 'video=Test Cam',
+  ]);
 });
