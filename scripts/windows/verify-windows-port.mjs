@@ -110,6 +110,10 @@ async function main() {
   // --- A real capture through the app's own argument builder, stopped the way the app stops it.
   await liveCaptureCheck();
 
+  // --- The whole recording pipeline through the real session: capture, stop, remux, project, raw + styled export.
+  const smoke = await runStreaming('node', [join('scripts', 'windows', 'smoke-windows-recording.mjs')], root);
+  record('recording pipeline smoke (capture, remux, project, raw + styled export)', smoke.code === 0 && /"ok":true/.test(smoke.out), smoke.code === 0 ? '' : smoke.out.trim().split('\n').slice(-2).join(' | ').slice(0, 200));
+
   // --- Structure
   const ci = existsSync(join(root, '.github/workflows/ci.yml')) ? readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8') : '';
   record('CI runs on windows-latest', /windows-latest/.test(ci));

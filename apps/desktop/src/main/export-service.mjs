@@ -2691,7 +2691,16 @@ function formatAssTime(ms) {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
 }
 
-function escapeFilterPath(path) {
+// ffmpeg unescapes filter text twice (filtergraph, then option), so a Windows path with a drive colon and
+// backslashes needs its own form. Measured against ffmpeg 9: forward slashes plus `\\:` unquoted, or forward
+// slashes plus `\:` inside single quotes. Other platforms keep the original escaping unchanged.
+export function escapeFilterPath(path, { quoted = false, platform = process.platform } = {}) {
+  if (platform === 'win32') {
+    const forward = path.replaceAll('\\', '/');
+    return quoted
+      ? forward.replaceAll(':', '\\:')
+      : forward.replaceAll(':', '\\\\:').replaceAll("'", "\\\\\\'");
+  }
   return path.replaceAll('\\', '\\\\').replaceAll(':', '\\:').replaceAll("'", "\\'");
 }
 
@@ -2702,7 +2711,7 @@ function buildStabilizationTransformFilter({ transformPath, strength = 50, smoot
   const safePath = typeof transformPath === 'string' ? transformPath : '';
   if (!safePath) throw new Error('Stabilization transform path is required');
   return `vidstabtransform=${[
-    `input='${escapeFilterPath(safePath)}'`,
+    `input='${escapeFilterPath(safePath, { quoted: true })}'`,
     `smoothing=${safeSmoothing}`,
     `optzoom=${safeOptzoom}`,
     'zoom=0',

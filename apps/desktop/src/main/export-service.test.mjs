@@ -5,7 +5,7 @@ import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createProjectForImport, createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildGraphicsFailureResult, workingExportPath, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+import { escapeFilterPath, buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildGraphicsFailureResult, workingExportPath, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
 
 // These tests plant fake ffmpeg/ffprobe bash scripts on PATH; Windows cannot execute them. Linux CI still runs them.
 const BASH_STUBS = process.platform === 'win32' ? 'uses #!/usr/bin/env bash ffmpeg stubs' : false;
@@ -2882,4 +2882,11 @@ test('virtual camera export rebases padding and concat, precisely seeks and hide
  assert(graph.includes('fps=30:start_time=0'));
  const cameraInputPositions=args.map((arg,index)=>arg==='/camera.mp4'&&args[index-1]==='-i'?index:null).filter(index=>index!==null).slice(1);
  for(const position of cameraInputPositions)assert.equal(args[position-3],'-ss','virtual input window stays frame-bounded after retained keyframe preroll');
+});
+
+test('filter paths: Linux escaping is unchanged, Windows paths use forward slashes and a doubled colon escape', () => {
+  assert.equal(escapeFilterPath('/tmp/a b/cursor.ass', { platform: 'linux' }), '/tmp/a b/cursor.ass');
+  assert.equal(escapeFilterPath("/tmp/it's:here.ass", { platform: 'linux' }), "/tmp/it\\'s\\:here.ass");
+  assert.equal(escapeFilterPath('C:\\Users\\me\\AppData\\Local\\Temp\\cursor.ass', { platform: 'win32' }), 'C\\\\:/Users/me/AppData/Local/Temp/cursor.ass');
+  assert.equal(escapeFilterPath('C:\\Users\\me\\x.trf', { platform: 'win32', quoted: true }), 'C\\:/Users/me/x.trf');
 });
