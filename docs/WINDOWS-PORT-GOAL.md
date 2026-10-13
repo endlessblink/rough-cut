@@ -23,16 +23,23 @@ On a clean Windows 11 machine with no dev tools:
 
 ## The gate
 
-The Definition of done above is enforced by one command. The port is not done until it prints .
+The Definition of done above is enforced by one command. The port is not done until it prints `GATE PASSED`.
 
-\
-- **Automated checks** (Windows only): LF endings pinned; ffmpeg/ffprobe with libx264, gdigrab and dshow; a real 3 s gdigrab capture through the app's own argument builder, stopped with  and validated by ffprobe; CI has a  job; the Windows packaging script exists and its output contains , , ; the click-telemetry stub is gone; build, typecheck and desktop tests have zero failures.
-- **User evidence** for what needs hardware or eyes: recorded by the user with . It refuses to run without an interactive terminal, so Claude cannot record it. Keys: , , , , , , , , . Stored in  (not committed).
+```
+pnpm gate:windows          # everything: build, typecheck, full desktop tests, live capture, packaging, user evidence
+pnpm gate:windows:quick    # fast checks only; can never print GATE PASSED
+```
+
+- **Automated checks** (Windows only): LF endings pinned; ffmpeg and ffprobe with libx264, gdigrab and dshow; a real 3 s gdigrab capture through the app's own argument builder, stopped with `q` and validated by ffprobe; CI has a `windows-latest` job; the Windows packaging script exists and its output contains `Rough Cut.exe`, `ffmpeg.exe` and `ffprobe.exe`; the click-telemetry stub is gone; build, typecheck and desktop tests have zero failures.
+- **User evidence** for what needs hardware or eyes. The user records each with `node scripts/windows/verify-windows-port.mjs confirm <key> "<note>"`. It refuses to run without an interactive terminal, so Claude cannot record it. Keys: `record-all-sources`, `scaled-display`, `cursor-click-sync`, `region-and-second-monitor`, `editor-pass`, `export-playable`, `no-orphan-ffmpeg`, `crash-recovery`, `installer-clean-machine`. Stored in `.git/windows-port-evidence.json` (not committed).
 - Do not weaken the gate to make it pass. If a check is wrong, change it in its own commit and say why.
 
 ### Active goal (paste into Claude Code)
 
-\pnpm gate:windows\
+```
+/goal Windows port complete: running `pnpm gate:windows` in this repo prints GATE PASSED and exits 0, shown in the transcript. Work through docs/WINDOWS-PORT-GOAL.md phases in order and commit after each phase. Never edit the gate to make it pass. Never record user evidence; ask me for it and say exactly what to check. If only user-evidence checks remain, stop and list them for me. Stop after 60 turns.
+```
+
 ## Phases
 
 Each phase ends with a commit and with its checks passing.
