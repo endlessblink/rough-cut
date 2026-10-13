@@ -1618,3 +1618,41 @@ test('input coordinates that are already physical are not scaled again (Windows 
   assert.deepEqual([scaledClick.x, scaledClick.y], [1000, 500]);
   await rm(root, { recursive: true, force: true });
 });
+
+test('a screen capture that dies at startup fails the take with ffmpeg\'s reason and leaves nothing behind', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-early-exit-'));
+  let attempts = 0;
+  const feeds = [];
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 2561, height: 1440 }),
+    buttonListenerFactory: null,
+    systemAudioFeedFactory: async () => { const feed = { url: 'tcp://127.0.0.1:1', closed: 0, close() { feed.closed += 1; } }; feeds.push(feed); return feed; },
+    captureFactory: (options) => {
+      attempts += 1;
+      const dies = attempts === 1;
+      return {
+        outputPath: options.outputPath,
+        whenExited: () => (dies
+          ? Promise.resolve({ code: 4294967291, signal: null, stderr: 'libavutil 60. 1.100\nCapture area (0,0),(2561,1440) extends outside window area (0,0),(2560,1440)\nError opening input: I/O error\n' })
+          : new Promise(() => {})),
+        stop: async () => options.outputPath,
+        cancel: async () => options.outputPath,
+      };
+    },
+  });
+
+  await assert.rejects(
+    () => session.start({ systemAudioSource: 'wasapi-loopback' }),
+    (error) => /Screen capture failed to start/.test(error.message) && /extends outside window area/.test(error.message) && !/libavutil/.test(error.message),
+  );
+  assert.equal(feeds[0].closed, 1, 'the audio feed is closed');
+  assert.equal((await session.status()).state === 'recording', false);
+  // A retry is allowed straight away (the failed start must not leave an active session behind).
+  const retry = await session.start({});
+  assert.equal(retry.state, 'recording');
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
+});

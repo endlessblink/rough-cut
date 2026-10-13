@@ -132,13 +132,24 @@ export async function listDshowSystemAudioSources({ run = execFile, loopbackAvai
  * Windows analogue of getPrimaryX11DisplayInfo. `display` keeps the
  * `<base>+<x>,<y>` shape so region capture offsets work unchanged.
  */
+/**
+ * Physical size of a display extent given Electron's rounded logical size and the scale factor. At fractional
+ * scaling the product is not an integer (1707 x 1.5 = 2560.5 for a 2560-wide screen) and rounding it UP asks the
+ * grabber for a pixel that does not exist ("extends outside window area"). Round down, and to an even number:
+ * that can never overshoot the screen, and 4:2:0 H.264 needs even dimensions anyway.
+ */
+export function physicalExtent(logical, scaleFactor) {
+  const floored = Math.floor(logical * scaleFactor + 1e-6);
+  return floored - (floored % 2);
+}
+
 export function getPrimaryWindowsDisplayInfo(screen) {
   const primary = screen.getPrimaryDisplay();
   const toPhysical = (bounds, scaleFactor) => ({
     x: Math.round(bounds.x * scaleFactor),
     y: Math.round(bounds.y * scaleFactor),
-    width: Math.round(bounds.width * scaleFactor),
-    height: Math.round(bounds.height * scaleFactor),
+    width: physicalExtent(bounds.width, scaleFactor),
+    height: physicalExtent(bounds.height, scaleFactor),
   });
   const scaleFactor = primary.scaleFactor || 1;
   const { x, y, width, height } = toPhysical(primary.bounds, scaleFactor);

@@ -3,9 +3,11 @@
 // rectangle and confirms with "Use region" (Enter) or cancels (Esc). The page
 // reports its result through document.title so it needs no preload bridge.
 
+import { physicalExtent } from './recording/windows-devices.mjs';
+
 export const REGION_RESULT_PREFIX = 'rough-cut-region:';
 
-export function regionFromOverlayRect(rect, display) {
+export function regionFromOverlayRect(rect, display, platform = process.platform) {
   if (!rect || !display) return null;
   const scale = Number.isFinite(display.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
   const width = Math.round(Number(rect.width) * scale);
@@ -13,8 +15,10 @@ export function regionFromOverlayRect(rect, display) {
   const x = Math.round(Number(rect.x) * scale);
   const y = Math.round(Number(rect.y) * scale);
   if (![x, y, width, height].every(Number.isFinite) || width < 2 || height < 2 || x < 0 || y < 0) return null;
-  const displayWidth = Math.round(display.bounds.width * scale);
-  const displayHeight = Math.round(display.bounds.height * scale);
+  // On Windows at fractional scaling the rounded product can exceed the real screen by a pixel (see physicalExtent).
+  const extent = (logical) => (platform === 'win32' ? physicalExtent(logical, scale) : Math.round(logical * scale));
+  const displayWidth = extent(display.bounds.width);
+  const displayHeight = extent(display.bounds.height);
   const clampedWidth = Math.min(width, displayWidth - x);
   const clampedHeight = Math.min(height, displayHeight - y);
   if (clampedWidth < 2 || clampedHeight < 2) return null;

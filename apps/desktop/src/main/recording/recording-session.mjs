@@ -227,6 +227,9 @@ export function createRecordingSession({
         buttonListenerFactory,
       });
     } catch (err) {
+      // Nothing may outlive a failed start, or every later start says "already active".
+      active = null;
+      await cancelActiveSession(session).catch(() => undefined);
       closeSystemAudioFeed(session);
       throw err;
     }
@@ -552,6 +555,8 @@ async function startActiveSegment(session, {
     });
   }
 
+  await assertScreenCaptureStayedUp(capture, { unified: Boolean(unifiedCapture) });
+
   const segmentStartedAtDate = now();
   const cameraPrerollMs = cameraStartedAtDate ? Math.max(0, segmentStartedAtDate.getTime() - cameraStartedAtDate.getTime()) : 0;
   if (session.segmentIndex === 1) {
@@ -834,6 +839,20 @@ function monitorCameraCaptureExit(session) {
     session.cameraError = err instanceof Error ? err.message : String(err);
     session.eventLogger?.event('camera-capture-monitor-failed', { error: session.cameraError, cameraDevicePath: session.cameraDevicePath });
   });
+}
+
+// ffmpeg that exits within this window failed to start (bad capture area, device busy), as opposed to a later crash.
+const EARLY_EXIT_WINDOW_MS = 1500;
+
+async function assertScreenCaptureStayedUp(capture, { unified }) {
+  if (!capture || typeof capture.whenExited !== 'function') return;
+  const early = await Promise.race([
+    capture.whenExited(),
+    new Promise((resolve) => { const t = setTimeout(() => resolve(null), EARLY_EXIT_WINDOW_MS); t.unref?.(); }),
+  ]);
+  if (!early || early.code === 0) return;
+  const tail = String(early.stderr ?? '').split(/\r?\n/).filter((line) => line.trim() && !/^\s*(lib|built with|configuration)/.test(line)).slice(-3).join(' | ');
+  throw new Error(`${unified ? 'Screen and camera' : 'Screen'} capture failed to start (ffmpeg exit ${early.code})${tail ? `: ${tail}` : '.'}`);
 }
 
 async function cancelCapture(capture) {

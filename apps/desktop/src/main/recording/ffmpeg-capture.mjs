@@ -128,6 +128,10 @@ export function startFfmpegCapture({
     proc.stdout?.on('data', (chunk) => detector.observe(chunk.toString(), Date.now()));
   }
 
+  const exitPromise = new Promise((resolve) => {
+    proc.on('exit', (code, signal) => resolve({ code, signal, stderr }));
+  });
+
   proc.on('error', (err) => {
     console.error('[ffmpeg-capture] Process error:', err.message);
   });
@@ -145,6 +149,7 @@ export function startFfmpegCapture({
   return {
     outputPath,
     getPid() { return proc.pid ?? null; },
+    whenExited() { return exitPromise; },
     kill(signal = 'SIGTERM') {
       if (proc.exitCode === null && proc.signalCode === null) {
         try { proc.kill(signal); } catch { /* already gone */ }

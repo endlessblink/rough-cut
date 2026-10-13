@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { audioInputArgs, cameraInputArgs, captureSupported, parseDisplayOffset, screenInputArgs } from './platform-capture.mjs';
-import { getPrimaryWindowsDisplayInfo, parseDshowCameraModes, pickDshowCameraMode, setDshowCameraModesForTest, listDshowCameraSources, listDshowMicSources, listDshowSystemAudioSources, parseDshowDevices } from './windows-devices.mjs';
+import { getPrimaryWindowsDisplayInfo, physicalExtent, parseDshowCameraModes, pickDshowCameraMode, setDshowCameraModesForTest, listDshowCameraSources, listDshowMicSources, listDshowSystemAudioSources, parseDshowDevices } from './windows-devices.mjs';
 
 const DSHOW_OUTPUT = `[dshow @ 000001] "Integrated Camera" (video)
 [dshow @ 000001]   Alternative name "@device_pnp_\\\\?\\usb#vid_04f2"
@@ -113,4 +113,22 @@ test('a probed camera is opened in its advertised mode; an unprobed one keeps th
   assert.deepEqual(cameraInputArgs({ fps: 15, width: 1280, height: 720, device: 'Test Cam', platform: 'win32' }), [
     '-f', 'dshow', '-framerate', '15', '-video_size', '1280x720', '-i', 'video=Test Cam',
   ]);
+});
+
+test('fractional display scaling never asks the grabber for a pixel past the screen edge', () => {
+  // The display this was found on: 2560x1440 physical at 150%, which Electron reports as 1707x960.
+  assert.equal(physicalExtent(1707, 1.5), 2560);
+  assert.equal(physicalExtent(960, 1.5), 1440);
+  // Exact scales are unchanged, and results are always even.
+  assert.equal(physicalExtent(1536, 1.25), 1920);
+  assert.equal(physicalExtent(864, 1.25), 1080);
+  assert.equal(physicalExtent(1920, 1), 1920);
+  assert.equal(physicalExtent(1093, 1.25) % 2, 0);
+  const screen = {
+    getPrimaryDisplay: () => ({ bounds: { x: 0, y: 0, width: 1707, height: 960 }, scaleFactor: 1.5 }),
+    getAllDisplays: () => [{ bounds: { x: 0, y: 0, width: 1707, height: 960 }, scaleFactor: 1.5 }],
+  };
+  const info = getPrimaryWindowsDisplayInfo(screen);
+  assert.deepEqual([info.width, info.height], [2560, 1440]);
+  assert.deepEqual(info.displayBounds, [{ x: 0, y: 0, width: 2560, height: 1440 }]);
 });
