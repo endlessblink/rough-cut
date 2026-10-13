@@ -60,6 +60,12 @@ export function screenInputArgs({ fps, width, height, display, platform = proces
 
 export function audioInputArgs(source, { platform = process.platform } = {}) {
   if (platform === 'win32') {
+    // System audio arrives from the local loopback feed (see system-audio-loopback.mjs) as raw s16le over TCP.
+    // The feed already paces itself against the wall clock. Do not add -use_wallclock_as_timestamps here: measured
+    // with ffmpeg 9 it makes the raw demuxer deliver nothing, while the plain input is read normally.
+    if (typeof source === 'string' && source.startsWith('tcp://')) {
+      return ['-f', 's16le', '-ar', '48000', '-ac', '2', '-i', source];
+    }
     return ['-f', 'dshow', '-ac', '2', '-ar', '48000', '-i', `audio=${source}`];
   }
   return ['-f', 'pulse', '-ac', '2', '-ar', '48000', '-i', source];
