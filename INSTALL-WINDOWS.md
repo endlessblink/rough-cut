@@ -52,6 +52,7 @@ Recording and editing stay local. There is no analytics service and no automatic
 - Verified on a single display. Region capture and a second monitor are implemented but not yet verified on real multi-monitor hardware.
 - Screen capture uses the Windows GDI grabber. It cannot capture protected (DRM) video, and some exclusive full-screen games record black. Run games in borderless windowed mode.
 - Cursor and click timing was measured with synthetic input; in-editor alignment with a real hand is still being verified.
+- **Camera frame rate** is whatever the camera delivers. The USB webcam this was tested with produced only about 7 to 8 frames per second in an ordinary room even though it advertises 30 (many webcams lower their rate in dim light; brighter light may help). The screen is recorded separately at full rate, so the screen stays smooth either way.
 - The bundled FFmpeg is large (two 218 MB executables), so the download is about 230 MB.
 
 ## Report a problem
