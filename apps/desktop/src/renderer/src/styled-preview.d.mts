@@ -82,10 +82,15 @@ export function frameResizeHandles(
   rect: { x: number; y: number; w: number; h: number },
 ): Array<{ handle: ResizeHandle; x: number; y: number }>;
 
+export function circleResizeHandles(
+  rect: { x: number; y: number; w: number; h: number },
+): Array<{ handle: ResizeHandle; x: number; y: number }>;
+
 export function resizeHandleAtPoint(
   x: number,
   y: number,
   rect: { x: number; y: number; w: number; h: number },
+  options?: { circle?: boolean },
 ): ResizeHandle | null;
 
 export function cursorForResizeHandle(handle: ResizeHandle): string;

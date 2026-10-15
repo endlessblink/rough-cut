@@ -469,3 +469,12 @@ test('cameraSyncCorrection keeps the camera on the voice clock', async () => {
   assert.deepEqual(cameraSyncCorrection(0.34, 1, 30), { seek: true, playbackRate: 1 });
   assert.deepEqual(cameraSyncCorrection(Number.NaN, 1, 30), { seek: false, playbackRate: 1 });
 });
+
+test('circle camera handles sit on the circle diagonals and can be grabbed there', async () => {
+  const { circleResizeHandles, resizeHandleAtPoint } = await import('./styled-preview.mjs');
+  const rect = { x: 100, y: 100, w: 200, h: 200 };
+  const [nw] = circleResizeHandles(rect);
+  assert.equal(resizeHandleAtPoint(nw.x, nw.y, rect, { circle: true }), 'nw');
+  assert.equal(resizeHandleAtPoint(nw.x, nw.y, rect), null, 'the rectangle test misses the visible circle handle');
+  assert.equal(resizeHandleAtPoint(100, 100, rect, { circle: true }), null, 'the bounding-box corner is empty space for a circle');
+});

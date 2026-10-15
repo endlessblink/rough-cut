@@ -548,6 +548,7 @@ export function StyledVideoPreview({
   const timelineFrameFallbackRef = React.useRef(0);
   const cameraDragRef = React.useRef<NormalizedRect | null>(null);
   const cameraRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const cameraIsCircleRef = React.useRef(false);
   const cameraRadiusRef = React.useRef(16);
   const cameraDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
   const screenDragRef = React.useRef<NormalizedRect | null>(null);
@@ -2173,6 +2174,7 @@ export function StyledVideoPreview({
             }
           : rawCameraFrame;
         cameraRectRef.current = cameraFrameForDraw;
+        cameraIsCircleRef.current = frame.cameraPresentation?.shape === 'circle';
         (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = {
           x: cameraFrameForDraw.x / canvasWidth,
           y: cameraFrameForDraw.y / canvasHeight,
@@ -2866,7 +2868,7 @@ export function StyledVideoPreview({
           const cameraRect = cameraRectRef.current;
           const overCamera = !!onCameraFrameChange && !!cameraRect && xCanvas >= cameraRect.x && xCanvas <= cameraRect.x + cameraRect.w && yCanvas >= cameraRect.y && yCanvas <= cameraRect.y + cameraRect.h;
           const overScreen = !!onScreenFrameChange && !!screenRect && xCanvas >= screenRect.x && xCanvas <= screenRect.x + screenRect.w && yCanvas >= screenRect.y && yCanvas <= screenRect.y + screenRect.h;
-          const cameraHandle = onCameraFrameChange && cameraRect ? resizeHandleAtPoint(xCanvas, yCanvas, cameraRect) : null;
+          const cameraHandle = onCameraFrameChange && cameraRect ? resizeHandleAtPoint(xCanvas, yCanvas, cameraRect, { circle: cameraIsCircleRef.current }) : null;
           const screenHandle = onScreenFrameChange && screenRect ? resizeHandleAtPoint(xCanvas, yCanvas, screenRect) : null;
           // With a zoom selected, the screen body sets the focus point → crosshair.
           const overScreenForFocal = !!activeFocalChange && !!screenRect && !overCamera && !cameraHandle && !screenHandle
@@ -2962,7 +2964,7 @@ export function StyledVideoPreview({
             return;
           }
           const cameraRect = cameraRectRef.current;
-          const cameraHandle = onCameraFrameChange && cameraRect ? resizeHandleAtPoint(xCanvas, yCanvas, cameraRect) : null;
+          const cameraHandle = onCameraFrameChange && cameraRect ? resizeHandleAtPoint(xCanvas, yCanvas, cameraRect, { circle: cameraIsCircleRef.current }) : null;
           const insideCamera = !!onCameraFrameChange && !!cameraRect && xCanvas >= cameraRect.x && xCanvas <= cameraRect.x + cameraRect.w && yCanvas >= cameraRect.y && yCanvas <= cameraRect.y + cameraRect.h;
           if ((insideCamera || cameraHandle) && cameraRect) {
             const mode = cameraHandle ? 'resize' : 'move';

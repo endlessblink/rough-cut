@@ -456,6 +456,11 @@ export function buildFfmpegCameraCaptureArgs({
     // `v4l2-ctl --list-formats-ext` and a direct ffmpeg run.
     ...cameraInputArgs({ platform, fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
     '-an',
+    // DirectShow cameras deliver an irregular ~7-14 fps in ordinary light. Left as is, the file has gaps of up to
+    // 0.7 s between frames, and the editor's drift correction (which compares the camera element's time with the
+    // timeline) then seeks and changes the playback rate constantly: slow camera, voice out of step, a jittering
+    // playhead. Duplicating frames to a constant rate gives the editor the regular timeline it expects.
+    ...(platform === 'win32' ? ['-fps_mode', 'cfr', '-r', String(frameRate)] : []),
     '-c:v',
     'libx264',
     '-preset',
