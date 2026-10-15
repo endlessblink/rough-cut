@@ -1961,9 +1961,18 @@ export function StyledVideoPreview({
         : playingGapFrame ?? parkedTimelineFrame ?? sourceFrameFloat;
       if (timeMode === 'timeline' && isPlaying) {
         timelineFrameFallbackRef.current = currentFrame;
-        updateCurrentTime(Math.min(timelineDuration, currentFrame / fps), {
-          immediate: playingGapFrame !== null,
-        });
+        // The free-running playback clock moves the playhead smoothly. The decoded frame is rounded to whole frames
+        // and can be a fraction behind the clock, so letting it write too made the playhead step forward, dip
+        // back and step forward again every frame (the "wiggle"). Within a few frames behind, the clock wins; a
+        // larger gap is a real seek or restart and still applies.
+        const decodedFrameTime = Math.min(timelineDuration, currentFrame / fps);
+        const clockLeadSec = currentTimeRef.current - decodedFrameTime;
+        const clockOwnsPlayhead = acceleratedTimelinePlaybackClock && playingGapFrame === null && clockLeadSec > 0 && clockLeadSec <= 3 / fps;
+        if (!clockOwnsPlayhead) {
+          updateCurrentTime(decodedFrameTime, {
+            immediate: playingGapFrame !== null,
+          });
+        }
         (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
           phase: playingGapFrame !== null ? 'gap-frame' : 'decoded-frame',
           driver: metadata ? 'rvfc' : 'raf',
