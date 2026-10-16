@@ -137,3 +137,46 @@ function logLines(onLog, prefix, text) {
     if (trimmed) onLog(`${prefix} ${trimmed}`);
   }
 }
+
+// Windows: the microphone (DirectShow) and system-audio feed open a moment after the first screen frame, but ffmpeg
+// gives every input its own zero, so the voice would play that moment early against the picture and the camera. All
+// streams stop at the same instant, so the video is longer than the audio by exactly that lag. Pad the start of the
+// audio with silence by the difference (video copied untouched, audio re-encoded once).
+export const AUDIO_LEAD_MIN_SEC = 0.12;
+export const AUDIO_LEAD_MAX_SEC = 5;
+
+export function audioLeadSeconds({ videoSec, audioSec }) {
+  if (!Number.isFinite(videoSec) || !Number.isFinite(audioSec)) return 0;
+  const lead = videoSec - audioSec;
+  return lead >= AUDIO_LEAD_MIN_SEC && lead <= AUDIO_LEAD_MAX_SEC ? lead : 0;
+}
+
+export async function alignAudioStartToVideo({ filePath, onLog = () => undefined, runner = run, replaceFile = defaultReplaceFile }) {
+  const probe = await runner('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,duration', '-of', 'json', filePath], () => undefined);
+  if (probe.code !== 0) return { adjusted: false, reason: 'probe-failed' };
+  let streams;
+  try { streams = JSON.parse(probe.stdout).streams ?? []; } catch { return { adjusted: false, reason: 'probe-unreadable' }; }
+  const video = streams.find((stream) => stream.codec_type === 'video');
+  const audio = streams.find((stream) => stream.codec_type === 'audio');
+  if (!video || !audio) return { adjusted: false, reason: 'no-audio' };
+  const lead = audioLeadSeconds({ videoSec: Number(video.duration), audioSec: Number(audio.duration) });
+  if (lead === 0) return { adjusted: false, reason: 'already-aligned' };
+  const delayMs = Math.round(lead * 1000);
+  const tempPath = filePath.replace(/\.mp4$/i, '') + '.aligned.mp4';
+  const args = ['-y', '-i', filePath, '-map', '0:v', '-map', '0:a', '-c:v', 'copy', '-af', `adelay=${delayMs}:all=1`, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', tempPath];
+  onLog(`[remux] Audio starts ${delayMs} ms after the picture; padding the start: ffmpeg ${args.join(' ')}`);
+  const result = await runner('ffmpeg', args, onLog);
+  if (result.code !== 0) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    onLog(`[remux] WARN audio alignment failed, keeping the unaligned file: ${result.stderr.trim().slice(-200)}`);
+    return { adjusted: false, reason: 'ffmpeg-failed' };
+  }
+  await replaceFile(tempPath, filePath);
+  return { adjusted: true, delayMs };
+}
+
+async function defaultReplaceFile(from, to) {
+  const { rename } = await import('node:fs/promises');
+  await rm(to, { force: true });
+  await rename(from, to);
+}
