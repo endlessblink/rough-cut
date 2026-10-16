@@ -187,37 +187,3 @@ test('concat list paths use forward slashes on Windows and escape quotes everywh
   assert.equal(escapeConcatPath("/home/me/it's.mkv", 'linux'), "/home/me/it'\\''s.mkv");
   assert.equal(escapeConcatPath('/home/me/a\\b.mkv', 'linux'), '/home/me/a\\b.mkv');
 });
-
-test('audioLeadSeconds measures how much earlier the audio starts than the picture', async () => {
-  const { audioLeadSeconds } = await import('./remux-service.mjs');
-  assert.ok(Math.abs(audioLeadSeconds({ videoSec: 35.833, audioSec: 35.018 }) - 0.815) < 1e-9);
-  assert.equal(audioLeadSeconds({ videoSec: 10, audioSec: 9.95 }), 0, 'a few tens of ms is not worth re-encoding');
-  assert.equal(audioLeadSeconds({ videoSec: 10, audioSec: 10.2 }), 0, 'audio longer than video is left alone');
-  assert.equal(audioLeadSeconds({ videoSec: 60, audioSec: 20 }), 0, 'a huge gap is a dropout, not a start lag');
-  assert.equal(audioLeadSeconds({ videoSec: NaN, audioSec: 1 }), 0);
-});
-
-test('alignAudioStartToVideo pads the start of the audio and keeps the video', async () => {
-  const { alignAudioStartToVideo } = await import('./remux-service.mjs');
-  const calls = [];
-  const runner = async (command, args) => {
-    calls.push([command, args]);
-    if (command === 'ffprobe') return { code: 0, stdout: JSON.stringify({ streams: [{ codec_type: 'video', duration: '35.833' }, { codec_type: 'audio', duration: '35.018' }] }), stderr: '' };
-    return { code: 0, stdout: '', stderr: '' };
-  };
-  const replaced = [];
-  const result = await alignAudioStartToVideo({ filePath: 'C:/r/take.mp4', runner, replaceFile: async (from, to) => replaced.push([from, to]) });
-  assert.deepEqual(result, { adjusted: true, delayMs: 815 });
-  const ffmpegArgs = calls.find(([command]) => command === 'ffmpeg')[1];
-  assert.ok(ffmpegArgs.includes('adelay=815:all=1'));
-  assert.equal(ffmpegArgs[ffmpegArgs.indexOf('-c:v') + 1], 'copy');
-  assert.deepEqual(replaced, [['C:/r/take.aligned.mp4', 'C:/r/take.mp4']]);
-});
-
-test('alignAudioStartToVideo leaves a file with no audio, or with aligned audio, untouched', async () => {
-  const { alignAudioStartToVideo } = await import('./remux-service.mjs');
-  const silent = async () => ({ code: 0, stdout: JSON.stringify({ streams: [{ codec_type: 'video', duration: '10' }] }), stderr: '' });
-  assert.equal((await alignAudioStartToVideo({ filePath: 'x.mp4', runner: silent })).adjusted, false);
-  const aligned = async () => ({ code: 0, stdout: JSON.stringify({ streams: [{ codec_type: 'video', duration: '10' }, { codec_type: 'audio', duration: '9.98' }] }), stderr: '' });
-  assert.equal((await alignAudioStartToVideo({ filePath: 'x.mp4', runner: aligned })).adjusted, false);
-});

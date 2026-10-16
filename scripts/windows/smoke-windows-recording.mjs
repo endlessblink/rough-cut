@@ -26,16 +26,28 @@ const height = Number(process.env.ROUGH_CUT_WIN_SMOKE_HEIGHT ?? 360);
 const durationMs = Number(process.env.ROUGH_CUT_WIN_SMOKE_MS ?? 3500);
 const runStyled = process.env.ROUGH_CUT_WIN_SMOKE_STYLED !== '0';
 const keep = process.env.ROUGH_CUT_WIN_SMOKE_KEEP === '1';
+// ROUGH_CUT_WIN_SMOKE_FLASH=1 (with SOURCES=all): at 3 s a white full-screen flash and a beep start together; the audio
+// onset and the flash frame are located in the finished file and the gap is printed (positive = sound after picture).
+const flashSync = process.env.ROUGH_CUT_WIN_SMOKE_FLASH === '1';
 // ROUGH_CUT_WIN_SMOKE_SOURCES=all also records the first microphone, system audio (a tone is played during the
 // take) and the first camera. This uses real devices: the mic hears the room and the camera sees the user.
 // Everything is written to a temp folder and deleted afterwards unless ROUGH_CUT_WIN_SMOKE_KEEP=1.
 const allSources = process.env.ROUGH_CUT_WIN_SMOKE_SOURCES === 'all';
 
+const bannerStarts = [];
+const originalInfo = console.info.bind(console);
+console.info = (...parts) => {
+  const line = parts.join(' ');
+  const m = /Stream #(d+):0: (Video|Audio):.*start ([0-9.]+)/.exec(line);
+  if (m && /ffmpeg-capture:stderr/.test(line)) bannerStarts.push({ kind: m[2], start: Number(m[3]), epochAtLog: Date.now() / 1000, hr: Number(process.hrtime.bigint()) / 1e9 });
+  originalInfo(...parts);
+};
 let phase = 'init';
 const setPhase = (name) => { phase = name; console.info(`[win-smoke] ${name}`); };
 const fail = (message) => { throw new Error(message); };
 
 if (process.platform !== 'win32') fail('This smoke is for Windows.');
+if (process.env.ROUGH_CUT_WIN_SMOKE_MEASURE_ONLY) { measureFlashSync(process.env.ROUGH_CUT_WIN_SMOKE_MEASURE_ONLY); process.exit(0); }
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-win-smoke-'));
 try {
@@ -57,9 +69,9 @@ try {
     const [mic] = await listDshowMicSources();
     const [camera] = await listDshowCameraSources();
     const system = await listDshowSystemAudioSources();
-    if (!mic || !camera || !system.some((d) => d.id === LOOPBACK_SOURCE_ID)) fail(`all-sources mode needs a mic, a camera and system-audio loopback; found mic=${mic?.name ?? 'none'} camera=${camera?.name ?? 'none'} loopback=${system.some((d) => d.id === LOOPBACK_SOURCE_ID)}`);
-    startOptions.micSource = mic.id;
-    startOptions.systemAudioSource = LOOPBACK_SOURCE_ID;
+    if (!mic || !camera || !system.some((d) => d.id === LOOPBACK_SOURCE_ID) && process.env.ROUGH_CUT_WIN_SMOKE_NO_LOOPBACK !== '1') fail(`all-sources mode needs a mic, a camera and system-audio loopback; found mic=${mic?.name ?? 'none'} camera=${camera?.name ?? 'none'} loopback=${system.some((d) => d.id === LOOPBACK_SOURCE_ID)}`);
+    if (process.env.ROUGH_CUT_WIN_SMOKE_NO_MIC !== '1') startOptions.micSource = mic.id;
+    if (process.env.ROUGH_CUT_WIN_SMOKE_NO_LOOPBACK !== '1') startOptions.systemAudioSource = LOOPBACK_SOURCE_ID;
     startOptions.cameraDevicePath = camera.id;
     expectCamera = camera.id;
     console.info(`[win-smoke] sources: mic="${mic.name}" camera="${camera.name}" system=loopback`);
@@ -68,7 +80,8 @@ try {
   setPhase('start');
   await session.start(startOptions);
   setPhase('recording');
-  if (allSources) playTone(join(root, 'tone.wav'), 700, 1500);
+  if (allSources && flashSync) flashAndBeep(join(root, 'tone.wav'), 3000);
+  else if (allSources) playTone(join(root, 'tone.wav'), 700, 1500);
   await new Promise((resolve) => setTimeout(resolve, durationMs));
 
   setPhase('stop-and-save');
@@ -92,7 +105,8 @@ try {
 
   if (allSources) {
     setPhase('verify-sources');
-    verifyAllSources({ stopped, reopened, expectCamera });
+    if (!flashSync) verifyAllSources({ stopped, reopened, expectCamera });
+    else measureFlashSync(stopped.outputPath.replace('.mp4', '.mkv'));
   }
 
   // Raw export is single-recording only; a take with a camera is exported through the styled path (as on Linux).
@@ -171,4 +185,67 @@ function verifyAllSources({ stopped, reopened, expectCamera }) {
   const typical = [...levels].sort((a, b) => a - b)[Math.floor(levels.length / 2)];
   console.info(`[win-smoke] audio: streams=${audio.length} loudest=${loudest} dB typical=${typical} dB`);
   if (!(loudest > -35 && loudest - typical >= 10)) fail(`System audio tone was not found in the recording (loudest ${loudest} dB, typical ${typical} dB).`);
+}
+
+// A topmost white form and a beep started from one PowerShell process at the same moment (both prepared in advance).
+function flashAndBeep(path, delayMs) {
+  const rate = 48000;
+  const frames = Math.round(rate * 0.6);
+  const data = Buffer.alloc(frames * 4);
+  for (let i = 0; i < frames; i += 1) {
+    const v = Math.round(Math.sin((2 * Math.PI * 1000 * i) / rate) * 20000);
+    data.writeInt16LE(v, i * 4); data.writeInt16LE(v, i * 4 + 2);
+  }
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0); header.writeUInt32LE(36 + data.length, 4); header.write('WAVEfmt ', 8);
+  header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(2, 22);
+  header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate * 4, 28); header.writeUInt16LE(4, 32); header.writeUInt16LE(16, 34);
+  header.write('data', 36); header.writeUInt32LE(data.length, 40);
+  writeFileSync(path, Buffer.concat([header, data]));
+  const script = [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    "$player = New-Object Media.SoundPlayer '" + path + "'",
+    '$player.Load()',
+    '$form = New-Object Windows.Forms.Form',
+    "$form.FormBorderStyle = 'None'; $form.TopMost = $true; $form.BackColor = 'White'; $form.StartPosition = 'Manual'",
+    '$form.Location = New-Object Drawing.Point(0,0); $form.Size = New-Object Drawing.Size(3000,2000); $form.ShowInTaskbar = $false',
+    '$target = [DateTime]::UtcNow.AddMilliseconds(' + delayMs + ')',
+    'while ([DateTime]::UtcNow -lt $target) { }',
+    '$player.Play(); $form.Show(); $form.Refresh()',
+    'Start-Sleep -Milliseconds 700',
+    '$form.Close()',
+  ].join('; ');
+  spawn('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: true, stdio: 'ignore' });
+}
+
+function measureFlashSync(mp4Path) {
+  const newline = String.fromCharCode(10);
+  // Flash: first video frame whose mean luma jumps well above the frame before it.
+  const luma = spawnSync('ffmpeg', ['-hide_banner', '-v', 'error', '-i', mp4Path, '-an', '-vf', 'signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-', '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const rows = [];
+  let pendingTime = null;
+  for (const line of (luma.stdout ?? '').split(newline)) {
+    const timeMatch = /pts_time:([0-9.]+)/.exec(line);
+    if (timeMatch) pendingTime = Number(timeMatch[1]);
+    const lumaMatch = /YAVG=([0-9.]+)/.exec(line);
+    if (lumaMatch && pendingTime !== null) rows.push({ t: pendingTime, y: Number(lumaMatch[1]) });
+  }
+  let flashT = null;
+  for (let i = 1; i < rows.length; i += 1) if (rows[i].y - rows[i - 1].y > 60) { flashT = rows[i].t; break; }
+  // Beep: first 10 ms window whose peak is within 6 dB of the loudest (the 1 kHz tone is far above the room).
+  const run = spawnSync('ffmpeg', ['-hide_banner', '-v', 'error', '-i', mp4Path, '-vn', '-af', 'bandpass=f=1000:width_type=h:w=120,asetnsamples=n=480:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level:file=-', '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const levels = [...(run.stdout ?? '').matchAll(/Peak_level=(-?[0-9.]+|-inf)/g)].map((m) => Number(m[1]));
+  const loud = Math.max(...levels.filter(Number.isFinite));
+  const index = levels.findIndex((v) => Number.isFinite(v) && v > loud - 6);
+  const beepT = index >= 0 ? index * 0.01 : null;
+  console.info(`[win-smoke] flash frame at ${flashT} s (${rows.length} frames read), beep onset at ${beepT} s, loudest ${loud} dB`);
+  if (flashT === null || beepT === null) fail('Could not locate the flash and the beep.');
+  const video = bannerStarts.find((b) => b.kind === 'Video');
+  const audio = bannerStarts.find((b) => b.kind === 'Audio');
+  if (video && audio) {
+    const nodeToEpoch = audio.epochAtLog - audio.hr;
+    const micEpoch = audio.start + nodeToEpoch;
+    console.info(`[win-smoke] PREDICTED lead of first audio sample after first video frame = ${Math.round((micEpoch - video.start) * 1000)} ms (video start ${video.start}, audio start ${audio.start})`);
+  }
+  console.info(`[win-smoke] SYNC audio minus picture = ${Math.round((beepT - flashT) * 1000)} ms (positive: sound after picture)`);
 }

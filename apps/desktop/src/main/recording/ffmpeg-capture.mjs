@@ -631,6 +631,11 @@ function logProcessOutput(prefix, text) {
   }
 }
 
+// DirectShow microphone audio arrives about this much earlier than the picture it belongs to once ffmpeg has given each
+// input its own zero (measured with a flash-and-beep test: -353, -363, -387, -417 ms, then +47..+103 ms with 370 ms applied; see scripts/windows/
+// smoke-windows-recording.mjs with ROUGH_CUT_WIN_SMOKE_FLASH=1). The microphone is delayed by this much.
+export const WINDOWS_MIC_LEAD_MS = 320;
+
 export function buildFfmpegCaptureArgs({
   outputPath,
   fps,
@@ -642,6 +647,7 @@ export function buildFfmpegCaptureArgs({
   systemAudioSource = null,
   systemAudioGainPercent = 100,
   platform = process.platform,
+  micDelayMs = platform === 'win32' ? WINDOWS_MIC_LEAD_MS : 0,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -693,6 +699,7 @@ export function buildFfmpegCaptureArgs({
     micIndex: hasMic ? (hasSysAudio ? 2 : 1) : null,
     systemAudioGainPercent,
     micGainPercent,
+    micDelayMs,
     videoMaps: ['0:v'],
   });
   // No audio → no -map needed (single input, auto-mapped)
@@ -1345,6 +1352,7 @@ function appendAudioFilterAndMaps(args, {
   micIndex,
   systemAudioGainPercent = 100,
   micGainPercent = 100,
+  micDelayMs = 0,
   videoMaps = [],
 }) {
   const maps = [...videoMaps];
@@ -1358,7 +1366,7 @@ function appendAudioFilterAndMaps(args, {
     ? audioRef({ inputIndex: systemAudioIndex, name: 'sysa', gainPercent: systemAudioGainPercent, filters })
     : null;
   const micRef = hasMic
-    ? audioRef({ inputIndex: micIndex, name: 'mica', gainPercent: micGainPercent, filters })
+    ? audioRef({ inputIndex: micIndex, name: 'mica', gainPercent: micGainPercent, delayMs: micDelayMs, filters })
     : null;
 
   if (hasSysAudio && hasMic) {
@@ -1374,13 +1382,15 @@ function appendAudioFilterAndMaps(args, {
   for (const map of maps) args.push('-map', map);
 }
 
-function audioRef({ inputIndex, name, gainPercent, filters }) {
+function audioRef({ inputIndex, name, gainPercent, delayMs = 0, filters }) {
   const gain = normalizeAudioGain(gainPercent);
   const filterInput = `[${inputIndex}:a]`;
   const directMap = `${inputIndex}:a`;
-  if (Math.abs(gain - 1) <= 0.001) return { filterPad: filterInput, mapPad: directMap };
+  const delay = Math.max(0, Math.round(Number(delayMs) || 0));
+  if (Math.abs(gain - 1) <= 0.001 && delay === 0) return { filterPad: filterInput, mapPad: directMap };
   const output = `[${name}]`;
-  filters.push(`${filterInput}volume=${gain.toFixed(2)}${output}`);
+  const chain = [delay > 0 ? `adelay=${delay}:all=1` : null, Math.abs(gain - 1) > 0.001 ? `volume=${gain.toFixed(2)}` : null].filter(Boolean).join(',');
+  filters.push(`${filterInput}${chain}${output}`);
   return { filterPad: output, mapPad: output };
 }
 

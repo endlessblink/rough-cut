@@ -1,7 +1,7 @@
 import { stat } from 'node:fs/promises';
 import { probeCameraMediaTiming } from './media-probe.mjs';
 import { writeRecordingDiagnosticsReport as defaultWriteRecordingDiagnosticsReport } from './recording-diagnostics.mjs';
-import { alignAudioStartToVideo as defaultAlignAudioStartToVideo, validateRemuxedMp4 as defaultValidateRemuxedMp4 } from './remux-service.mjs';
+import { validateRemuxedMp4 as defaultValidateRemuxedMp4 } from './remux-service.mjs';
 import { unifiedCameraClock } from '../shared/camera-clock.mjs';
 
 export async function stopRecordingAndCreateProject({
@@ -15,8 +15,6 @@ export async function stopRecordingAndCreateProject({
   probeVideoStreamsTiming = null,
   computeSyncedRecordingTiming = null,
   validateRemuxedMp4 = defaultValidateRemuxedMp4,
-  alignAudioStartToVideo = defaultAlignAudioStartToVideo,
-  platform = process.platform,
   writeRecordingDiagnosticsReport = defaultWriteRecordingDiagnosticsReport,
 }) {
   const timing = createPhaseTimer('recording:stop');
@@ -56,14 +54,6 @@ export async function stopRecordingAndCreateProject({
         validate: skipDeepRemuxValidation,
   }));
   console.info('[recording:stop] phase=screen-remux-done');
-  if (platform === 'win32' && !isUnifiedCapture && (screenRawSegments?.length ?? 0) <= 1) {
-    try {
-      const aligned = await alignAudioStartToVideo({ filePath: result.outputPath, onLog: onRemuxLog });
-      console.info(`[recording:stop] phase=audio-align ${JSON.stringify(aligned)}`);
-    } catch (error) {
-      console.warn(`[recording:stop] audio alignment skipped: ${error instanceof Error ? error.message : error}`);
-    }
-  }
   timing.mark('screen-remux');
   console.info('[recording:stop] phase=screen-assert-begin');
   await assertReadableMp4(result.outputPath);
