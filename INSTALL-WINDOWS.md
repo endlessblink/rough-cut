@@ -2,7 +2,7 @@
 
 Candidate: **0.1.0-beta.8 (Windows port)**, Electron 43.7.7, Windows x64. FFmpeg and ffprobe are bundled. Node.js, pnpm and a source checkout are not needed for an installed build.
 
-This is a pre-release. The Windows port was developed and tested on one machine (Windows 11 Home, a 125%-scaled laptop display, a USB webcam, a USB microphone). Other hardware, a second monitor and long recordings still need testing. Back up recordings you cannot redo.
+This is a pre-release for early users, and we want your bug reports. It was developed and tested on one Windows laptop (Windows 11 Home, a USB webcam, a USB microphone) and one Linux PC. Other hardware, a second monitor and long recordings have not been tested. Back up recordings you cannot redo.
 
 ## Requirements
 
@@ -25,7 +25,13 @@ The build is **not code-signed yet**, so Windows SmartScreen will warn that the 
 Get-FileHash .\Rough-Cut-0.1.0-beta.8-Setup.exe -Algorithm SHA256
 ```
 
-Compare the result with the checksum published next to the download. Do not run a build whose checksum you cannot match.
+The checksum of the installer built on 2026-10-16 is:
+
+```
+AF56A32B280E59F1F7A7789AF4D71DC434E7DF27353F7022D136DB8F7E2CB2AA  Rough-Cut-0.1.0-beta.8-Setup.exe
+```
+
+Compare the result with that value and with the checksum published next to the download. Do not run a build whose checksum you cannot match.
 
 ## First recording
 
@@ -52,11 +58,14 @@ Recording and editing stay local. There is no analytics service and no automatic
 - Verified on a single display. Region capture and a second monitor are implemented but not yet verified on real multi-monitor hardware.
 - Screen capture uses the Windows GDI grabber. It cannot capture protected (DRM) video, and some exclusive full-screen games record black. Run games in borderless windowed mode.
 - Cursor and click timing was measured with synthetic input; in-editor alignment with a real hand is still being verified.
-- **Camera frame rate** is whatever the camera delivers. The USB webcam this was tested with produced only about 7 to 8 frames per second in an ordinary room even though it advertises 30 (many webcams lower their rate in dim light; brighter light may help). The screen is recorded separately at full rate, so the screen stays smooth either way.
+- **Camera frame rate and sharpness** depend on the camera and the light. The USB webcam this was tested with produced only about 7 to 14 real frames per second in an ordinary room even though it advertises 30. Webcams lengthen their exposure in dim light, which blurs movement, especially in the first second or two while auto-exposure settles. Put a lamp in front of you and wait a moment after pressing record before you move. The camera file is stored at a constant 30 frames per second (frames are repeated to fill gaps) so that editor playback stays steady; that does not add sharpness. The screen is recorded separately at full rate, so the screen stays smooth either way.
+- **Microphone sync is a measured estimate.** A Windows microphone delivers its first sound before the picture has started, so Rough Cut delays the microphone by a fixed 320 ms when recording. That number was measured with a flash-and-beep test on one USB microphone (C-Media) on one machine. Other microphones, Bluetooth headsets and laptop microphones can be a little early or late. If your voice is early or late against the picture, please report the device and roughly how far off it is.
+- **System audio sync is not corrected.** The system-audio (speaker) track can drift against the picture by roughly 200 ms either way, and the offset varies from one recording to the next.
+- **Camera-versus-screen sync** is estimated from when the camera produced its first frame. It has not been checked against real footage with a clap or flash.
 - The bundled FFmpeg is large (two 218 MB executables), so the download is about 230 MB.
 
 ## Report a problem
 
-Include the log from `%APPDATA%\rough-cut-mvp\logs\app-runtime.log` and the steps you took, at <https://github.com/endlessblink/rough-cut/issues>.
+Open an issue at <https://github.com/endlessblink/rough-cut/issues>. Include the steps you took, your Windows version, which camera and microphone you used, and the log from `%APPDATA%\rough-cut-mvp\logs\app-runtime.log`. For a sync problem, say whether the voice or the picture comes first and by roughly how much.
 
 Contributing or building from source: see [docs/WINDOWS-DEVELOPMENT.md](docs/WINDOWS-DEVELOPMENT.md).
