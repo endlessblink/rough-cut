@@ -34,14 +34,6 @@ const flashSync = process.env.ROUGH_CUT_WIN_SMOKE_FLASH === '1';
 // Everything is written to a temp folder and deleted afterwards unless ROUGH_CUT_WIN_SMOKE_KEEP=1.
 const allSources = process.env.ROUGH_CUT_WIN_SMOKE_SOURCES === 'all';
 
-const bannerStarts = [];
-const originalInfo = console.info.bind(console);
-console.info = (...parts) => {
-  const line = parts.join(' ');
-  const m = /Stream #(d+):0: (Video|Audio):.*start ([0-9.]+)/.exec(line);
-  if (m && /ffmpeg-capture:stderr/.test(line)) bannerStarts.push({ kind: m[2], start: Number(m[3]), epochAtLog: Date.now() / 1000, hr: Number(process.hrtime.bigint()) / 1e9 });
-  originalInfo(...parts);
-};
 let phase = 'init';
 const setPhase = (name) => { phase = name; console.info(`[win-smoke] ${name}`); };
 const fail = (message) => { throw new Error(message); };
@@ -240,12 +232,5 @@ function measureFlashSync(mp4Path) {
   const beepT = index >= 0 ? index * 0.01 : null;
   console.info(`[win-smoke] flash frame at ${flashT} s (${rows.length} frames read), beep onset at ${beepT} s, loudest ${loud} dB`);
   if (flashT === null || beepT === null) fail('Could not locate the flash and the beep.');
-  const video = bannerStarts.find((b) => b.kind === 'Video');
-  const audio = bannerStarts.find((b) => b.kind === 'Audio');
-  if (video && audio) {
-    const nodeToEpoch = audio.epochAtLog - audio.hr;
-    const micEpoch = audio.start + nodeToEpoch;
-    console.info(`[win-smoke] PREDICTED lead of first audio sample after first video frame = ${Math.round((micEpoch - video.start) * 1000)} ms (video start ${video.start}, audio start ${audio.start})`);
-  }
   console.info(`[win-smoke] SYNC audio minus picture = ${Math.round((beepT - flashT) * 1000)} ms (positive: sound after picture)`);
 }
