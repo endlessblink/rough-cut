@@ -3604,7 +3604,6 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
   if (activeTool === 'captions') {
     return (
       <aside className="setupBoard studioPane" aria-label="Captions board">
-        <PaneTitle title="Captions" subtitle="Subtitles from what you said" />
         {project?.recording && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="captions-control-panel">
             <CaptionsPanel project={project} onProjectChange={onProjectChange} />
@@ -7621,20 +7620,21 @@ function CaptionsPanel({
   const { settings, cues } = getCaptions(document);
   const [isSaving, setIsSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
-  const [showAll, setShowAll] = React.useState(false);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [styleOpen, setStyleOpen] = React.useState(false);
   const [translation, setTranslation] = React.useState<{ requestId: string; done: number; total: number } | null>(null);
   const [translateError, setTranslateError] = React.useState<string | null>(null);
   const [translateDone, setTranslateDone] = React.useState<string | null>(null);
-  const [speechLanguage, setSpeechLanguage] = React.useState('auto');
+  const speechLanguage = 'auto';
   const [speech, setSpeech] = React.useState<{ requestId: string; done: number; total: number } | null>(null);
   const [speechError, setSpeechError] = React.useState<string | null>(null);
   const [speechDone, setSpeechDone] = React.useState<string | null>(null);
-  const [targetLanguage, setTargetLanguage] = React.useState('en');
   // A translation takes minutes; always build on the project as it is when it finishes.
   const projectRef = React.useRef(project);
   projectRef.current = project;
 
-  async function transcribeSpeech() {
+  async function transcribeSpeech(languageOverride?: string) {
+    const speechLanguageNow = languageOverride ?? speechLanguage;
     const startProject = projectRef.current;
     const sectionsNow = selectRecordingEditModel({ document: startProject.document as never }).screenClips
       .map((clip) => ({ sourceIn: clip.sourceIn ?? 0, sourceOut: clip.sourceOut ?? 0 }));
@@ -7652,7 +7652,7 @@ function CaptionsPanel({
       if (progress.requestId === requestId) setSpeech({ requestId, done: progress.done, total: progress.total });
     });
     try {
-      const result = await window.roughCut.transcribeCaptionSpeech({ requestId, sourcePath, sections: sectionsNow, fps: speechFps, language: speechLanguage });
+      const result = await window.roughCut.transcribeCaptionSpeech({ requestId, sourcePath, sections: sectionsNow, fps: speechFps, language: speechLanguageNow });
       if ('error' in result) {
         setSpeechError(result.error.code === 'CAPTIONS_CANCELLED' ? null : result.error.message);
         return;
@@ -7748,142 +7748,112 @@ function CaptionsPanel({
     if (!section) return [];
     return [{ cue, timelineSec: ((section.timelineIn ?? 0) + Math.max(0, cue.startFrame - section.sourceIn)) / captionFps }];
   }).sort((a, b) => a.timelineSec - b.timelineSec);
-  const visibleCues = showAll ? placedCues : placedCues.slice(0, 8);
+  const busy = speech !== null || translation !== null;
+  const activeLabel = tracks.find((track) => track.id === activeTrack)?.label ?? 'Spoken';
+  const spokenLanguage = (document as unknown as { captions?: { speechLanguage?: string | null } }).captions?.speechLanguage ?? null;
+  const spokenLabel = CAPTION_LANGUAGES.find((item) => item.code === spokenLanguage)?.label ?? null;
+  const missingLanguages = CAPTION_LANGUAGES.filter((language) => !tracks.some((track) => track.id === language.code) && language.code !== spokenLanguage);
+  const styleSummary = `${settings.position === 'bottom' ? 'Bottom' : settings.position === 'center' ? 'Middle' : 'Top'} · Size ${settings.sizePct} · Box ${Math.round(settings.boxOpacity * 100)}%`;
+  const progress = speech
+    ? { label: speech.total > 0 ? `Listening… ${speech.done} of ${speech.total}s` : 'Listening…', ratio: speech.total > 0 ? speech.done / speech.total : 0.08, id: speech.requestId }
+    : translation
+      ? { label: `Writing captions… ${translation.done} of ${translation.total}`, ratio: translation.total > 0 ? translation.done / translation.total : 0.08, id: translation.requestId }
+      : null;
+  const message = speechError ?? translateError ?? saveError ?? speechDone ?? translateDone;
+  const messageIsError = Boolean(speechError ?? translateError ?? saveError);
 
   return (
-    <div className="cameraFollowPanel captionsPanel" aria-label="Captions" data-ui-region="captions-panel">
-      <p className="eyebrow">Captions</p>
-      <div className="captionLanguageBlock" data-ui-region="caption-speech">
-        <p className="captionLanguageTitle">Step 1. Write captions from your speech</p>
-        <div className="captionCreateRow">
-          <select
-            className="captionLanguageSelect"
-            aria-label="Language you speak"
-            value={speechLanguage}
-            disabled={speech !== null}
-            onChange={(event) => { setSpeechLanguage(event.currentTarget.value); setSpeechDone(null); setSpeechError(null); }}
-          >
-            <option value="auto">I speak: detect automatically</option>
-            <option value="en">I speak: English</option>
-            <option value="he">I speak: Hebrew</option>
-          </select>
-          {speech ? (
-            <button type="button" className="secondary compact" onClick={() => { void window.roughCut.cancelCaptionsTranslation(speech.requestId); }}>Cancel</button>
-          ) : (
-            <button type="button" className="primary captionGenerateButton" disabled={isSaving || translation !== null} onClick={() => { void transcribeSpeech(); }}>
-              Transcribe
-            </button>
-          )}
+    <div className="capPanel" aria-label="Captions" data-ui-region="captions-panel">
+      <header className="capHead">
+        <h2>Captions</h2>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={settings.enabled}
+          className={`capSwitch${settings.enabled ? ' on' : ''}`}
+          disabled={isSaving}
+          onClick={() => { void persist(withCaptionSettings(document, { enabled: !settings.enabled })); }}
+        >
+          <span>Shown</span><i aria-hidden="true" />
+        </button>
+      </header>
+
+      {!hasTranscript && tracks.length === 1 ? (
+        <div className="capEmpty">
+          <p>No captions yet.</p>
+          <button type="button" className="primary" disabled={busy || isSaving} onClick={() => { void transcribeSpeech('auto'); }}>
+            Write captions from my speech
+          </button>
+          {progress ? <div className="capProgress" role="status"><span>{progress.label}</span><div className="capBar"><b style={{ width: `${Math.round(progress.ratio * 100)}%` }} /></div></div> : null}
+          {message ? <p className={messageIsError ? 'capMessage error' : 'capMessage'}>{message}</p> : null}
         </div>
-        {speech ? <p className="captionTranslateStatus" role="status">Listening… {speech.total > 0 ? `${speech.done} of ${speech.total} seconds` : 'getting ready'}</p> : null}
-        {speechDone ? <p className="captionTranslateDone" role="status">{speechDone}</p> : null}
-        {speechError ? <p className="error">{speechError}</p> : null}
-        <p className="captionHint">Reads the sound of your recording on this computer with a model that fits the language you speak. Use this first; it replaces the current "as spoken" captions (Ctrl+Z undoes it).</p>
-      </div>
-      <div className="captionLanguageBlock" data-ui-region="caption-languages">
-        <p className="captionLanguageTitle">Step 2. Which captions show, and other languages</p>
-        <p className="captionLanguageTitle">Showing now</p>
-        <div className="captionTrackRow" role="group" aria-label="Caption language shown">
-          {tracks.map((track) => (
-            <button
-              key={track.id}
-              type="button"
-              className="secondary compact"
-              aria-pressed={activeTrack === track.id}
-              disabled={isSaving || translation !== null}
-              onClick={() => { void persist(withCaptionSettings(setActiveCaptionTrack(document, track.id), { enabled: true })); }}
-            >
-              {track.id === 'original' ? 'As spoken' : track.label}
-            </button>
-          ))}
-        </div>
-        <p className="captionLanguageTitle">Create captions in a language</p>
-        <div className="captionCreateRow">
-          <select
-            className="captionLanguageSelect"
-            aria-label="Language to create"
-            value={targetLanguage}
-            disabled={translation !== null}
-            onChange={(event) => { setTargetLanguage(event.currentTarget.value); setTranslateDone(null); setTranslateError(null); }}
-          >
-            {CAPTION_LANGUAGES.map((language) => (
-              <option key={language.code} value={language.code}>
-                {language.label}{tracks.some((track) => track.id === language.code) ? ' (ready)' : ''}
-              </option>
-            ))}
-          </select>
-          {translation ? (
-            <button type="button" className="secondary compact" onClick={() => { void window.roughCut.cancelCaptionsTranslation(translation.requestId); }}>Cancel</button>
-          ) : (
-            <button
-              type="button"
-              className="primary captionGenerateButton"
-              disabled={isSaving || !hasTranscript}
-              onClick={() => {
-                const language = CAPTION_LANGUAGES.find((item) => item.code === targetLanguage);
-                void generateTranslation(language?.code ?? 'en', language?.label ?? 'English');
-              }}
-            >
-              {tracks.some((track) => track.id === targetLanguage) ? 'Redo' : 'Generate'}
-            </button>
-          )}
-        </div>
-        {translation ? <p className="captionTranslateStatus" role="status">Working… {translation.done} of {translation.total} lines</p> : null}
-        {translateDone ? <p className="captionTranslateDone" role="status">{translateDone}</p> : null}
-        <p className="captionHint">Every line is rewritten fully in the chosen language (Hebrew stays right-to-left, English technical terms are kept) using your Claude Code login. It takes under a minute or two, and the original stays so you can switch back.</p>
-        {translateError ? <p className="error">{translateError}</p> : null}
-      </div>
-      {(
+      ) : (
         <>
-          <InspectorToggle
-            label="Show captions in the video and export"
-            checked={settings.enabled}
-            disabled={isSaving}
-            onChange={(checked) => { void persist(withCaptionSettings(document, { enabled: checked })); }}
-          />
-          <div className="captionPositionRow" role="group" aria-label="Caption position">
-            {CAPTION_POSITIONS.map((position) => (
-              <button
-                key={position}
-                type="button"
-                className="secondary compact"
-                aria-pressed={settings.position === position}
-                disabled={isSaving}
-                onClick={() => { void persist(withCaptionSettings(document, { position: position as 'bottom' | 'center' | 'top' })); }}
-              >
-                {position === 'bottom' ? 'Bottom' : position === 'center' ? 'Middle' : 'Top'}
-              </button>
-            ))}
+          <div className="capTabsWrap">
+            <div className="capTabs" role="tablist" aria-label="Language shown">
+              {tracks.map((track) => (
+                <button
+                  key={track.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTrack === track.id}
+                  disabled={busy || isSaving}
+                  onClick={() => { setAddOpen(false); void persist(withCaptionSettings(setActiveCaptionTrack(document, track.id), { enabled: true })); }}
+                >
+                  {track.id === 'original' ? 'Spoken' : track.label}
+                </button>
+              ))}
+              <button type="button" className="capAdd" aria-label="Add a language" aria-expanded={addOpen} disabled={busy} onClick={() => setAddOpen((open) => !open)}>+</button>
+            </div>
+            {addOpen ? (
+              <div className="capMenu" role="menu" onMouseLeave={() => setAddOpen(false)}>
+                <p className="capMenuLabel">Add captions in</p>
+                {missingLanguages.map((language) => (
+                  <button key={language.code} type="button" role="menuitem" onClick={() => { setAddOpen(false); void generateTranslation(language.code, language.label); }}>
+                    {language.label}<small>translate</small>
+                  </button>
+                ))}
+                <hr />
+                <button type="button" role="menuitem" onClick={() => { setAddOpen(false); void transcribeSpeech('auto'); }}>Listen to my speech again<small>replaces Spoken</small></button>
+                <button type="button" role="menuitem" onClick={() => { setAddOpen(false); void transcribeSpeech('en'); }}>…as English speech</button>
+                <button type="button" role="menuitem" onClick={() => { setAddOpen(false); void transcribeSpeech('he'); }}>…as Hebrew speech</button>
+              </div>
+            ) : null}
           </div>
-          <InspectorSlider
-            label="Text size"
-            value={settings.sizePct}
-            min={3}
-            max={9}
-            step={0.5}
-            disabled={isSaving}
-            onChange={(value) => { void persist(withCaptionSettings(document, { sizePct: value })); }}
-          />
-          <InspectorSlider
-            label="Background"
-            value={settings.boxOpacity}
-            min={0}
-            max={1}
-            step={0.05}
-            disabled={isSaving}
-            onChange={(value) => { void persist(withCaptionSettings(document, { boxOpacity: value })); }}
-          />
-          <p className="eyebrow">Lines ({placedCues.length})</p>
-          <ul className="captionCueList">
-            {visibleCues.map(({ cue, timelineSec }) => (
-              <li key={`${cue.id}:${cue.text}`} className={`captionCueRow${selectedId === cue.id ? ' selectedCue' : ''}`}>
-                <span className="captionCueTime">{formatClock(timelineSec)}</span>
+
+          <div className="capSource">
+            <span>
+              {activeTrack === 'original' || activeTrack === spokenLanguage ? `From your speech${spokenLabel ? ` (${spokenLabel})` : ''}` : `Translated from ${spokenLabel ?? 'the speech'}`}
+              {' · '}<b>{placedCues.length} lines</b>
+            </span>
+            {progress ? null : activeTrack === 'original' ? (
+              <button type="button" className="capLink" disabled={busy || isSaving} onClick={() => { void transcribeSpeech(spokenLanguage ?? 'auto'); }}>Listen again</button>
+            ) : (
+              <button type="button" className="capLink" disabled={busy || isSaving} onClick={() => { void generateTranslation(activeTrack, activeLabel); }}>Redo</button>
+            )}
+          </div>
+
+          {progress ? (
+            <div className="capProgress" role="status">
+              <span>{progress.label}</span>
+              <div className="capBar"><b style={{ width: `${Math.round(progress.ratio * 100)}%` }} /></div>
+              <button type="button" className="capLink" onClick={() => { void window.roughCut.cancelCaptionsTranslation(progress.id); }}>Cancel</button>
+            </div>
+          ) : null}
+          {message && !progress ? <p className={messageIsError ? 'capMessage error' : 'capMessage'} role="status">{message}</p> : null}
+
+          <ol className="capList" aria-label="Caption lines">
+            {placedCues.map(({ cue, timelineSec }) => (
+              <li key={`${cue.id}:${cue.text}`} className={selectedId === cue.id ? 'on' : undefined}>
+                <time>{formatClock(timelineSec)}</time>
                 <input
                   type="text"
                   dir={captionTextDirection(cue.text)}
                   defaultValue={cue.text}
-                  aria-label={`Caption line at ${formatClock(timelineSec)}`}
+                  placeholder="Empty line"
+                  aria-label={`Caption at ${formatClock(timelineSec)}`}
                   onFocus={() => select(cue.id)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { event.currentTarget.value = cue.text; event.currentTarget.blur(); } }}
                   onBlur={(event) => {
                     const text = event.currentTarget.value;
                     if (text !== cue.text) void persist(withCaptionEdit(document, cue.id, text));
@@ -7891,20 +7861,32 @@ function CaptionsPanel({
                 />
               </li>
             ))}
-          </ul>
-          {placedCues.length > 8 ? (
-            <button type="button" className="cameraFollowDisclosure" aria-expanded={showAll} onClick={() => setShowAll((value) => !value)}>
-              {showAll ? 'Show fewer lines' : `Show all ${placedCues.length} lines`}
-            </button>
-          ) : null}
+            {placedCues.length === 0 ? <li className="capNone">No lines in the part of the video you kept. Click the Captions row on the timeline to add one.</li> : null}
+          </ol>
         </>
       )}
-      {!hasTranscript && placedCues.length === 0 ? (
-        <p className="captionHint">No speech transcript yet. Turn captions on, then double-click the Captions lane on the timeline to type a subtitle in Hebrew or English.</p>
-      ) : (
-        <p className="captionHint">Click a line on the Captions lane to edit it. Drag its edges to retime, double-click an empty spot to add one.</p>
-      )}
-      {saveError ? <p className="error">{saveError}</p> : null}
+
+      <div className="capStyle">
+        <button type="button" className="capDisclose" aria-expanded={styleOpen} onClick={() => setStyleOpen((open) => !open)}>
+          <span>Style</span><i>{styleOpen ? '⌄' : `${styleSummary} ›`}</i>
+        </button>
+        {styleOpen ? (
+          <div className="capStyleBody">
+            <div className="capField">
+              <span>Position</span>
+              <div className="capSeg" role="group" aria-label="Caption position">
+                {CAPTION_POSITIONS.map((position) => (
+                  <button key={position} type="button" aria-pressed={settings.position === position} disabled={isSaving} onClick={() => { void persist(withCaptionSettings(document, { position: position as 'bottom' | 'center' | 'top' })); }}>
+                    {position === 'bottom' ? 'Bottom' : position === 'center' ? 'Middle' : 'Top'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <InspectorSlider label="Size" value={settings.sizePct} min={3} max={9} step={0.5} disabled={isSaving} onChange={(value) => { void persist(withCaptionSettings(document, { sizePct: value })); }} />
+            <InspectorSlider label="Box" value={settings.boxOpacity} min={0} max={1} step={0.05} disabled={isSaving} onChange={(value) => { void persist(withCaptionSettings(document, { boxOpacity: value })); }} />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

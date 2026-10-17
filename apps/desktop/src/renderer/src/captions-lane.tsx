@@ -125,7 +125,7 @@ export function CaptionsLane({
     const close = (event: PointerEvent) => {
       if (event.timeStamp <= armedAt) return;
       const target = event.target as Element | null;
-      if (target?.closest?.('.captionEditorChip, .captionBlock, .captionLaneSwitch, .captionCueList, .captionsPanel')) return;
+      if (target?.closest?.('.captionEditorChip, .captionBlock, .captionLaneSwitch, .captionSectionButton, .capPanel')) return;
       select(null);
     };
     window.addEventListener('pointerdown', close);

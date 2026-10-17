@@ -87,7 +87,6 @@
   --radius-pill: 999px;
 }
 
-
 * { box-sizing: border-box; }
 
 /* Visually hidden, still announced to assistive tech. */
@@ -902,7 +901,6 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   position: relative;
 }
 
-
 .toolRail {
   align-content: start;
   background: #0f0f15;
@@ -961,7 +959,6 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   line-height: 1;
   text-transform: uppercase;
 }
-
 
 .setupBoard {
   background: #15151c;
@@ -2824,6 +2821,244 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   z-index: 30;
 }
 
+/* Captions panel (approved redesign 2026-10-18): one switch, one row of language tabs, then the
+ * lines. Style folds into a single summary row. No boxed steps, no help paragraphs. */
+.capPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+  min-height: 0;
+}
+
+/* The app-wide button skin (inset outline, semibold, lift on hover) is for real buttons; inside this
+ * panel tabs, menu rows, links and the switch stay flat. */
+.capPanel :where(button) { box-shadow: none; font-weight: var(--weight-medium); }
+.capPanel :where(button):hover:not(:disabled) { box-shadow: none; }
+.capPanel :where(button):active:not(:disabled) { transform: none; }
+.capPanel .capLink:hover:not(:disabled),
+.capPanel .capDisclose:hover:not(:disabled),
+.capPanel .capSwitch:hover:not(:disabled) { background: none; }
+.capPanel .capTabs button:hover:not(:disabled):not([aria-selected="true"]),
+.capPanel .capSeg button:hover:not(:disabled):not([aria-pressed="true"]) { background: rgb(255 255 255 / 0.04); }
+.capPanel .capTabs button[aria-selected="true"]:hover:not(:disabled),
+.capPanel .capSeg button[aria-pressed="true"]:hover:not(:disabled) { background: var(--panel-alt); }
+
+.capHead {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: var(--space-1);
+}
+
+.capHead h2 { font-size: var(--text-lg); font-weight: var(--weight-semibold); margin: 0; }
+
+.capSwitch {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: var(--text-sm);
+  gap: var(--space-2);
+  min-height: 0;
+  padding: 0;
+}
+
+.capSwitch i {
+  background: var(--strong-line);
+  border-radius: var(--radius-pill);
+  height: 18px;
+  position: relative;
+  transition: background 120ms ease-out;
+  width: 30px;
+}
+
+.capSwitch i::after {
+  background: #fff;
+  border-radius: var(--radius-pill);
+  content: "";
+  height: 14px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform 120ms ease-out;
+  width: 14px;
+}
+
+.capSwitch.on i { background: var(--accent); }
+.capSwitch.on i::after { transform: translateX(12px); }
+
+.capTabsWrap { position: relative; }
+
+.capTabs {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+}
+
+.capTabs button {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  min-height: 0;
+  padding: var(--space-1-5) 0;
+}
+
+.capTabs button[aria-selected="true"] { background: var(--panel-alt); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 0.4); }
+.capTabs button:hover:not(:disabled):not([aria-selected="true"]) { color: var(--text); }
+.capTabs .capAdd { color: var(--subtle); flex: 0 0 2.1rem; font-size: var(--text-lg); line-height: 1; }
+
+.capMenu {
+  background: var(--panel);
+  border: 1px solid var(--strong-line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.5);
+  display: grid;
+  left: 0;
+  padding: var(--space-1-5);
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  z-index: 30;
+}
+
+.capMenu button {
+  align-items: baseline;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: var(--text-sm);
+  justify-content: space-between;
+  min-height: 0;
+  padding: var(--space-2) var(--space-2-5);
+  text-align: left;
+}
+
+.capMenu button:hover { background: var(--panel-alt); }
+.capMenu small { color: var(--subtle); font-size: var(--text-xs); }
+.capMenu hr { border: 0; border-top: 1px solid var(--line); margin: var(--space-1-5) 0; }
+.capMenuLabel { color: var(--subtle); font-size: var(--text-xs); margin: 0; padding: var(--space-1-5) var(--space-2-5) var(--space-1); }
+
+.capSource {
+  align-items: center;
+  color: var(--subtle);
+  display: flex;
+  font-size: var(--text-xs);
+  justify-content: space-between;
+}
+
+.capSource b { color: var(--muted); font-weight: var(--weight-medium); }
+
+.capLink {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  min-height: 0;
+  padding: var(--space-0-5) 0;
+  text-decoration: underline;
+  text-decoration-color: var(--strong-line);
+  text-underline-offset: 3px;
+}
+
+.capLink:hover:not(:disabled) { color: var(--text); }
+
+.capProgress { align-items: center; color: var(--muted); display: flex; font-size: var(--text-xs); gap: var(--space-2-5); }
+.capBar { background: var(--strong-line); border-radius: var(--radius-pill); flex: 1; height: 3px; overflow: hidden; }
+.capBar b { background: var(--accent); display: block; height: 100%; transition: width 200ms ease-out; }
+.capMessage { color: var(--muted); font-size: var(--text-xs); margin: 0; }
+.capMessage.error { color: #f6a6a6; }
+
+.capList {
+  border-top: 1px solid var(--line);
+  list-style: none;
+  margin: 0 calc(var(--space-4) * -1);
+  max-height: min(56vh, 34rem);
+  overflow: auto;
+  padding: 0;
+}
+
+.capList li {
+  align-items: baseline;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: 2.6rem minmax(0, 1fr);
+  padding: var(--space-0-5) var(--space-4);
+}
+
+.capList li + li { border-top: 1px solid rgb(255 255 255 / 0.03); }
+.capList li.on { background: rgb(37 99 235 / 0.14); }
+.capList time { color: var(--subtle); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.capList li.on time { color: var(--accent-hover); }
+
+.capList input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: #cfcfd8;
+  font-size: var(--text-md);
+  min-width: 0;
+  padding: var(--space-1) var(--space-1-5);
+  width: 100%;
+}
+
+.capList input:hover { border-color: var(--line); }
+.capList input:focus { background: var(--surface); border-color: var(--accent); color: var(--text); outline: none; }
+.capList .capNone { color: var(--subtle); display: block; font-size: var(--text-sm); padding: var(--space-3) var(--space-4); }
+
+.capEmpty {
+  border: 1px dashed var(--strong-line);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  display: grid;
+  font-size: var(--text-sm);
+  gap: var(--space-2-5);
+  justify-items: center;
+  padding: var(--space-6) var(--space-4);
+}
+
+.capEmpty p { margin: 0; }
+
+.capStyle { border-top: 1px solid var(--line); margin: 0 calc(var(--space-4) * -1); }
+
+.capDisclose {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  font-size: var(--text-sm);
+  justify-content: space-between;
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+  width: 100%;
+}
+
+.capDisclose i { color: var(--subtle); font-size: var(--text-xs); font-style: normal; }
+.capStyleBody { display: grid; gap: var(--space-2-5); padding: 0 var(--space-4) var(--space-4); }
+.capField { align-items: center; color: var(--muted); display: grid; font-size: var(--text-sm); gap: var(--space-2); grid-template-columns: 4.5rem 1fr; }
+.capSeg { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); display: flex; gap: var(--space-0-5); padding: var(--space-0-5); }
+.capSeg button { background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; flex: 1; font-size: var(--text-xs); min-height: 0; padding: var(--space-1) 0; }
+.capSeg button[aria-pressed="true"] { background: var(--panel-alt); color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .capSwitch i, .capSwitch i::after, .capBar b { transition: none; }
+}
+
 /* Captions lane: its own row of subtitle blocks; the selected one gets an editor above it
  * (the lane clips nothing so the editor can float, like the zoom lane's chip). */
 .captionsLane,
@@ -2987,95 +3222,6 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 }
 .captionEditorButton:hover:not(:disabled) { background: rgb(255 255 255 / 0.1); }
 .captionEditorButton:disabled { opacity: 0.35; cursor: default; }
-
-.captionLanguageBlock {
-  background: rgb(88 101 242 / 0.08);
-  border: 1px solid rgb(143 154 255 / 0.25);
-  border-radius: var(--radius-md);
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-2-5);
-}
-
-.captionLanguageTitle { font-size: var(--text-sm); font-weight: var(--weight-semibold); margin: 0; }
-
-.captionTrackRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1-5);
-}
-
-.captionTrackRow button[aria-pressed="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.captionCreateRow {
-  align-items: center;
-  display: grid;
-  gap: var(--space-2);
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.captionLanguageSelect { min-width: 0; width: 100%; }
-.captionGenerateButton { min-width: 5.5rem; }
-.captionTranslateDone { color: #8ee6a8; font-size: var(--text-sm); margin: 0; }
-
-.captionTranslateStatus {
-  align-items: center;
-  display: flex;
-  font-size: var(--text-sm);
-  gap: var(--space-2);
-  justify-content: space-between;
-}
-
-.captionHint {
-  color: var(--text-muted, #8b93a7);
-  font-size: var(--text-xs);
-  margin: 0;
-}
-
-.captionCueRow.selectedCue input { border-color: #8f9aff; }
-
-/* Captions tool: position buttons and the editable caption lines. */
-.captionPositionRow {
-  display: grid;
-  gap: var(--space-1-5);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.captionPositionRow button[aria-pressed="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.captionCueList {
-  display: grid;
-  gap: var(--space-1-5);
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.captionCueRow {
-  align-items: center;
-  display: grid;
-  gap: var(--space-2);
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.captionCueTime {
-  color: var(--text-muted, #8b93a7);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.captionCueRow input {
-  min-width: 0;
-  width: 100%;
-}
 
 /* The lane clips its content; let the readout float above it only while a trim is live. */
 .timelineLane.screenLane.trimming { overflow: visible; z-index: 20; }
@@ -4186,7 +4332,6 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 
 .autoZoomActions { flex: 0 0 auto; gap: var(--space-1-5); }
 
-
 @media (max-width: 640px) {
   .shell { padding: 0; }
   .editorShell { border: 0; border-radius: 0; min-height: 100vh; }
@@ -4624,7 +4769,6 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
  * both are visible — keeps the top-left clear for the checkbox. */
 .galleryChipResolution { right: 0.55rem; left: auto; top: 0.55rem; }
 .galleryCard[data-has-camera="true"] .galleryChipResolution { top: 2.55rem; }
-
 
 .galleryCardMedia {
   background: linear-gradient(135deg, rgb(96 165 250 / 0.18), rgb(168 85 247 / 0.18));
