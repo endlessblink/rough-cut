@@ -1,6 +1,6 @@
 import React from 'react';
-import { Scissors as PhosphorScissors, Trash as PhosphorTrash } from '@phosphor-icons/react';
-import { captionTextDirection, getCaptions, removeCaption, splitCaption, updateCaption } from '../../shared/captions.mjs';
+import { Scissors as PhosphorScissors, Trash as PhosphorTrash, X as PhosphorX } from '@phosphor-icons/react';
+import { captionTextDirection, getCaptions, removeCaption, setActiveCaptionTrack, splitCaption, updateCaption } from '../../shared/captions.mjs';
 import { frameRangeToPlacement } from './timeline-rail.mjs';
 
 /** Which subtitle line is selected: shared by the timeline lane and the Captions panel. */
@@ -114,8 +114,37 @@ export function CaptionsLane({
 
   const selected = placed.find((item) => item.cue.id === selectedId) ?? null;
 
+  const { tracks, activeTrack } = getCaptions(document);
+
+  // The editor bubble closes on a click anywhere outside it, the subtitle blocks and the caption list.
+  React.useEffect(() => {
+    if (!selectedId) return undefined;
+    const close = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest?.('.captionEditorChip, .captionBlock, .captionLaneSwitch, .captionCueList, .captionsPanel')) return;
+      select(null);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [selectedId, select]);
+
   return (
     <>
+      {tracks.length > 1 ? (
+        // Always-visible language switch: which caption set shows in the video and the export.
+        <div className="captionLaneSwitch" role="group" aria-label="Caption language" onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+          {tracks.map((track) => (
+            <button
+              key={track.id}
+              type="button"
+              aria-pressed={activeTrack === track.id}
+              onClick={() => onChange(setActiveCaptionTrack(document, track.id))}
+            >
+              {track.id === 'original' ? 'As spoken' : track.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {placed.length === 0 ? <span className="captionsLaneHint" aria-hidden="true">Double-click to add a subtitle</span> : null}
       {placed.map(({ cue, spot }) => {
         const placement = frameRangeToPlacement(spot.startFrame, spot.endFrame, fps, durationSec);
@@ -170,7 +199,7 @@ export function CaptionsLane({
               onKeyDown={(event) => {
                 event.stopPropagation();
                 if (event.key === 'Enter') event.currentTarget.blur();
-                if (event.key === 'Escape') { event.currentTarget.value = selected.cue.text; event.currentTarget.blur(); }
+                if (event.key === 'Escape') { event.currentTarget.value = selected.cue.text; event.currentTarget.blur(); select(null); }
               }}
               onBlur={(event) => {
                 const text = event.currentTarget.value;
@@ -197,6 +226,13 @@ export function CaptionsLane({
               aria-label="Delete subtitle"
               onClick={() => { onChange(removeCaption(document, selected.cue.id)); select(null); }}
             ><PhosphorTrash size={14} weight="duotone" /></button>
+            <button
+              type="button"
+              className="captionEditorButton"
+              title="Close (Esc)"
+              aria-label="Close subtitle editor"
+              onClick={() => select(null)}
+            ><PhosphorX size={14} weight="bold" /></button>
           </div>
         );
       })() : null}
