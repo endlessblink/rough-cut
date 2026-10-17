@@ -68,6 +68,9 @@ const IPC_CHANNELS = {
   RECORDING_TEMPLATE_OVERRIDE_LIST: 'recording-template-override:list',
   RECORDING_TEMPLATE_OVERRIDE_SAVE: 'recording-template-override:save',
   AI_GET_STATUS: 'ai:get-status',
+  CAPTIONS_TRANSLATE: 'captions:translate',
+  CAPTIONS_TRANSLATE_PROGRESS: 'captions:translate-progress',
+  CAPTIONS_TRANSLATE_CANCEL: 'captions:translate-cancel',
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
   GRAPHICS_GENERATE: 'graphics:generate',
   GRAPHICS_CANCEL: 'graphics:cancel',
@@ -146,6 +149,13 @@ contextBridge.exposeInMainWorld('roughCut', {
   listRecordingTemplateOverrides: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_LIST),
   saveRecordingTemplateOverride: (payload) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_SAVE, payload),
   getAiStatus: () => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_STATUS),
+  translateCaptions: (payload) => ipcRenderer.invoke(IPC_CHANNELS.CAPTIONS_TRANSLATE, payload),
+  cancelCaptionsTranslation: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.CAPTIONS_TRANSLATE_CANCEL, requestId),
+  onCaptionsTranslateProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.CAPTIONS_TRANSLATE_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CAPTIONS_TRANSLATE_PROGRESS, listener);
+  },
   analyzeProjectWithAi: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_PROJECT, payload),
   generateGraphic: (payload) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_GENERATE, payload),
   cancelGraphic: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_CANCEL, requestId),

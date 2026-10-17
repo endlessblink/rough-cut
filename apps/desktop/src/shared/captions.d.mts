@@ -3,7 +3,13 @@ export interface CaptionSettings { enabled: boolean; position: 'bottom' | 'cente
 export const CAPTION_POSITIONS: readonly string[];
 export const DEFAULT_CAPTION_SETTINGS: CaptionSettings;
 export function buildCaptionCues(words: unknown, options?: { fps?: number }): CaptionCue[];
-export function getCaptions(document: unknown): { settings: CaptionSettings; cues: CaptionCue[] };
+export interface CaptionTrackInfo { id: string; label: string; language: string | null }
+export const ORIGINAL_CAPTION_TRACK: 'original';
+export function getCaptions(document: unknown): { settings: CaptionSettings; cues: CaptionCue[]; tracks: CaptionTrackInfo[]; activeTrack: string };
+export function listCaptionTracks(document: unknown): CaptionTrackInfo[];
+export function getOriginalCaptionCues(document: unknown): CaptionCue[];
+export function addCaptionTrack<T>(document: T, track: { id: string; label: string; language?: string | null; cues: CaptionCue[] }): T;
+export function setActiveCaptionTrack<T>(document: T, id: string): T;
 export function withCaptionSettings<T>(document: T, patch: Partial<CaptionSettings>): T;
 export function withCaptionEdit<T>(document: T, cueId: string, text: string): T;
 export function updateCaption<T>(document: T, cueId: string, patch: { startFrame?: number; endFrame?: number; text?: string }): T;

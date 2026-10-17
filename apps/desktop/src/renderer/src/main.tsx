@@ -103,7 +103,7 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { resolveCensorSoftness } from '../../shared/censor-regions.mjs';
-import { CAPTION_POSITIONS, addCaption, getCaptions, withCaptionEdit, withCaptionSettings } from '../../shared/captions.mjs';
+import { CAPTION_POSITIONS, addCaption, addCaptionTrack, getCaptions, getOriginalCaptionCues, setActiveCaptionTrack, withCaptionEdit, withCaptionSettings } from '../../shared/captions.mjs';
 import { CaptionSelectionContext, CaptionsLane, sourceFrameAtTimeline } from './captions-lane';
 import {
   DEFAULT_CENSOR_RECT,
@@ -172,6 +172,9 @@ declare global {
       restartRecording: (options?: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean } | null) => Promise<RecordingStatus>;
       cancelRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
+      translateCaptions: (payload: { requestId: string; lines: Array<{ id: string; text: string }>; targetLanguage: string }) => Promise<{ lines: Array<{ id: string; text: string }> } | { error: { code: string; message: string } }>;
+      cancelCaptionsTranslation: (requestId: string) => Promise<{ ok: boolean }>;
+      onCaptionsTranslateProgress: (callback: (progress: { requestId: string; done: number; total: number }) => void) => () => void;
       transcribeProject: (payload: {
         sourcePath: string;
         projectPath: string;
@@ -7519,15 +7522,59 @@ function CaptionsPanel({
   const [isSaving, setIsSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [showAll, setShowAll] = React.useState(false);
+  const [translation, setTranslation] = React.useState<{ requestId: string; done: number; total: number } | null>(null);
+  const [translateError, setTranslateError] = React.useState<string | null>(null);
+  // A translation takes minutes; always build on the project as it is when it finishes.
+  const projectRef = React.useRef(project);
+  projectRef.current = project;
+
+  async function generateTranslation(targetLanguage: 'en') {
+    const startDocument = projectRef.current.document as unknown as ProjectDocument;
+    const sourceSections = selectRecordingEditModel({ document: startDocument as never }).screenClips;
+    // Only lines in footage that is still on the timeline are worth translating.
+    const lines = getOriginalCaptionCues(startDocument).filter((cue) => cue.text.trim()
+      && sourceSections.some((item) => cue.endFrame > item.sourceIn && cue.startFrame < item.sourceOut));
+    if (lines.length === 0) {
+      setTranslateError('There is no speech text to translate yet. Add a subtitle on the Captions lane, or record with a microphone.');
+      return;
+    }
+    const requestId = `captions-${Date.now()}`;
+    setTranslateError(null);
+    setTranslation({ requestId, done: 0, total: lines.length });
+    const stop = window.roughCut.onCaptionsTranslateProgress((progress) => {
+      if (progress.requestId === requestId) setTranslation({ requestId, done: progress.done, total: progress.total });
+    });
+    try {
+      const result = await window.roughCut.translateCaptions({ requestId, lines: lines.map((cue) => ({ id: cue.id, text: cue.text })), targetLanguage });
+      if ('error' in result) {
+        setTranslateError(result.error.code === 'CAPTIONS_CANCELLED' ? null : result.error.message);
+        return;
+      }
+      const translated = new Map(result.lines.map((line) => [line.id, line.text]));
+      const latest = projectRef.current.document as unknown as ProjectDocument;
+      const withTrack = addCaptionTrack(latest, {
+        id: targetLanguage,
+        label: 'English',
+        language: targetLanguage,
+        cues: lines.map((cue) => ({ ...cue, text: translated.get(cue.id) ?? '' })),
+      });
+      await persist(withCaptionSettings(withTrack, { enabled: true }));
+    } catch (err) {
+      setTranslateError(err instanceof Error ? err.message : 'The translation did not finish.');
+    } finally {
+      stop();
+      setTranslation(null);
+    }
+  }
 
   async function persist(nextDocument: unknown) {
-    const previous = project;
-    const optimistic = { ...project, document: nextDocument as ProjectState['document'] };
+    const previous = projectRef.current;
+    const optimistic = { ...previous, document: nextDocument as ProjectState['document'] };
     setSaveError(null);
     setIsSaving(true);
     onProjectChange(optimistic, { history: true, previous });
     try {
-      const saved = await saveProjectGuarded({ path: project.path, document: optimistic.document });
+      const saved = await saveProjectGuarded({ path: previous.path, document: optimistic.document });
       onProjectChange(saved);
     } catch (err) {
       onProjectChange(previous);
@@ -7538,6 +7585,8 @@ function CaptionsPanel({
   }
 
   const hasTranscript = cues.length > 0;
+  const { tracks, activeTrack } = getCaptions(document);
+  const hasEnglish = tracks.some((track) => track.id === 'en');
   const { selectedId, select } = React.useContext(CaptionSelectionContext);
   // Only lines in footage that is still on the timeline, listed by their time on the timeline.
   const captionFps = Math.max(1, project.recording?.fps ?? 30);
@@ -7552,6 +7601,40 @@ function CaptionsPanel({
   return (
     <div className="cameraFollowPanel captionsPanel" aria-label="Captions" data-ui-region="captions-panel">
       <p className="eyebrow">Captions</p>
+      <div className="captionLanguageBlock">
+        <p className="captionLanguageTitle">Language shown</p>
+        <div className="captionTrackRow" role="group" aria-label="Caption language">
+          {tracks.map((track) => (
+            <button
+              key={track.id}
+              type="button"
+              className="secondary compact"
+              aria-pressed={activeTrack === track.id}
+              disabled={isSaving || translation !== null}
+              onClick={() => { void persist(withCaptionSettings(setActiveCaptionTrack(document, track.id), { enabled: true })); }}
+            >
+              {track.id === 'original' ? 'Original' : track.label}
+            </button>
+          ))}
+        </div>
+        {translation ? (
+          <div className="captionTranslateStatus" role="status">
+            <span>Translating to English… {translation.done} of {translation.total} lines</span>
+            <button type="button" className="secondary compact" onClick={() => { void window.roughCut.cancelCaptionsTranslation(translation.requestId); }}>Cancel</button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="primary compact captionGenerateButton"
+            disabled={isSaving || !hasTranscript}
+            onClick={() => { void generateTranslation('en'); }}
+          >
+            {hasEnglish ? 'Regenerate English captions' : 'Generate English captions'}
+          </button>
+        )}
+        <p className="captionHint">Translates the original captions into English with your Claude Code login, about a minute or two. Then pick English above; the original stays.</p>
+        {translateError ? <p className="error">{translateError}</p> : null}
+      </div>
       {(
         <>
           <InspectorToggle

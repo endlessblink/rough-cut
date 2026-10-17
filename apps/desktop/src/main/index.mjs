@@ -83,6 +83,7 @@ import {
   analyzeProject,
   getAiStatus,
 } from './ai-service.mjs';
+import { translateCaptionLines } from './captions-translate-service.mjs';
 
 const ownsSingleInstance = app.requestSingleInstanceLock();
 if (!ownsSingleInstance) {
@@ -1385,6 +1386,32 @@ ipcMain.handle(IPC_CHANNELS.GRAPHICS_GENERATE, async (event, payload = {}) => {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   } finally {
     graphicRequests.delete(requestId);
+  }
+});
+const captionTranslations = new Map();
+ipcMain.handle(IPC_CHANNELS.CAPTIONS_TRANSLATE_CANCEL, (_event, requestId) => {
+  captionTranslations.get(requestId)?.abort();
+  return { ok: true };
+});
+ipcMain.handle(IPC_CHANNELS.CAPTIONS_TRANSLATE, async (event, payload = {}) => {
+  const requestId = typeof payload.requestId === 'string' ? payload.requestId : `captions-${Date.now()}`;
+  const controller = new AbortController();
+  captionTranslations.set(requestId, controller);
+  try {
+    const result = await translateCaptionLines({
+      lines: payload.lines,
+      targetLanguage: typeof payload.targetLanguage === 'string' ? payload.targetLanguage : 'en',
+      signal: controller.signal,
+      debugDir: claudeDebugDir,
+      onProgress: (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.CAPTIONS_TRANSLATE_PROGRESS, { requestId, ...progress });
+      },
+    });
+    return { lines: result.lines };
+  } catch (err) {
+    return { error: { code: err?.code ?? 'CAPTIONS_UNKNOWN', message: err?.message ?? String(err) } };
+  } finally {
+    captionTranslations.delete(requestId);
   }
 });
 ipcMain.handle(IPC_CHANNELS.AI_ANALYZE_PROJECT, async (_event, payload) => {

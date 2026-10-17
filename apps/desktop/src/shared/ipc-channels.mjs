@@ -181,6 +181,9 @@ export const IPC_CHANNELS = {
   // AI editing-suggestions view (new)
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
   AI_GET_STATUS: 'ai:get-status',
+  CAPTIONS_TRANSLATE: 'captions:translate',
+  CAPTIONS_TRANSLATE_PROGRESS: 'captions:translate-progress',
+  CAPTIONS_TRANSLATE_CANCEL: 'captions:translate-cancel',
 
   // File system
   READ_TEXT_FILE: 'fs:read-text-file',

@@ -2940,6 +2940,37 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .captionEditorButton:hover:not(:disabled) { background: rgb(255 255 255 / 0.1); }
 .captionEditorButton:disabled { opacity: 0.35; cursor: default; }
 
+.captionLanguageBlock {
+  background: rgb(88 101 242 / 0.08);
+  border: 1px solid rgb(143 154 255 / 0.25);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2-5);
+}
+
+.captionLanguageTitle { font-size: var(--text-sm); font-weight: var(--weight-semibold); margin: 0; }
+
+.captionTrackRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+
+.captionTrackRow button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.captionTranslateStatus {
+  align-items: center;
+  display: flex;
+  font-size: var(--text-sm);
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
 .captionHint {
   color: var(--text-muted, #8b93a7);
   font-size: var(--text-xs);

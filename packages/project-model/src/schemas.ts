@@ -587,6 +587,14 @@ export const ProjectCaptionsSchema = z.object({
   textColor: z.string().optional(),
   boxOpacity: z.number().optional(),
   edits: z.record(z.string(), z.string()).optional(),
+  // Which caption set shows: 'original' (the recording's speech) or a translated track id.
+  activeTrack: z.string().optional(),
+  tracks: z.array(z.object({
+    id: z.string().min(1),
+    label: z.string(),
+    language: z.string().nullable().optional(),
+    cues: z.array(z.object({ id: z.string().min(1), startFrame: z.number(), endFrame: z.number(), text: z.string() })),
+  })).optional(),
   // Explicit lines (source frames) once the user has added, moved, split or deleted any.
   cues: z.array(z.object({
     id: z.string().min(1),

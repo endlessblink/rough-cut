@@ -78,7 +78,56 @@ export function getCaptions(document) {
   if (Number.isFinite(stored.sizePct)) settings.sizePct = Math.max(2, Math.min(12, stored.sizePct));
   if (typeof stored.textColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(stored.textColor)) settings.textColor = stored.textColor;
   if (Number.isFinite(stored.boxOpacity)) settings.boxOpacity = Math.max(0, Math.min(1, stored.boxOpacity));
-  return { settings, cues: resolveCues(document) };
+  return { settings, cues: resolveCues(document), tracks: listCaptionTracks(document), activeTrack: activeTrackId(document) };
+}
+
+export const ORIGINAL_CAPTION_TRACK = 'original';
+
+function storedTracks(document) {
+  const tracks = document?.captions?.tracks;
+  return Array.isArray(tracks)
+    ? tracks.filter((track) => track && typeof track.id === 'string' && track.id !== ORIGINAL_CAPTION_TRACK && Array.isArray(track.cues))
+    : [];
+}
+
+function activeTrackId(document) {
+  const wanted = document?.captions?.activeTrack;
+  return typeof wanted === 'string' && storedTracks(document).some((track) => track.id === wanted) ? wanted : ORIGINAL_CAPTION_TRACK;
+}
+
+function cleanCues(cues) {
+  return (Array.isArray(cues) ? cues : [])
+    .filter((cue) => cue && typeof cue.id === 'string' && typeof cue.text === 'string' && Number.isFinite(cue.startFrame) && Number.isFinite(cue.endFrame) && cue.endFrame > cue.startFrame)
+    .map((cue) => ({ id: cue.id, startFrame: cue.startFrame, endFrame: cue.endFrame, text: cue.text }))
+    .sort((a, b) => a.startFrame - b.startFrame);
+}
+
+/** The caption sets the project has: the one from the recording's speech, plus any translated ones. */
+export function listCaptionTracks(document) {
+  return [
+    { id: ORIGINAL_CAPTION_TRACK, label: 'Original', language: null },
+    ...storedTracks(document).map((track) => ({ id: track.id, label: typeof track.label === 'string' && track.label ? track.label : track.id, language: typeof track.language === 'string' ? track.language : null })),
+  ];
+}
+
+/** Lines of the original (speech) set, whichever set is showing: the source for translations. */
+export function getOriginalCaptionCues(document) {
+  return resolveOriginalCues(document);
+}
+
+/** Add (or replace) a caption set, e.g. an English translation, and show it. */
+export function addCaptionTrack(document, { id, label, language = null, cues }) {
+  const current = document?.captions && typeof document.captions === 'object' ? document.captions : {};
+  const others = storedTracks(document).filter((track) => track.id !== id);
+  return { ...document, captions: { ...current, activeTrack: id, tracks: [...others, { id, label, language, cues: cleanCues(cues) }] } };
+}
+
+/** Choose which caption set shows in the video and the export. */
+export function setActiveCaptionTrack(document, id) {
+  const known = id === ORIGINAL_CAPTION_TRACK || storedTracks(document).some((track) => track.id === id);
+  if (!known || activeTrackId(document) === id) return document;
+  const current = document?.captions && typeof document.captions === 'object' ? document.captions : {};
+  return { ...document, captions: { ...current, activeTrack: id } };
 }
 
 function transcriptFps(document) {
@@ -87,13 +136,14 @@ function transcriptFps(document) {
 
 /** Lines in source frames: the stored (edited) list when there is one, else built from the transcript. */
 function resolveCues(document) {
+  const active = activeTrackId(document);
+  if (active !== ORIGINAL_CAPTION_TRACK) return cleanCues(storedTracks(document).find((track) => track.id === active)?.cues);
+  return resolveOriginalCues(document);
+}
+
+function resolveOriginalCues(document) {
   const stored = document?.captions && typeof document.captions === 'object' ? document.captions : {};
-  if (Array.isArray(stored.cues)) {
-    return stored.cues
-      .filter((cue) => cue && typeof cue.id === 'string' && typeof cue.text === 'string' && Number.isFinite(cue.startFrame) && Number.isFinite(cue.endFrame) && cue.endFrame > cue.startFrame)
-      .map((cue) => ({ id: cue.id, startFrame: cue.startFrame, endFrame: cue.endFrame, text: cue.text }))
-      .sort((a, b) => a.startFrame - b.startFrame);
-  }
+  if (Array.isArray(stored.cues)) return cleanCues(stored.cues);
   const edits = stored.edits && typeof stored.edits === 'object' ? stored.edits : {};
   return buildCaptionCues(document?.transcript?.words, { fps: transcriptFps(document) }).map((cue) => (
     typeof edits[cue.id] === 'string' ? { ...cue, text: edits[cue.id] } : cue
@@ -103,6 +153,10 @@ function resolveCues(document) {
 /** Same document with the lines stored explicitly (so they can be added, moved, split and deleted). */
 function withStoredCues(document, cues) {
   const current = document?.captions && typeof document.captions === 'object' ? document.captions : {};
+  const active = activeTrackId(document);
+  if (active !== ORIGINAL_CAPTION_TRACK) {
+    return { ...document, captions: { ...current, tracks: storedTracks(document).map((track) => (track.id === active ? { ...track, cues } : track)) } };
+  }
   const { edits: _edits, ...rest } = current;
   return { ...document, captions: { ...rest, cues } };
 }

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  addCaptionTrack,
+  getOriginalCaptionCues,
+  setActiveCaptionTrack,
   addCaption,
   removeCaption,
   splitCaption,
@@ -79,6 +82,33 @@ test('lines can be added, moved, split and deleted; each keeps clear of its neig
 
   const removed = removeCaption(doc, added.id);
   assert.deepEqual(getCaptions(removed).cues.map((c) => c.text), ['one two', 'three']);
+});
+
+test('a translated caption set can be added, picked, and edited without touching the original', () => {
+  const doc = base();
+  const original = getCaptions(doc).cues;
+  let next = addCaptionTrack(doc, {
+    id: 'en',
+    label: 'English',
+    language: 'en',
+    cues: original.map((cue) => ({ ...cue, text: `EN ${cue.text}` })),
+  });
+  // The new set shows right away; the original is still there to switch back to.
+  assert.equal(getCaptions(next).activeTrack, 'en');
+  assert.deepEqual(getCaptions(next).tracks.map((t) => t.id), ['original', 'en']);
+  assert.equal(getCaptions(next).cues[0].text, 'EN one two');
+
+  // Edits go to the set that is showing.
+  next = updateCaption(next, getCaptions(next).cues[0].id, { text: 'Fixed english' });
+  assert.equal(getCaptions(next).cues[0].text, 'Fixed english');
+  next = setActiveCaptionTrack(next, 'original');
+  assert.equal(getCaptions(next).cues[0].text, 'one two');
+  assert.deepEqual(getOriginalCaptionCues(next).map((c) => c.text), ['one two', 'three']);
+
+  // An unknown set is ignored; regenerating replaces the same set.
+  assert.equal(setActiveCaptionTrack(next, 'fr'), next);
+  next = addCaptionTrack(next, { id: 'en', label: 'English', language: 'en', cues: original });
+  assert.equal(getCaptions(next).tracks.filter((t) => t.id === 'en').length, 1);
 });
 
 test('the subtitle file carries Hebrew text, times and the chosen style', () => {
