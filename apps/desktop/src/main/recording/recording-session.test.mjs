@@ -1657,6 +1657,9 @@ test('a screen capture that dies at startup fails the take with ffmpeg\'s reason
   await rm(root, { recursive: true, force: true });
 });
 
+// The session only accepts a /dev/video path on Linux and a device name on Windows.
+const PREROLL_TEST_CAMERA = process.platform === 'win32' ? 'USB Camera' : '/dev/video0';
+
 function cameraPrerollFixture(root, { measure }) {
   const opts = { screen: null, camera: null };
   const session = createRecordingSession({
@@ -1677,7 +1680,7 @@ function cameraPrerollFixture(root, { measure }) {
 test('Windows camera head start comes from the real first-frame times, not from when the process was spawned', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-preroll-'));
   const { session, opts } = cameraPrerollFixture(root, { measure: true });
-  await session.start({ cameraDevicePath: 'USB Camera' });
+  await session.start({ cameraDevicePath: PREROLL_TEST_CAMERA });
   assert.equal(typeof opts.camera.onFirstFrame, 'function', 'the camera capture reports its first frame');
   // The camera's first frame was 1.8 s before the screen's, whatever the spawn timing was.
   opts.camera.onFirstFrame(1_000_000);
@@ -1691,13 +1694,13 @@ test('Windows camera head start comes from the real first-frame times, not from 
 test('measured camera preroll works whichever first frame arrives first, and never goes negative', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-preroll-order-'));
   const first = cameraPrerollFixture(root, { measure: true });
-  await first.session.start({ cameraDevicePath: 'USB Camera' });
+  await first.session.start({ cameraDevicePath: PREROLL_TEST_CAMERA });
   first.opts.screen.onFirstFrame(2_000_000); // screen first
   first.opts.camera.onFirstFrame(1_999_000);
   assert.equal((await first.session.stop()).camera.prerollMs, 1000);
 
   const second = cameraPrerollFixture(root, { measure: true });
-  await second.session.start({ cameraDevicePath: 'USB Camera' });
+  await second.session.start({ cameraDevicePath: PREROLL_TEST_CAMERA });
   second.opts.camera.onFirstFrame(3_000_500); // camera started AFTER the screen: no head start
   second.opts.screen.onFirstFrame(3_000_000);
   assert.equal((await second.session.stop()).camera.prerollMs, 0);
