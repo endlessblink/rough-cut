@@ -34,7 +34,10 @@ export function buildCaptionCues(words, { fps = 30 } = {}) {
   const groups = [];
   let current = null;
   for (const item of usable) {
-    const text = item.word.trim();
+    // The transcriber occasionally splits a Hebrew letter in two; drop the broken bytes (the
+    // line can be corrected in the Captions panel) rather than burn a "�" into the video.
+    const text = item.word.replace(/�/g, '').trim();
+    if (!text) continue;
     if (current) {
       const last = current.words[current.words.length - 1];
       const gap = (item.startFrame - last.endFrame) / frameRate;
