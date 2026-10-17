@@ -877,7 +877,7 @@ async function assertScreenCaptureStayedUp(capture, { unified }) {
   if (!capture || typeof capture.whenExited !== 'function') return;
   const early = await Promise.race([
     capture.whenExited(),
-    new Promise((resolve) => { const t = setTimeout(() => resolve(null), EARLY_EXIT_WINDOW_MS); t.unref?.(); }),
+    new Promise((resolve) => setTimeout(() => resolve(null), EARLY_EXIT_WINDOW_MS)),
   ]);
   if (!early || early.code === 0) return;
   const tail = String(early.stderr ?? '').split(/\r?\n/).filter((line) => line.trim() && !/^\s*(lib|built with|configuration)/.test(line)).slice(-3).join(' | ');
