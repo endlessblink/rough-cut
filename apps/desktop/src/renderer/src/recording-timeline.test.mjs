@@ -319,6 +319,31 @@ test('restoreRecordingSourceEdge maps restore UI to the command service', () => 
   assert.equal(next.timeline.tracks[0].clips[0].sourceIn, 0);
 });
 
+test('restoreRecordingSourceEdge on a split recording slides later sections along instead of failing', () => {
+  const project = projectWithRecordingAndCamera();
+  const recording = project.assets[0];
+  // Cutting the head ripples the section to the timeline start, leaving no room before it.
+  const trimmed = rippleDeleteRecordingRange(project, { assetId: recording.id, startFrame: 0, endFrame: 45 });
+  const split = splitRecordingAtFrame(trimmed, { assetId: recording.id, frame: 100 });
+  const before = selectRecordingEditModel({ document: split, recordingAssetId: recording.id }).screenClips;
+  assert.equal(before.length, 2);
+  assert.ok(before[0].sourceIn > 0);
+
+  const next = restoreRecordingSourceEdge(split, { assetId: recording.id, edge: 'head' });
+  const after = selectRecordingEditModel({ document: next, recordingAssetId: recording.id }).screenClips;
+
+  assert.equal(after[0].sourceIn, 0);
+  assert.equal(after[0].timelineIn, 0);
+  assert.equal(after[1].timelineIn, after[0].timelineOut);
+  assert.equal(after[1].timelineIn - before[1].timelineIn, before[0].sourceIn);
+  assert.equal(after[1].sourceIn, before[1].sourceIn);
+});
+
+test('restoreRecordingSourceEdge does nothing when no footage is hidden at that edge', () => {
+  const project = projectWithRecordingAndCamera();
+  assert.equal(restoreRecordingSourceEdge(project, { assetId: project.assets[0].id, edge: 'head' }), project);
+});
+
 test('restoreRecordingOriginalState returns screen and camera to one full take', () => {
   const project = projectWithRecordingAndCamera();
   const recording = project.assets[0];

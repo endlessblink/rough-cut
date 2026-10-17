@@ -90,7 +90,12 @@ export function restoreRecordingSourceEdge(document, { assetId, edge }) {
   const model = selectRecordingEditModel({ document, recordingAssetId: assetId });
   const clip = edge === 'head' ? model.screenClips[0] : model.screenClips[model.screenClips.length - 1];
   if (!clip) return document;
-  return restoreSourceEdge(model.document, { clipId: clip.id, edge }).document;
+  // Restoring grows the section into its hidden footage. Going through the same
+  // extend path as an edge drag fills empty space first and slides later sections
+  // along, so a split recording no longer fails with overlapping clips.
+  const hidden = edge === 'head' ? clip.sourceIn : (model.sourceDurationFrames ?? 0) - clip.sourceOut;
+  if (!(hidden > 0)) return document;
+  return extendRecordingSection(model, clip, edge, hidden);
 }
 
 export function restoreRecordingFullSource(document, { assetId }) {
@@ -269,6 +274,14 @@ function extendRecordingSection(model, clip, edge, requestedFrames) {
     .sort((left, right) => left.timelineIn - right.timelineIn);
   let frames = Math.max(0, Math.round(requestedFrames));
   if (edge === 'head') frames = Math.min(frames, ...sectionClips.map((candidate) => candidate.sourceIn));
+  else {
+    // Never reveal past the end of any linked source (camera files end a little early).
+    const sourceLength = (candidate) => timeline.sources?.find((source) => source.id === candidate.mediaId)?.duration;
+    frames = Math.min(frames, ...sectionClips.map((candidate) => {
+      const length = sourceLength(candidate);
+      return Number.isFinite(length) ? length - candidate.sourceOut : frames;
+    }));
+  }
   if (frames <= 0) return model.document;
 
   const previousOut = Math.max(0, ...neighbours.filter((candidate) => candidate.timelineOut <= clip.timelineIn).map((candidate) => candidate.timelineOut));

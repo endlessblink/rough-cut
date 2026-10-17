@@ -4786,6 +4786,19 @@ function ProjectPreview({
     }
   }
 
+  // One undoable edit (persist records history). Errors are shown, not swallowed: a restore
+  // that the timeline rejects used to look like a dead button.
+  function restoreHiddenSourceEdge(edge: 'head' | 'tail') {
+    if (!recordingAsset?.id) return;
+    try {
+      const next = restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge }) as ProjectState['document'];
+      if (next === project.document) return;
+      void persist(next);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Could not restore the hidden footage.');
+    }
+  }
+
   function setTrimStartToPlayhead() {
     if (!effectiveRecording) return;
     updateTrim(Math.round(currentTimeSec * effectiveRecording.fps), trimInfo.endFrame);
@@ -5283,7 +5296,7 @@ function ProjectPreview({
           <p className="timelineHeaderTitle">Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} /> : null}
+           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} /> : null}
         </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector" hidden={!inspectorOpen}>
         <div className="inspectorHeader">
@@ -6174,6 +6187,16 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     .filter((region) => Number.isFinite(region.timelineIn) && Number.isFinite(region.timelineOut) && Number.isFinite(region.sourceIn) && Number.isFinite(region.sourceOut))
     .map((region) => ({ timelineIn: region.timelineIn as number, timelineOut: region.timelineOut as number, sourceIn: region.sourceIn as number, sourceOut: region.sourceOut as number }));
 
+  // Like timelineFrameFromClient but without the 0 floor, so dragging a start edge left of the
+  // timeline start reveals hidden footage (the section grows and later sections slide along).
+  function timelineFrameFromClientUnclamped(handle: HTMLElement, clientX: number) {
+    const track = handle.closest('.timelineLane')?.querySelector('.laneTrack');
+    if (!(track instanceof HTMLElement)) return null;
+    const rect = track.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    return Math.round(((clientX - rect.left) / rect.width) * model.durationSec * fps);
+  }
+
   function timelineFrameFromClient(handle: HTMLElement, clientX: number) {
     const track = handle.closest('.timelineLane')?.querySelector('.laneTrack');
     if (!(track instanceof HTMLElement)) return null;
@@ -6316,7 +6339,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const move = (moveEvent: PointerEvent) => {
       if (!moved && Math.abs(moveEvent.clientX - startClientX) < 4) return;
       moved = true;
-      const rawFrame = timelineFrameFromClient(handle, moveEvent.clientX);
+      const rawFrame = edge === 'head' ? timelineFrameFromClientUnclamped(handle, moveEvent.clientX) : timelineFrameFromClient(handle, moveEvent.clientX);
       if (rawFrame === null) return;
       const nextFrame = clamp(rawFrame);
       latestFrame = nextFrame;
@@ -6748,7 +6771,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       return separated(placement);
     }
     if (trimDragPreview.edge === 'head') {
-      const placement = frameRangeToPlacement(trimDragPreview.frame, region.timelineOut ?? trimDragPreview.frame + 1, fps, model.durationSec);
+      const placement = trimDragPreview.frame < 0
+        ? frameRangeToPlacement(0, (region.timelineOut ?? 1) - trimDragPreview.frame, fps, model.durationSec)
+        : frameRangeToPlacement(trimDragPreview.frame, region.timelineOut ?? trimDragPreview.frame + 1, fps, model.durationSec);
       return separated(placement);
     }
     const placement = frameRangeToPlacement(region.timelineIn ?? 0, trimDragPreview.frame, fps, model.durationSec);
@@ -6782,7 +6807,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       return separated(placement);
     }
     const placement = trimDragPreview.edge === 'head'
-      ? frameRangeToPlacement(trimDragPreview.frame, linkedScreen.timelineOut ?? trimDragPreview.frame + 1, fps, model.durationSec)
+      ? (trimDragPreview.frame < 0
+        ? frameRangeToPlacement(0, (linkedScreen.timelineOut ?? 1) - trimDragPreview.frame, fps, model.durationSec)
+        : frameRangeToPlacement(trimDragPreview.frame, linkedScreen.timelineOut ?? trimDragPreview.frame + 1, fps, model.durationSec))
       : frameRangeToPlacement(linkedScreen.timelineIn ?? 0, trimDragPreview.frame, fps, model.durationSec);
     return separated(placement);
   }
