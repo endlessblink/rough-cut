@@ -845,7 +845,10 @@ export function getPrimaryRecording(project) {
           width: typeof cameraAsset.metadata.width === 'number' ? cameraAsset.metadata.width : 1280,
           height: typeof cameraAsset.metadata.height === 'number' ? cameraAsset.metadata.height : 720,
           fps: typeof cameraAsset.metadata.fps === 'number' ? cameraAsset.metadata.fps : project.settings.frameRate,
-          sourceInFrames: typeof cameraClip?.sourceIn === 'number' ? cameraClip.sourceIn : 0,
+          // How far the camera file runs ahead of the screen file. The camera clip's own sourceIn
+          // already includes any head trim shared with the screen clip, so subtract that or the
+          // preview shifts the camera twice and it runs off the end of its file mid-video.
+          sourceInFrames: typeof cameraClip?.sourceIn === 'number' ? Math.max(0, cameraClip.sourceIn - sourceIn) : 0,
         }
       : null,
   };

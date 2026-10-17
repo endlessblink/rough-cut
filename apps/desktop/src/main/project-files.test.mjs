@@ -186,6 +186,18 @@ test('creates linked camera asset and track when webcam recording is present', (
   assert.equal(getPrimaryRecording(project)?.camera?.sourceInFrames, 30);
 });
 
+test('a head trim shared by screen and camera does not shift the camera a second time', () => {
+  const project = createProjectForRecording({
+    recording: { ...recording, camera: { rawPath: '/tmp/c.mkv', outputPath: '/tmp/c.mp4', devicePath: '/dev/video2', width: 1280, height: 720, fps: 30, sourceInFrames: 30, prerollMs: 1000 } },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  // Trim 300 frames off the start of both linked clips (screen track 0, camera track 1).
+  for (const track of [project.composition.tracks[0], project.composition.tracks[1]]) {
+    track.clips[0].sourceIn += 300;
+  }
+  assert.equal(getPrimaryRecording(project)?.camera?.sourceInFrames, 30);
+});
+
 test('uses probed synced overlap for linked camera project duration', () => {
   const project = createProjectForRecording({
     recording: {
