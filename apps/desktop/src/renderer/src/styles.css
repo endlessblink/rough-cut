@@ -2888,6 +2888,8 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .captionBlock:hover .captionHandle::after,
 .captionBlock.selectedCaption .captionHandle::after { opacity: 0.9; }
 
+.captionsLaneNotice { color: #ffd479; left: 50%; transform: translate(-50%, -50%); z-index: 6; }
+
 .captionLaneSwitch {
   background: rgb(10 16 30 / 0.95);
   border: 1px solid rgb(143 154 255 / 0.55);

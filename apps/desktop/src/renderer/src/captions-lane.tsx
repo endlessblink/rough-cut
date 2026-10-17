@@ -119,7 +119,11 @@ export function CaptionsLane({
   // The editor bubble closes on a click anywhere outside it, the subtitle blocks and the caption list.
   React.useEffect(() => {
     if (!selectedId) return undefined;
+    // The click that selected (or just added) a line must not close its own bubble: React can run this
+    // effect while that very event is still travelling up to the window.
+    const armedAt = performance.now();
     const close = (event: PointerEvent) => {
+      if (event.timeStamp <= armedAt) return;
       const target = event.target as Element | null;
       if (target?.closest?.('.captionEditorChip, .captionBlock, .captionLaneSwitch, .captionCueList, .captionsPanel')) return;
       select(null);
@@ -145,7 +149,7 @@ export function CaptionsLane({
           ))}
         </div>
       ) : null}
-      {placed.length === 0 ? <span className="captionsLaneHint" aria-hidden="true">Double-click to add a subtitle</span> : null}
+      {placed.length === 0 ? <span className="captionsLaneHint" aria-hidden="true">Click here to add a subtitle</span> : null}
       {placed.map(({ cue, spot }) => {
         const placement = frameRangeToPlacement(spot.startFrame, spot.endFrame, fps, durationSec);
         const isSelected = cue.id === selectedId;

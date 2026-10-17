@@ -5554,6 +5554,12 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const [selectedZoomMarkerIds, setSelectedZoomMarkerIds] = React.useState<string[]>([]);
   const captionSelection = React.useContext(CaptionSelectionContext);
   const [captionFocusId, setCaptionFocusId] = React.useState<string | null>(null);
+  const [captionNotice, setCaptionNotice] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!captionNotice) return undefined;
+    const timer = window.setTimeout(() => setCaptionNotice(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [captionNotice]);
   const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [graphicDragPreview, setGraphicDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
@@ -7108,21 +7114,29 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                   label="Captions"
                   className="captionsLane"
                   aria-label="Subtitles"
-                  onTrackPointerDown={handleTimelineSeekPointerDown}
-                  trackTitle="Double-click to add a subtitle"
-                  onTrackDoubleClick={(event) => {
+                  trackTitle="Click an empty spot to add a subtitle"
+                  onTrackPointerDown={(event) => {
+                    // A click on empty space adds a subtitle right there (lines themselves handle their own clicks).
+                    if (event.button !== 0) return;
                     const rect = event.currentTarget.getBoundingClientRect();
                     if (rect.width <= 0) return;
                     const timelineFrame = Math.round(((event.clientX - rect.left) / rect.width) * Math.max(1, Math.round(model.durationSec * fps)));
+                    seekToFrame(timelineFrame);
                     const sourceFrame = sourceFrameAtTimeline(timelineFrame, sections);
-                    if (sourceFrame === null) return;
-                    const added = addCaption(captionDocument, sourceFrame, { lengthFrames: Math.round(fps * 2) });
-                    if (!added) return;
+                    const added = sourceFrame === null ? null : addCaption(captionDocument, sourceFrame, { lengthFrames: Math.round(fps * 2) });
+                    if (!added) {
+                      setCaptionNotice(sourceFrame === null ? 'No video here to caption.' : 'No room here - click a gap between subtitles.');
+                      return;
+                    }
+                    setCaptionNotice(null);
+                    // Keep the browser from moving focus to the lane: the new line's text box takes it.
+                    event.preventDefault();
                     setCaptionFocusId(added.id);
                     captionSelection.select(added.id);
                     onCaptionsChange(added.document as ProjectDocument);
                   }}
                 >
+                  {captionNotice ? <span className="captionsLaneHint captionsLaneNotice" role="status">{captionNotice}</span> : null}
                   <CaptionsLane
                     document={captionDocument}
                     fps={fps}
