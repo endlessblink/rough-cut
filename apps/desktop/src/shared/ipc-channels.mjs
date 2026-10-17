@@ -184,6 +184,8 @@ export const IPC_CHANNELS = {
   CAPTIONS_TRANSLATE: 'captions:translate',
   CAPTIONS_TRANSLATE_PROGRESS: 'captions:translate-progress',
   CAPTIONS_TRANSLATE_CANCEL: 'captions:translate-cancel',
+  CAPTIONS_TRANSCRIBE: 'captions:transcribe',
+  CAPTIONS_TRANSCRIBE_PROGRESS: 'captions:transcribe-progress',
 
   // File system
   READ_TEXT_FILE: 'fs:read-text-file',

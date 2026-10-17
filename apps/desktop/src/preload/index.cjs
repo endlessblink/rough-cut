@@ -71,6 +71,8 @@ const IPC_CHANNELS = {
   CAPTIONS_TRANSLATE: 'captions:translate',
   CAPTIONS_TRANSLATE_PROGRESS: 'captions:translate-progress',
   CAPTIONS_TRANSLATE_CANCEL: 'captions:translate-cancel',
+  CAPTIONS_TRANSCRIBE: 'captions:transcribe',
+  CAPTIONS_TRANSCRIBE_PROGRESS: 'captions:transcribe-progress',
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
   GRAPHICS_GENERATE: 'graphics:generate',
   GRAPHICS_CANCEL: 'graphics:cancel',
@@ -150,6 +152,12 @@ contextBridge.exposeInMainWorld('roughCut', {
   saveRecordingTemplateOverride: (payload) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_SAVE, payload),
   getAiStatus: () => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_STATUS),
   translateCaptions: (payload) => ipcRenderer.invoke(IPC_CHANNELS.CAPTIONS_TRANSLATE, payload),
+  transcribeCaptionSpeech: (payload) => ipcRenderer.invoke(IPC_CHANNELS.CAPTIONS_TRANSCRIBE, payload),
+  onCaptionsTranscribeProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.CAPTIONS_TRANSCRIBE_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CAPTIONS_TRANSCRIBE_PROGRESS, listener);
+  },
   cancelCaptionsTranslation: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.CAPTIONS_TRANSLATE_CANCEL, requestId),
   onCaptionsTranslateProgress: (callback) => {
     const listener = (_event, progress) => callback(progress);

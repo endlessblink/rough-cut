@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  withTranscribedSpeech,
+  captionTextDirection,
   addCaptionTrack,
   getOriginalCaptionCues,
   setActiveCaptionTrack,
@@ -111,13 +113,25 @@ test('a translated caption set can be added, picked, and edited without touching
   assert.equal(getCaptions(next).tracks.filter((t) => t.id === 'en').length, 1);
 });
 
+test('re-transcribing the speech replaces the original lines and drops translations made from the old ones', () => {
+  let doc = addCaptionTrack(base(), { id: 'he', label: 'Hebrew', language: 'he', cues: [{ id: 'x', startFrame: 0, endFrame: 30, text: 'old' }] });
+  doc = withTranscribedSpeech(doc, [word('Hello', 0, 20), word('there', 20, 40)], { fps: 30, language: 'en' });
+  const { cues, tracks, activeTrack } = getCaptions(doc);
+  assert.deepEqual(cues.map((c) => c.text), ['Hello there']);
+  assert.deepEqual(tracks.map((t) => t.id), ['original']);
+  assert.equal(activeTrack, 'original');
+  assert.equal(doc.captions.speechLanguage, 'en');
+});
+
 test('the subtitle file carries Hebrew text, times and the chosen style', () => {
   const ass = buildCaptionsAss(
     [{ id: 'a', startFrame: 30, endFrame: 90, text: 'שלום עולם' }, { id: 'b', startFrame: 90, endFrame: 120, text: ' ' }],
     { width: 1920, height: 1080, fps: 30, settings: { ...DEFAULT_CAPTION_SETTINGS, position: 'top', sizePct: 5 } },
   );
   assert.match(ass, /PlayResX: 1920/);
-  assert.match(ass, /Dialogue: 0,0:00:01\.00,0:00:03\.00,Default,,0,0,0,,שלום עולם/);
+  assert.match(ass, /Dialogue: 0,0:00:01\.00,0:00:03\.00,Default,,0,0,0,,‫שלום עולם‬/);
+  assert.equal(captionTextDirection('H3 Max הוא מודל'), 'rtl', 'a Hebrew line that opens with an English term is still right-to-left');
+  assert.equal(captionTextDirection('Plain English'), 'ltr');
   assert.equal((ass.match(/Dialogue:/g) ?? []).length, 1);
   assert.match(ass, /Style: Default,Heebo,54,/);
   assert.match(ass, /,8,115,115,65,1/); // top alignment, margins

@@ -2963,6 +2963,17 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   color: #fff;
 }
 
+.captionCreateRow {
+  align-items: center;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.captionLanguageSelect { min-width: 0; width: 100%; }
+.captionGenerateButton { min-width: 5.5rem; }
+.captionTranslateDone { color: #8ee6a8; font-size: var(--text-sm); margin: 0; }
+
 .captionTranslateStatus {
   align-items: center;
   display: flex;

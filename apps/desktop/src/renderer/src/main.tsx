@@ -103,7 +103,7 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { resolveCensorSoftness } from '../../shared/censor-regions.mjs';
-import { CAPTION_POSITIONS, addCaption, addCaptionTrack, getCaptions, getOriginalCaptionCues, setActiveCaptionTrack, withCaptionEdit, withCaptionSettings } from '../../shared/captions.mjs';
+import { CAPTION_LANGUAGES, CAPTION_POSITIONS, addCaption, addCaptionTrack, captionTextDirection, getCaptions, getOriginalCaptionCues, setActiveCaptionTrack, withCaptionEdit, withCaptionSettings, withTranscribedSpeech } from '../../shared/captions.mjs';
 import { CaptionSelectionContext, CaptionsLane, sourceFrameAtTimeline } from './captions-lane';
 import {
   DEFAULT_CENSOR_RECT,
@@ -175,6 +175,8 @@ declare global {
       translateCaptions: (payload: { requestId: string; lines: Array<{ id: string; text: string }>; targetLanguage: string }) => Promise<{ lines: Array<{ id: string; text: string }> } | { error: { code: string; message: string } }>;
       cancelCaptionsTranslation: (requestId: string) => Promise<{ ok: boolean }>;
       onCaptionsTranslateProgress: (callback: (progress: { requestId: string; done: number; total: number }) => void) => () => void;
+      transcribeCaptionSpeech: (payload: { requestId: string; sourcePath: string; sections: Array<{ sourceIn: number; sourceOut: number }>; fps: number; language: string }) => Promise<{ language: string; words: Array<{ word: string; startFrame: number; endFrame: number }> } | { error: { code: string; message: string } }>;
+      onCaptionsTranscribeProgress: (callback: (progress: { requestId: string; done: number; total: number }) => void) => () => void;
       transcribeProject: (payload: {
         sourcePath: string;
         projectPath: string;
@@ -7524,11 +7526,63 @@ function CaptionsPanel({
   const [showAll, setShowAll] = React.useState(false);
   const [translation, setTranslation] = React.useState<{ requestId: string; done: number; total: number } | null>(null);
   const [translateError, setTranslateError] = React.useState<string | null>(null);
+  const [translateDone, setTranslateDone] = React.useState<string | null>(null);
+  const [speechLanguage, setSpeechLanguage] = React.useState('auto');
+  const [speech, setSpeech] = React.useState<{ requestId: string; done: number; total: number } | null>(null);
+  const [speechError, setSpeechError] = React.useState<string | null>(null);
+  const [speechDone, setSpeechDone] = React.useState<string | null>(null);
+  const [targetLanguage, setTargetLanguage] = React.useState('en');
   // A translation takes minutes; always build on the project as it is when it finishes.
   const projectRef = React.useRef(project);
   projectRef.current = project;
 
-  async function generateTranslation(targetLanguage: 'en') {
+  async function transcribeSpeech() {
+    const startProject = projectRef.current;
+    const sectionsNow = selectRecordingEditModel({ document: startProject.document as never }).screenClips
+      .map((clip) => ({ sourceIn: clip.sourceIn ?? 0, sourceOut: clip.sourceOut ?? 0 }));
+    const sourcePath = startProject.recording?.filePath;
+    const speechFps = startProject.recording?.fps ?? 30;
+    if (!sourcePath || sectionsNow.length === 0) {
+      setSpeechError('There is no recording sound to transcribe in this project.');
+      return;
+    }
+    const requestId = `captions-speech-${Date.now()}`;
+    setSpeechError(null);
+    setSpeechDone(null);
+    setSpeech({ requestId, done: 0, total: 0 });
+    const stop = window.roughCut.onCaptionsTranscribeProgress((progress) => {
+      if (progress.requestId === requestId) setSpeech({ requestId, done: progress.done, total: progress.total });
+    });
+    try {
+      const result = await window.roughCut.transcribeCaptionSpeech({ requestId, sourcePath, sections: sectionsNow, fps: speechFps, language: speechLanguage });
+      if ('error' in result) {
+        setSpeechError(result.error.code === 'CAPTIONS_CANCELLED' ? null : result.error.message);
+        return;
+      }
+      const latest = projectRef.current.document as unknown as ProjectDocument;
+      const next = withCaptionSettings(withTranscribedSpeech(latest, result.words, { fps: speechFps, language: result.language }), { enabled: true });
+      await persist(next);
+      const spokenLabel = CAPTION_LANGUAGES.find((item) => item.code === result.language)?.label ?? result.language;
+      setSpeechDone(`Done: heard ${spokenLabel}, ${getCaptions(next).cues.length} lines. Edit any wrong word on the Captions lane.`);
+    } catch (err) {
+      setSpeechError(err instanceof Error ? err.message : 'The transcription did not finish.');
+    } finally {
+      stop();
+      setSpeech(null);
+    }
+  }
+
+  async function generateTranslation(targetLanguage: string, targetLabel: string) {
+    setTranslateDone(null);
+    // Captions already spoken in this language need no translation: just keep them as that language's set.
+    const spoken = (projectRef.current.document as unknown as { captions?: { speechLanguage?: string | null } }).captions?.speechLanguage;
+    if (spoken === targetLanguage) {
+      const latestDoc = projectRef.current.document as unknown as ProjectDocument;
+      const keep = addCaptionTrack(latestDoc, { id: targetLanguage, label: targetLabel, language: targetLanguage, cues: getOriginalCaptionCues(latestDoc) });
+      await persist(withCaptionSettings(keep, { enabled: true }));
+      setTranslateDone(`${targetLabel} is what you speak, so these captions are already ${targetLabel}. They are ready and showing.`);
+      return;
+    }
     const startDocument = projectRef.current.document as unknown as ProjectDocument;
     const sourceSections = selectRecordingEditModel({ document: startDocument as never }).screenClips;
     // Only lines in footage that is still on the timeline are worth translating.
@@ -7554,11 +7608,12 @@ function CaptionsPanel({
       const latest = projectRef.current.document as unknown as ProjectDocument;
       const withTrack = addCaptionTrack(latest, {
         id: targetLanguage,
-        label: 'English',
+        label: targetLabel,
         language: targetLanguage,
         cues: lines.map((cue) => ({ ...cue, text: translated.get(cue.id) ?? '' })),
       });
       await persist(withCaptionSettings(withTrack, { enabled: true }));
+      setTranslateDone(`${targetLabel} captions are ready and showing now. Use the language buttons above to switch.`);
     } catch (err) {
       setTranslateError(err instanceof Error ? err.message : 'The translation did not finish.');
     } finally {
@@ -7586,7 +7641,6 @@ function CaptionsPanel({
 
   const hasTranscript = cues.length > 0;
   const { tracks, activeTrack } = getCaptions(document);
-  const hasEnglish = tracks.some((track) => track.id === 'en');
   const { selectedId, select } = React.useContext(CaptionSelectionContext);
   // Only lines in footage that is still on the timeline, listed by their time on the timeline.
   const captionFps = Math.max(1, project.recording?.fps ?? 30);
@@ -7601,9 +7655,37 @@ function CaptionsPanel({
   return (
     <div className="cameraFollowPanel captionsPanel" aria-label="Captions" data-ui-region="captions-panel">
       <p className="eyebrow">Captions</p>
-      <div className="captionLanguageBlock">
-        <p className="captionLanguageTitle">Language shown</p>
-        <div className="captionTrackRow" role="group" aria-label="Caption language">
+      <div className="captionLanguageBlock" data-ui-region="caption-speech">
+        <p className="captionLanguageTitle">Step 1. Write captions from your speech</p>
+        <div className="captionCreateRow">
+          <select
+            className="captionLanguageSelect"
+            aria-label="Language you speak"
+            value={speechLanguage}
+            disabled={speech !== null}
+            onChange={(event) => { setSpeechLanguage(event.currentTarget.value); setSpeechDone(null); setSpeechError(null); }}
+          >
+            <option value="auto">I speak: detect automatically</option>
+            <option value="en">I speak: English</option>
+            <option value="he">I speak: Hebrew</option>
+          </select>
+          {speech ? (
+            <button type="button" className="secondary compact" onClick={() => { void window.roughCut.cancelCaptionsTranslation(speech.requestId); }}>Cancel</button>
+          ) : (
+            <button type="button" className="primary captionGenerateButton" disabled={isSaving || translation !== null} onClick={() => { void transcribeSpeech(); }}>
+              Transcribe
+            </button>
+          )}
+        </div>
+        {speech ? <p className="captionTranslateStatus" role="status">Listening… {speech.total > 0 ? `${speech.done} of ${speech.total} seconds` : 'getting ready'}</p> : null}
+        {speechDone ? <p className="captionTranslateDone" role="status">{speechDone}</p> : null}
+        {speechError ? <p className="error">{speechError}</p> : null}
+        <p className="captionHint">Reads the sound of your recording on this computer with a model that fits the language you speak. Use this first; it replaces the current "as spoken" captions (Ctrl+Z undoes it).</p>
+      </div>
+      <div className="captionLanguageBlock" data-ui-region="caption-languages">
+        <p className="captionLanguageTitle">Step 2. Which captions show, and other languages</p>
+        <p className="captionLanguageTitle">Showing now</p>
+        <div className="captionTrackRow" role="group" aria-label="Caption language shown">
           {tracks.map((track) => (
             <button
               key={track.id}
@@ -7613,26 +7695,44 @@ function CaptionsPanel({
               disabled={isSaving || translation !== null}
               onClick={() => { void persist(withCaptionSettings(setActiveCaptionTrack(document, track.id), { enabled: true })); }}
             >
-              {track.id === 'original' ? 'Original' : track.label}
+              {track.id === 'original' ? 'As spoken' : track.label}
             </button>
           ))}
         </div>
-        {translation ? (
-          <div className="captionTranslateStatus" role="status">
-            <span>Translating to English… {translation.done} of {translation.total} lines</span>
-            <button type="button" className="secondary compact" onClick={() => { void window.roughCut.cancelCaptionsTranslation(translation.requestId); }}>Cancel</button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="primary compact captionGenerateButton"
-            disabled={isSaving || !hasTranscript}
-            onClick={() => { void generateTranslation('en'); }}
+        <p className="captionLanguageTitle">Create captions in a language</p>
+        <div className="captionCreateRow">
+          <select
+            className="captionLanguageSelect"
+            aria-label="Language to create"
+            value={targetLanguage}
+            disabled={translation !== null}
+            onChange={(event) => { setTargetLanguage(event.currentTarget.value); setTranslateDone(null); setTranslateError(null); }}
           >
-            {hasEnglish ? 'Regenerate English captions' : 'Generate English captions'}
-          </button>
-        )}
-        <p className="captionHint">Translates the original captions into English with your Claude Code login, about a minute or two. Then pick English above; the original stays.</p>
+            {CAPTION_LANGUAGES.map((language) => (
+              <option key={language.code} value={language.code}>
+                {language.label}{tracks.some((track) => track.id === language.code) ? ' (ready)' : ''}
+              </option>
+            ))}
+          </select>
+          {translation ? (
+            <button type="button" className="secondary compact" onClick={() => { void window.roughCut.cancelCaptionsTranslation(translation.requestId); }}>Cancel</button>
+          ) : (
+            <button
+              type="button"
+              className="primary captionGenerateButton"
+              disabled={isSaving || !hasTranscript}
+              onClick={() => {
+                const language = CAPTION_LANGUAGES.find((item) => item.code === targetLanguage);
+                void generateTranslation(language?.code ?? 'en', language?.label ?? 'English');
+              }}
+            >
+              {tracks.some((track) => track.id === targetLanguage) ? 'Redo' : 'Generate'}
+            </button>
+          )}
+        </div>
+        {translation ? <p className="captionTranslateStatus" role="status">Working… {translation.done} of {translation.total} lines</p> : null}
+        {translateDone ? <p className="captionTranslateDone" role="status">{translateDone}</p> : null}
+        <p className="captionHint">Every line is rewritten fully in the chosen language (Hebrew stays right-to-left, English technical terms are kept) using your Claude Code login. It takes under a minute or two, and the original stays so you can switch back.</p>
         {translateError ? <p className="error">{translateError}</p> : null}
       </div>
       {(
@@ -7682,7 +7782,7 @@ function CaptionsPanel({
                 <span className="captionCueTime">{formatClock(timelineSec)}</span>
                 <input
                   type="text"
-                  dir="auto"
+                  dir={captionTextDirection(cue.text)}
                   defaultValue={cue.text}
                   aria-label={`Caption line at ${formatClock(timelineSec)}`}
                   onFocus={() => select(cue.id)}

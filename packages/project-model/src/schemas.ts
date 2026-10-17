@@ -589,6 +589,8 @@ export const ProjectCaptionsSchema = z.object({
   edits: z.record(z.string(), z.string()).optional(),
   // Which caption set shows: 'original' (the recording's speech) or a translated track id.
   activeTrack: z.string().optional(),
+  // Language the speech was transcribed in (e.g. 'en', 'he'), when captions were re-transcribed.
+  speechLanguage: z.string().nullable().optional(),
   tracks: z.array(z.object({
     id: z.string().min(1),
     label: z.string(),

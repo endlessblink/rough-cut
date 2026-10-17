@@ -6,6 +6,18 @@
 
 export const CAPTION_POSITIONS = ['bottom', 'center', 'top'];
 
+/** Languages captions can be created in (translated from the original, as spoken). */
+export const CAPTION_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'he', label: 'Hebrew' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'fr', label: 'French' },
+  { code: 'de', label: 'German' },
+  { code: 'pt', label: 'Portuguese' },
+  { code: 'ru', label: 'Russian' },
+  { code: 'ar', label: 'Arabic' },
+];
+
 export const DEFAULT_CAPTION_SETTINGS = {
   enabled: false,
   position: 'bottom',
@@ -120,6 +132,17 @@ export function addCaptionTrack(document, { id, label, language = null, cues }) 
   const current = document?.captions && typeof document.captions === 'object' ? document.captions : {};
   const others = storedTracks(document).filter((track) => track.id !== id);
   return { ...document, captions: { ...current, activeTrack: id, tracks: [...others, { id, label, language, cues: cleanCues(cues) }] } };
+}
+
+/**
+ * Replace the original (as spoken) lines with freshly transcribed speech: the words are grouped
+ * into lines, any older edits are dropped, and the original set shows again.
+ */
+export function withTranscribedSpeech(document, words, { fps = 30, language = null } = {}) {
+  const current = document?.captions && typeof document.captions === 'object' ? document.captions : {};
+  // Translated sets were made from the old lines, so they are dropped with them.
+  const { edits: _edits, tracks: _tracks, ...rest } = current;
+  return { ...document, captions: { ...rest, activeTrack: ORIGINAL_CAPTION_TRACK, cues: buildCaptionCues(words, { fps }), speechLanguage: language } };
 }
 
 /** Choose which caption set shows in the video and the export. */
@@ -272,8 +295,18 @@ function assTime(frame, fps) {
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
 }
 
+const RTL_LETTERS = /[֐-ࣿ]/;
+
+/** 'rtl' for a line with any Hebrew/Arabic letters (even one that starts with an English term), else 'ltr'. */
+export function captionTextDirection(text) {
+  return RTL_LETTERS.test(String(text ?? '')) ? 'rtl' : 'ltr';
+}
+
 function assText(text) {
-  return String(text).replace(/\\/g, '').replace(/[{}]/g, '').replace(/\r?\n/g, '\\N');
+  const clean = String(text).replace(/\\/g, '').replace(/[{}]/g, '').replace(/\r?\n/g, '\\N');
+  // A Hebrew line is right-to-left from its first word, even when it opens with an English term:
+  // embed it as RTL (RLE ... PDF) instead of letting the first letter pick the direction.
+  return captionTextDirection(clean) === 'rtl' ? `‫${clean}‬` : clean;
 }
 
 /**

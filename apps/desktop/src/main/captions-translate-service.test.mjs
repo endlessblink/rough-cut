@@ -33,6 +33,19 @@ test('an answer that skips lines is rejected so it can be retried', () => {
   assert.match(check.errors[0], /missing ids: b/);
 });
 
+test('a translation that leaves lines in the wrong language is rejected', () => {
+  const lines = [{ id: 'a', text: 'שלום' }, { id: 'b', text: 'Hello there everyone and welcome' }];
+  // English target: a leftover Hebrew line is wrong.
+  const english = validateTranslation({ lines: [{ id: 'a', text: 'שלום' }, { id: 'b', text: 'Hello there everyone and welcome' }] }, lines, 'en');
+  assert.equal(english.ok, false);
+  assert.match(english.errors[0], /not entirely in English: a/);
+  // Hebrew target: an English sentence is wrong, but a Latin product name inside Hebrew is fine.
+  const hebrew = validateTranslation({ lines: [{ id: 'a', text: 'שלום H3 Max' }, { id: 'b', text: 'Hello there everyone and welcome' }] }, lines, 'he');
+  assert.equal(hebrew.ok, false);
+  assert.match(hebrew.errors[0], /not entirely in Hebrew: b/);
+  assert.equal(validateTranslation({ lines: [{ id: 'a', text: 'Hi' }, { id: 'b', text: 'Hello' }] }, lines, 'en').ok, true);
+});
+
 test('a Claude failure surfaces its plain reason', async () => {
   await assert.rejects(
     translateCaptionLines({ lines: lines.slice(0, 3), ask: async () => ({ ok: false, reason: 'Claude Code is not installed.' }) }),

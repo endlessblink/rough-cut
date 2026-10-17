@@ -5,8 +5,9 @@
 // sent in batches so one slow answer never holds the whole job.
 
 import { askClaudeForJson } from './claude-cli.mjs';
+import { CAPTION_LANGUAGES } from '../shared/captions.mjs';
 
-const LANGUAGE_NAMES = { en: 'English', he: 'Hebrew' };
+const LANGUAGE_NAMES = Object.fromEntries(CAPTION_LANGUAGES.map((language) => [language.code, language.label]));
 const BATCH_SIZE = 45;
 const CONCURRENCY = 3;
 
@@ -36,6 +37,7 @@ export function buildTranslationSystemPrompt(targetLanguage) {
   return [
     `You translate video subtitle lines into ${target}.`,
     'The lines come from a screen-recording tutorial/demo that was automatically transcribed, so they can contain small recognition mistakes: translate what the speaker most likely meant.',
+    `Every output line must be written entirely in ${target}. The speaker mixes Hebrew and English, so an input line may already be in ${target}, or half in ${target} and half in another language: still return the whole line in ${target} only (a line already in ${target} stays as it is, lightly cleaned of obvious recognition mistakes).`,
     'Rules: keep each line short and natural for on-screen reading; keep product names, brand names and technical terms (for example "H3 Max", "Director", "API") as spoken; do not add commentary; do not merge, split, reorder or drop lines.',
     'Return every id you were given exactly once, with its translated text. An empty or meaningless line stays an empty string.',
   ].join('\n');
@@ -48,13 +50,33 @@ export function buildTranslationPrompt(lines, errors = []) {
     : body;
 }
 
-/** Check an answer returned every requested id exactly once. */
-export function validateTranslation(value, lines) {
+const HEBREW_LETTERS = /[֐-׿]/;
+const LATIN_WORDS = /[A-Za-z]{2,}/g;
+
+/** Lines that are still (partly) in the wrong language for the requested one. */
+export function wrongLanguageIds(lines, targetLanguage) {
+  if (targetLanguage === 'he') {
+    // Names like "H3 Max" may stay Latin, but a line of English sentences may not.
+    return lines.filter((line) => !HEBREW_LETTERS.test(line.text) && (line.text.match(LATIN_WORDS)?.length ?? 0) > 3).map((line) => line.id);
+  }
+  if (['en', 'es', 'fr', 'de', 'pt'].includes(targetLanguage)) {
+    return lines.filter((line) => HEBREW_LETTERS.test(line.text)).map((line) => line.id);
+  }
+  return [];
+}
+
+/** Check an answer returned every requested id exactly once, all in the requested language. */
+export function validateTranslation(value, lines, targetLanguage = 'en') {
   const answered = Array.isArray(value?.lines) ? value.lines : [];
   const byId = new Map(answered.filter((item) => typeof item?.id === 'string' && typeof item?.text === 'string').map((item) => [item.id, item.text]));
   const missing = lines.filter((line) => !byId.has(line.id)).map((line) => line.id);
   if (missing.length > 0) return { ok: false, errors: [`missing ids: ${missing.slice(0, 8).join(', ')}${missing.length > 8 ? ', …' : ''}`] };
-  return { ok: true, value: lines.map((line) => ({ id: line.id, text: byId.get(line.id).trim() })) };
+  const result = lines.map((line) => ({ id: line.id, text: byId.get(line.id).trim() }));
+  const wrong = wrongLanguageIds(result, targetLanguage);
+  if (wrong.length > 0) {
+    return { ok: false, errors: [`these lines are not entirely in ${languageName(targetLanguage)}: ${wrong.slice(0, 8).join(', ')}${wrong.length > 8 ? ', …' : ''} — rewrite every line fully in ${languageName(targetLanguage)}`] };
+  }
+  return { ok: true, value: result };
 }
 
 /**
@@ -85,7 +107,7 @@ export async function translateCaptionLines({
         systemPrompt: buildTranslationSystemPrompt(targetLanguage),
         schema: SCHEMA,
         buildPrompt: (errors) => buildTranslationPrompt(batch, errors),
-        validate: (value) => validateTranslation(value, batch),
+        validate: (value) => validateTranslation(value, batch, targetLanguage),
         signal,
         label: 'captions-translate',
         debugDir,

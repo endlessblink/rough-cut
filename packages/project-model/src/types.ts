@@ -574,6 +574,7 @@ export interface ProjectDocument {
     readonly edits?: Readonly<Record<string, string>>;
     readonly cues?: readonly { readonly id: string; readonly startFrame: number; readonly endFrame: number; readonly text: string }[];
     readonly activeTrack?: string;
+    readonly speechLanguage?: string | null;
     readonly tracks?: readonly {
       readonly id: string;
       readonly label: string;

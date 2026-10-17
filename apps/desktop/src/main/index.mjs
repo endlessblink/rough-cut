@@ -84,6 +84,7 @@ import {
   getAiStatus,
 } from './ai-service.mjs';
 import { translateCaptionLines } from './captions-translate-service.mjs';
+import { transcribeSpeechForCaptions } from './captions-speech-service.mjs';
 
 const ownsSingleInstance = app.requestSingleInstanceLock();
 if (!ownsSingleInstance) {
@@ -1389,6 +1390,28 @@ ipcMain.handle(IPC_CHANNELS.GRAPHICS_GENERATE, async (event, payload = {}) => {
   }
 });
 const captionTranslations = new Map();
+ipcMain.handle(IPC_CHANNELS.CAPTIONS_TRANSCRIBE, async (event, payload = {}) => {
+  const requestId = typeof payload.requestId === 'string' ? payload.requestId : `captions-speech-${Date.now()}`;
+  const controller = new AbortController();
+  captionTranslations.set(requestId, controller);
+  try {
+    const result = await transcribeSpeechForCaptions({
+      sourcePath: payload.sourcePath,
+      sections: Array.isArray(payload.sections) ? payload.sections : [],
+      fps: payload.fps,
+      language: typeof payload.language === 'string' ? payload.language : 'auto',
+      signal: controller.signal,
+      onProgress: (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.CAPTIONS_TRANSCRIBE_PROGRESS, { requestId, ...progress });
+      },
+    });
+    return result;
+  } catch (err) {
+    return { error: { code: err?.code ?? 'CAPTIONS_UNKNOWN', message: err?.message ?? String(err) } };
+  } finally {
+    captionTranslations.delete(requestId);
+  }
+});
 ipcMain.handle(IPC_CHANNELS.CAPTIONS_TRANSLATE_CANCEL, (_event, requestId) => {
   captionTranslations.get(requestId)?.abort();
   return { ok: true };

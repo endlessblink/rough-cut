@@ -1,6 +1,6 @@
 import React from 'react';
 import { Scissors as PhosphorScissors, Trash as PhosphorTrash } from '@phosphor-icons/react';
-import { getCaptions, removeCaption, splitCaption, updateCaption } from '../../shared/captions.mjs';
+import { captionTextDirection, getCaptions, removeCaption, splitCaption, updateCaption } from '../../shared/captions.mjs';
 import { frameRangeToPlacement } from './timeline-rail.mjs';
 
 /** Which subtitle line is selected: shared by the timeline lane and the Captions panel. */
@@ -139,7 +139,7 @@ export function CaptionsLane({
               }
             }}
           >
-            <span className="captionBlockText" dir="auto">{cue.text || '…'}</span>
+            <span className="captionBlockText" dir={captionTextDirection(cue.text)}>{cue.text || '…'}</span>
             <span className="captionHandle captionHandleStart" onPointerDown={(event) => beginDrag(cue, 'start', event)} aria-hidden="true" />
             <span className="captionHandle captionHandleEnd" onPointerDown={(event) => beginDrag(cue, 'end', event)} aria-hidden="true" />
           </div>
@@ -160,7 +160,7 @@ export function CaptionsLane({
             <input
               key={`${selected.cue.id}:${selected.cue.text}`}
               type="text"
-              dir="auto"
+              dir={captionTextDirection(selected.cue.text)}
               className="captionEditorInput"
               defaultValue={selected.cue.text}
               placeholder="Type the subtitle (Hebrew or English)"
