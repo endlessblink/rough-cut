@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  addCaptionCuesToTrack,
   withTranscribedSpeech,
   captionTextDirection,
   addCaptionTrack,
@@ -121,6 +122,26 @@ test('re-transcribing the speech replaces the original lines and drops translati
   assert.deepEqual(tracks.map((t) => t.id), ['original']);
   assert.equal(activeTrack, 'original');
   assert.equal(doc.captions.speechLanguage, 'en');
+});
+
+test('adding captions for one section never overwrites lines the user already has', () => {
+  // Original has lines at 0-60 and 200-260; the user's section covers 100-400 and has no lines yet except 200-260.
+  const doc = base();
+  const incoming = [
+    { id: 's_0', startFrame: 100, endFrame: 150, text: 'new one' },
+    { id: 's_1', startFrame: 210, endFrame: 250, text: 'overlaps the user\'s line' },
+    { id: 's_2', startFrame: 300, endFrame: 360, text: 'new two' },
+  ];
+  const { document: next, added } = addCaptionCuesToTrack(doc, 'original', incoming);
+  assert.equal(added, 2);
+  assert.deepEqual(getCaptions(next).cues.map((c) => c.text), ['one two', 'new one', 'three', 'new two']);
+  assert.equal(getCaptions(next).cues.find((c) => c.text === 'three').startFrame, 200, 'existing line untouched');
+  // A translated set gets lines only when it exists; running it twice adds nothing new.
+  assert.equal(addCaptionCuesToTrack(doc, 'en', incoming).added, 0);
+  const withEn = addCaptionTrack(doc, { id: 'en', label: 'English', language: 'en', cues: [] });
+  const once = addCaptionCuesToTrack(withEn, 'en', incoming);
+  assert.equal(once.added, 3);
+  assert.equal(addCaptionCuesToTrack(once.document, 'en', incoming).added, 0);
 });
 
 test('the subtitle file carries Hebrew text, times and the chosen style', () => {

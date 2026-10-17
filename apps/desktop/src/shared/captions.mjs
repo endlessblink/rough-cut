@@ -138,6 +138,32 @@ export function addCaptionTrack(document, { id, label, language = null, cues }) 
 }
 
 /**
+ * Add lines to a caption set without touching the ones already there: a new line that would overlap
+ * an existing one (or reuse its id) is skipped, so everything the user already set stays exactly as is.
+ * Returns { document, added }.
+ */
+export function addCaptionCuesToTrack(document, trackId, cues) {
+  const current = document?.captions && typeof document.captions === 'object' ? document.captions : {};
+  const isOriginal = trackId === ORIGINAL_CAPTION_TRACK;
+  const tracks = storedTracks(document);
+  if (!isOriginal && !tracks.some((track) => track.id === trackId)) return { document, added: 0 };
+  const existing = isOriginal ? resolveOriginalCues(document) : cleanCues(tracks.find((track) => track.id === trackId)?.cues);
+  const taken = new Set(existing.map((cue) => cue.id));
+  const fresh = cleanCues(cues).filter((cue) => !taken.has(cue.id)
+    && !existing.some((other) => cue.startFrame < other.endFrame && cue.endFrame > other.startFrame));
+  if (fresh.length === 0) return { document, added: 0 };
+  const merged = [...existing, ...fresh].sort((a, b) => a.startFrame - b.startFrame);
+  if (isOriginal) {
+    const { edits: _edits, ...rest } = current;
+    return { document: { ...document, captions: { ...rest, cues: merged } }, added: fresh.length };
+  }
+  return {
+    document: { ...document, captions: { ...current, tracks: tracks.map((track) => (track.id === trackId ? { ...track, cues: merged } : track)) } },
+    added: fresh.length,
+  };
+}
+
+/**
  * Replace the original (as spoken) lines with freshly transcribed speech: the words are grouped
  * into lines, any older edits are dropped, and the original set shows again.
  */

@@ -2888,6 +2888,25 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .captionBlock:hover .captionHandle::after,
 .captionBlock.selectedCaption .captionHandle::after { opacity: 0.9; }
 
+.captionSectionButton {
+  background: rgb(10 16 30 / 0.95);
+  border: 1px solid rgb(143 154 255 / 0.55);
+  border-radius: var(--radius-pill);
+  bottom: calc(100% + var(--space-1));
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.4);
+  color: #dbe0ff;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  min-height: 0;
+  padding: var(--space-1) var(--space-2-5);
+  position: absolute;
+  white-space: nowrap;
+  z-index: 37;
+}
+
+.captionSectionButton:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.captionSectionButton:disabled { cursor: progress; opacity: 0.85; }
+
 .captionsLaneNotice { color: #ffd479; left: 50%; transform: translate(-50%, -50%); z-index: 6; }
 
 .captionLaneSwitch {

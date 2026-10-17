@@ -198,8 +198,8 @@ export function CaptionsLane({
               defaultValue={selected.cue.text}
               placeholder="Type the subtitle (Hebrew or English)"
               aria-label="Subtitle text"
-              autoFocus={autoFocusId === selected.cue.id}
-              ref={(input) => { if (input && autoFocusId === selected.cue.id) { input.focus(); onAutoFocusDone(); } }}
+              // Focus without scrolling: the timeline must stay exactly where the user clicked.
+              ref={(input) => { if (input && autoFocusId === selected.cue.id) { input.focus({ preventScroll: true }); onAutoFocusDone(); } }}
               onKeyDown={(event) => {
                 event.stopPropagation();
                 if (event.key === 'Enter') event.currentTarget.blur();

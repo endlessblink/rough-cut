@@ -103,7 +103,7 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { resolveCensorSoftness } from '../../shared/censor-regions.mjs';
-import { CAPTION_LANGUAGES, CAPTION_POSITIONS, addCaption, addCaptionTrack, captionTextDirection, getCaptions, getOriginalCaptionCues, setActiveCaptionTrack, withCaptionEdit, withCaptionSettings, withTranscribedSpeech } from '../../shared/captions.mjs';
+import { CAPTION_LANGUAGES, CAPTION_POSITIONS, addCaption, addCaptionCuesToTrack, addCaptionTrack, buildCaptionCues, captionTextDirection, getCaptions, getOriginalCaptionCues, setActiveCaptionTrack, withCaptionEdit, withCaptionSettings, withTranscribedSpeech } from '../../shared/captions.mjs';
 import { CaptionSelectionContext, CaptionsLane, sourceFrameAtTimeline } from './captions-lane';
 import {
   DEFAULT_CENSOR_RECT,
@@ -5560,6 +5560,55 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const timer = window.setTimeout(() => setCaptionNotice(null), 2500);
     return () => window.clearTimeout(timer);
   }, [captionNotice]);
+  // Captions for ONE section: listen to just that clip and add lines only where the user has none.
+  const latestTimelineProjectRef = React.useRef(project);
+  latestTimelineProjectRef.current = project;
+  const [sectionCaptionJob, setSectionCaptionJob] = React.useState<string | null>(null);
+  async function addCaptionsToSelectedSection() {
+    const clip = model.lanes.screen.find((item) => item.id === selectedScreenClipId);
+    const sourcePath = project.recording?.filePath;
+    if (!clip || !sourcePath || !onCaptionsChange || sectionCaptionJob) return;
+    const start = latestTimelineProjectRef.current.document as unknown as ProjectDocument;
+    const { activeTrack, tracks } = getCaptions(start);
+    const spoken = (start as { captions?: { speechLanguage?: string | null } }).captions?.speechLanguage;
+    const range = { sourceIn: Math.round(clip.sourceIn ?? 0), sourceOut: Math.round(clip.sourceOut ?? 0) };
+    const requestId = `captions-section-${Date.now()}`;
+    setSectionCaptionJob('Listening to this section…');
+    try {
+      const heard = await window.roughCut.transcribeCaptionSpeech({ requestId, sourcePath, sections: [range], fps, language: spoken ?? 'auto' });
+      if ('error' in heard) { setCaptionNotice(heard.error.message); return; }
+      const stamp = Date.now();
+      const fresh = buildCaptionCues(heard.words, { fps }).map((cue, index) => ({ ...cue, id: `cap_s${stamp}_${index}` }));
+      let next = addCaptionCuesToTrack(latestTimelineProjectRef.current.document as unknown as ProjectDocument, 'original', fresh);
+      let doc = next.document;
+      let addedCount = next.added;
+      let note: string | null = null;
+      if (activeTrack !== 'original' && fresh.length > 0) {
+        const track = tracks.find((item) => item.id === activeTrack);
+        let shown = fresh;
+        if (track?.language && track.language !== heard.language) {
+          setSectionCaptionJob(`Writing ${track.label} captions…`);
+          const translated = await window.roughCut.translateCaptions({ requestId, lines: fresh.map((cue) => ({ id: cue.id, text: cue.text })), targetLanguage: track.language });
+          if ('error' in translated) note = `Added the spoken captions, but the ${track.label} version failed: ${translated.error.message}`;
+          else {
+            const byId = new Map(translated.lines.map((line) => [line.id, line.text]));
+            shown = fresh.map((cue) => ({ ...cue, text: byId.get(cue.id) ?? cue.text }));
+          }
+        }
+        if (!note) {
+          next = addCaptionCuesToTrack(doc, activeTrack, shown);
+          doc = next.document;
+          addedCount = Math.max(addedCount, next.added);
+        }
+      }
+      if ((doc as unknown) !== (latestTimelineProjectRef.current.document as unknown)) onCaptionsChange(doc);
+      setCaptionNotice(note ?? (addedCount > 0 ? `Added ${addedCount} caption${addedCount === 1 ? '' : 's'} to this section.` : 'Nothing new to add: this section already has captions where there is speech.'));
+    } catch (err) {
+      setCaptionNotice(err instanceof Error ? err.message : 'Could not add captions to this section.');
+    } finally {
+      setSectionCaptionJob(null);
+    }
+  }
   const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [graphicDragPreview, setGraphicDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
@@ -5671,6 +5720,23 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     window.addEventListener('keydown', handleTimelineHomeKey);
     return () => window.removeEventListener('keydown', handleTimelineHomeKey);
   }, [onScrubEnd]);
+
+  // End mirrors Home: the playhead goes to the last frame and the timeline scrolls to its end.
+  React.useEffect(() => {
+    function handleTimelineEndKey(event: KeyboardEvent) {
+      if (event.key !== 'End' || event.repeat || isEditableShortcutTarget(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const lastFrameSec = Math.max(0, model.durationSec - 1 / Math.max(1, fps));
+      onScrubEnd(lastFrameSec);
+      window.requestAnimationFrame(() => {
+        const viewport = viewportRef.current;
+        if (viewport) viewport.scrollLeft = viewport.scrollWidth;
+      });
+    }
+    window.addEventListener('keydown', handleTimelineEndKey);
+    return () => window.removeEventListener('keydown', handleTimelineEndKey);
+  }, [onScrubEnd, model.durationSec, fps]);
 
   React.useEffect(() => {
     const el = viewportRef.current;
@@ -7137,6 +7203,24 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                   }}
                 >
                   {captionNotice ? <span className="captionsLaneHint captionsLaneNotice" role="status">{captionNotice}</span> : null}
+                  {(() => {
+                    const picked = model.lanes.screen.find((item) => item.id === selectedScreenClipId);
+                    if (!picked) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="captionSectionButton"
+                        style={{ left: `${picked.left}%` }}
+                        disabled={sectionCaptionJob !== null}
+                        title="Listen to just the selected section and add captions where it has none"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onClick={() => { void addCaptionsToSelectedSection(); }}
+                      >
+                        {sectionCaptionJob ?? 'Add captions to this section'}
+                      </button>
+                    );
+                  })()}
                   <CaptionsLane
                     document={captionDocument}
                     fps={fps}

@@ -12,6 +12,7 @@ export function listCaptionTracks(document: unknown): CaptionTrackInfo[];
 export function getOriginalCaptionCues(document: unknown): CaptionCue[];
 export function addCaptionTrack<T>(document: T, track: { id: string; label: string; language?: string | null; cues: CaptionCue[] }): T;
 export function withTranscribedSpeech<T>(document: T, words: Array<{ word: string; startFrame: number; endFrame: number }>, options?: { fps?: number; language?: string | null }): T;
+export function addCaptionCuesToTrack<T>(document: T, trackId: string, cues: CaptionCue[]): { document: T; added: number };
 export function setActiveCaptionTrack<T>(document: T, id: string): T;
 export function withCaptionSettings<T>(document: T, patch: Partial<CaptionSettings>): T;
 export function withCaptionEdit<T>(document: T, cueId: string, text: string): T;
