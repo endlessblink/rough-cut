@@ -578,6 +578,17 @@ export const CaptionTrackSchema = z.object({
   phrases: z.array(CaptionPhraseSchema),
 });
 
+// Burned-in captions built from the transcript (see apps/desktop/src/shared/captions.mjs).
+// `edits` maps a generated line's id to corrected wording.
+export const ProjectCaptionsSchema = z.object({
+  enabled: z.boolean().optional(),
+  position: z.enum(['bottom', 'center', 'top']).optional(),
+  sizePct: z.number().optional(),
+  textColor: z.string().optional(),
+  boxOpacity: z.number().optional(),
+  edits: z.record(z.string(), z.string()).optional(),
+});
+
 export const NleTrackKindSchema = z.enum(['video', 'audio', 'captions', 'motion-graphics']);
 export const NleClipSourceKindSchema = z.enum(['project-asset', 'ai-asset']);
 
@@ -859,6 +870,7 @@ export const ProjectDocumentSchema = z.object({
   transcript: TranscriptSchema.optional(),
   transcription: TranscriptionMetadataSchema.optional(),
   captionTracks: z.array(CaptionTrackSchema).optional(),
+  captions: ProjectCaptionsSchema.optional(),
   tracks: z.array(NleTrackSchema).optional(),
   timeline: SharedTimelineSchema,
 });

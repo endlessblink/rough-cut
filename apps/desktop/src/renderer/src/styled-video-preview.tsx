@@ -1,4 +1,5 @@
 import React from 'react';
+import { captionAtSourceFrame, getCaptions, type CaptionSettings } from '../../shared/captions.mjs';
 import {
   AlignBottom as PhosphorAlignBottom,
   AlignCenterHorizontal as PhosphorAlignCenterHorizontal,
@@ -295,6 +296,61 @@ function isPointNearFocalTarget(
   return Math.hypot(xCanvas - cx, yCanvas - cy) <= focalTargetRadius(canvasW, canvasH) + 14;
 }
 
+const HEBREW_OR_ARABIC = /[֐-ࣿ]/;
+
+// One caption line, placed like the exporter places it (same size/position/box settings).
+function drawCaptionLine(ctx: CanvasRenderingContext2D, text: string, canvasWidth: number, canvasHeight: number, settings: CaptionSettings) {
+  const fontSize = Math.max(10, Math.round((settings.sizePct / 100) * canvasHeight));
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.filter = 'none';
+  ctx.font = `700 ${fontSize}px Heebo, "Noto Sans Hebrew", "Noto Sans", sans-serif`;
+  ctx.direction = HEBREW_OR_ARABIC.test(text) ? 'rtl' : 'ltr';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const maxWidth = canvasWidth * 0.88;
+  // Wrap on spaces; the exporter (libass) wraps the same way at the same margins.
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  const lineHeight = Math.round(fontSize * 1.25);
+  const padX = Math.round(fontSize * 0.28);
+  const blockHeight = lines.length * lineHeight;
+  const margin = Math.round(canvasHeight * 0.06);
+  const centerY = settings.position === 'top'
+    ? margin + blockHeight / 2
+    : settings.position === 'center'
+      ? canvasHeight / 2
+      : canvasHeight - margin - blockHeight / 2;
+  lines.forEach((line, index) => {
+    const y = centerY - blockHeight / 2 + lineHeight * (index + 0.5);
+    const width = ctx.measureText(line).width;
+    if (settings.boxOpacity > 0) {
+      ctx.fillStyle = `rgba(0, 0, 0, ${settings.boxOpacity})`;
+      ctx.fillRect(canvasWidth / 2 - width / 2 - padX, y - lineHeight / 2, width + padX * 2, lineHeight);
+    } else {
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(2, fontSize * 0.12);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+      ctx.strokeText(line, canvasWidth / 2, y);
+    }
+    ctx.fillStyle = settings.textColor;
+    ctx.fillText(line, canvasWidth / 2, y);
+  });
+  ctx.restore();
+}
+
 // A precise focus reticle drawn over the screen frame: a ring with four
 // crosshair ticks and an accent center dot. Double-stroked (dark under white)
 // so it stays legible over any video content. `active` enlarges it slightly
@@ -551,6 +607,8 @@ export function StyledVideoPreview({
   const cameraRadiusRef = React.useRef(16);
   const cameraDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
   const screenDragRef = React.useRef<NormalizedRect | null>(null);
+  const captionsRef = React.useRef(getCaptions(project.document));
+  captionsRef.current = React.useMemo(() => getCaptions(project.document), [project.document]);
   const screenRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const screenRadiusRef = React.useRef(22);
   const screenDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
@@ -2528,6 +2586,13 @@ export function StyledVideoPreview({
         if (!activeTimelinePlayback && onCameraFrameChange && !parityCapture) drawEditorFrameControls(ctx, cameraFrameForDraw, '#f59e0b', frame.cameraPresentation);
       }
       markDrawPhase('camera-pip');
+      {
+        const captionState = captionsRef.current;
+        if (captionState.settings.enabled) {
+          const line = captionAtSourceFrame(captionState.cues, screenLayer?.sourceFrame ?? sourceFrame);
+          if (line) drawCaptionLine(ctx, line.text, canvasWidth, canvasHeight, captionState.settings);
+        }
+      }
       publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
       const focalSelection = viewFocal();
       const focalScreenRect = screenRectRef.current;

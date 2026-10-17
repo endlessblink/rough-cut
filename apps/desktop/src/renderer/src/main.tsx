@@ -103,6 +103,7 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { resolveCensorSoftness } from '../../shared/censor-regions.mjs';
+import { CAPTION_POSITIONS, getCaptions, withCaptionEdit, withCaptionSettings } from '../../shared/captions.mjs';
 import {
   DEFAULT_CENSOR_RECT,
   addCensorRegionAt,
@@ -2719,7 +2720,7 @@ function getFocusableElements(root: HTMLElement) {
 
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom' | 'censor';
 type FrameAlignmentMode = 'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
-type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'censor' | 'graphics';
+type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'captions' | 'censor' | 'graphics';
 
 const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
   folder: PhosphorFolder,
@@ -2758,6 +2759,7 @@ function ToolRail({ active, onSelect, panelOpen, onTogglePanel }: { active: Acti
     { id: 'camera', icon: PhosphorVideoCamera, label: 'Camera' },
     { id: 'cursor', icon: PhosphorCursor, label: 'Cursor' },
     { id: 'zoom', icon: PhosphorMagnifyingGlassPlus, label: 'Zoom' },
+    { id: 'captions', icon: PhosphorClosedCaptioning, label: 'Captions' },
     { id: 'censor', icon: PhosphorEyeSlash, label: 'Censor' },
     { id: 'graphics', icon: PhosphorTextAa, label: 'Graphics' },
   ];
@@ -3589,6 +3591,19 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
         ) : (
           <EmptyState icon="zoom" title="No recording yet" description="Record a take or open a project to add zooms." />
         )}
+      </aside>
+    );
+  }
+
+  if (activeTool === 'captions') {
+    return (
+      <aside className="setupBoard studioPane" aria-label="Captions board">
+        <PaneTitle title="Captions" subtitle="Subtitles from what you said" />
+        {project?.recording && onProjectChange ? (
+          <div className="timelineBoardStack" data-ui-region="captions-control-panel">
+            <CaptionsPanel project={project} onProjectChange={onProjectChange} />
+          </div>
+        ) : null}
       </aside>
     );
   }
@@ -7436,6 +7451,122 @@ function CameraFollowPanel({
           ) : null}
         </div>
       ) : null}
+      {saveError ? <p className="error">{saveError}</p> : null}
+    </div>
+  );
+}
+
+function CaptionsPanel({
+  project,
+  onProjectChange,
+}: {
+  project: ProjectState;
+  onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
+}) {
+  const document = project.document as unknown as ProjectDocument;
+  const { settings, cues } = getCaptions(document);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [showAll, setShowAll] = React.useState(false);
+
+  async function persist(nextDocument: unknown) {
+    const previous = project;
+    const optimistic = { ...project, document: nextDocument as ProjectState['document'] };
+    setSaveError(null);
+    setIsSaving(true);
+    onProjectChange(optimistic, { history: true, previous });
+    try {
+      const saved = await saveProjectGuarded({ path: project.path, document: optimistic.document });
+      onProjectChange(saved);
+    } catch (err) {
+      onProjectChange(previous);
+      setSaveError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const hasTranscript = cues.length > 0;
+  // Only lines in footage that is still on the timeline, listed by their time on the timeline.
+  const captionFps = Math.max(1, project.recording?.fps ?? 30);
+  const sections = selectRecordingEditModel({ document: document as never }).screenClips;
+  const placedCues = cues.flatMap((cue) => {
+    const section = sections.find((item) => cue.endFrame > item.sourceIn && cue.startFrame < item.sourceOut);
+    if (!section) return [];
+    return [{ cue, timelineSec: ((section.timelineIn ?? 0) + Math.max(0, cue.startFrame - section.sourceIn)) / captionFps }];
+  }).sort((a, b) => a.timelineSec - b.timelineSec);
+  const visibleCues = showAll ? placedCues : placedCues.slice(0, 8);
+
+  return (
+    <div className="cameraFollowPanel captionsPanel" aria-label="Captions" data-ui-region="captions-panel">
+      <p className="eyebrow">Captions</p>
+      {hasTranscript ? (
+        <>
+          <InspectorToggle
+            label="Show captions in the video and export"
+            checked={settings.enabled}
+            disabled={isSaving}
+            onChange={(checked) => { void persist(withCaptionSettings(document, { enabled: checked })); }}
+          />
+          <div className="captionPositionRow" role="group" aria-label="Caption position">
+            {CAPTION_POSITIONS.map((position) => (
+              <button
+                key={position}
+                type="button"
+                className="secondary compact"
+                aria-pressed={settings.position === position}
+                disabled={isSaving}
+                onClick={() => { void persist(withCaptionSettings(document, { position: position as 'bottom' | 'center' | 'top' })); }}
+              >
+                {position === 'bottom' ? 'Bottom' : position === 'center' ? 'Middle' : 'Top'}
+              </button>
+            ))}
+          </div>
+          <InspectorSlider
+            label="Text size"
+            value={settings.sizePct}
+            min={3}
+            max={9}
+            step={0.5}
+            disabled={isSaving}
+            onChange={(value) => { void persist(withCaptionSettings(document, { sizePct: value })); }}
+          />
+          <InspectorSlider
+            label="Background"
+            value={settings.boxOpacity}
+            min={0}
+            max={1}
+            step={0.05}
+            disabled={isSaving}
+            onChange={(value) => { void persist(withCaptionSettings(document, { boxOpacity: value })); }}
+          />
+          <p className="eyebrow">Lines ({placedCues.length})</p>
+          <ul className="captionCueList">
+            {visibleCues.map(({ cue, timelineSec }) => (
+              <li key={cue.id} className="captionCueRow">
+                <span className="captionCueTime">{formatClock(timelineSec)}</span>
+                <input
+                  type="text"
+                  dir="auto"
+                  defaultValue={cue.text}
+                  aria-label={`Caption line at ${formatClock(timelineSec)}`}
+                  onBlur={(event) => {
+                    const text = event.currentTarget.value;
+                    if (text !== cue.text) void persist(withCaptionEdit(document, cue.id, text));
+                  }}
+                />
+              </li>
+            ))}
+          </ul>
+          {placedCues.length > 8 ? (
+            <button type="button" className="cameraFollowDisclosure" aria-expanded={showAll} onClick={() => setShowAll((value) => !value)}>
+              {showAll ? 'Show fewer lines' : `Show all ${placedCues.length} lines`}
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <p className="warning">No transcript yet. Captions are built from the transcript of the recording; record with a microphone, or wait for the transcript to finish.</p>
+      )}
       {saveError ? <p className="error">{saveError}</p> : null}
     </div>
   );

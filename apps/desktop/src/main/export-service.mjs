@@ -16,6 +16,7 @@ import {
 } from '../shared/censor-regions.mjs';
 import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
 import { buildGraphicsOverlayArgs, planGraphicsOverlay } from './graphics-export.mjs';
+import { buildCaptionsAss, getCaptions } from '../shared/captions.mjs';
 import { buildBackgroundGridFilter, isBackgroundGridOn } from '../shared/background-grid.mjs';
 import {
   canonicalizeProjectDocument,
@@ -76,7 +77,125 @@ export function buildGraphicsFailureResult({ styledResult, error, expected }) {
   };
 }
 
-export async function exportProjectToMp4({
+/**
+ * Styled exports with captions switched on get one extra pass: the finished video is re-encoded
+ * with the subtitles burned in (libass, so Hebrew comes out right-to-left). Everything else about
+ * the export is untouched; without captions this is a straight call into the normal export.
+ */
+export async function exportProjectToMp4(options = {}) {
+  const plan = planCaptionsForExport(options);
+  if (!plan) return exportProjectToMp4Core(options);
+  const { outputPath, onProgress = () => undefined, signal = null } = options;
+  const working = workingExportPath(outputPath, 'captioning');
+  const share = 0.88;
+  const core = await exportProjectToMp4Core({
+    ...options,
+    outputPath: working,
+    // The export is not complete until the captions are in.
+    onProgress: (event) => {
+      if (event?.phase === 'complete') return undefined;
+      return onProgress(typeof event?.progress === 'number' ? { ...event, progress: event.progress * share } : event);
+    },
+  });
+  if (core?.cancelled) return { ...core, outputPath };
+  try {
+    const burned = await burnCaptionsIntoExport({
+      inputPath: working,
+      outputPath,
+      cues: plan.cues,
+      settings: plan.settings,
+      fps: plan.fps,
+      onProgress: (progress) => onProgress({ phase: 'adding-captions', progress: share + progress * (1 - share) }),
+      signal,
+    });
+    await rm(working, { force: true });
+    if (burned.cancelled) return createCancelledExportResult({ outputPath, sourcePath: core?.sourcePath });
+    onProgress({ phase: 'complete', progress: 1 });
+    return { ...core, outputPath, bytes: burned.bytes, captionCount: plan.cues.length };
+  } catch (error) {
+    // The video without captions is complete: keep it under the real name, but say so.
+    console.error('[export] the captions could not be added; the export has none', error);
+    await rename(working, outputPath);
+    onProgress({ phase: 'complete', progress: 1 });
+    return { ...core, outputPath, captionCount: 0, captionError: String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 300) };
+  }
+}
+
+/** The captions to burn in (timeline frames), or null when the export has none. */
+export function planCaptionsForExport({ project, mode = EXPORT_MODES.RAW, exportScope = EXPORT_SCOPES.TIMELINE } = {}) {
+  if (normalizeExportMode(mode) !== EXPORT_MODES.STYLED) return null;
+  const { settings } = getCaptions(project);
+  if (!settings.enabled) return null;
+  const recording = getPrimaryRecording(project);
+  if (!recording) return null;
+  const exportRecording = resolveTimelineExportRecording(project, recording, { exportScope: normalizeExportScope(exportScope) }) ?? recording;
+  const durationFrames = exportRecording.timelineDurationFrames ?? exportRecording.duration;
+  const cutRemap = buildCutFrameRemap(exportRecording);
+  const sourceCues = exportRecording.captionCues ?? mapSourceMarkersToTimeline(getCaptions(project).cues, [{
+    timelineIn: 0,
+    timelineOut: durationFrames,
+    sourceIn: exportRecording.sourceIn ?? 0,
+    sourceOut: exportRecording.sourceOut ?? durationFrames,
+  }]);
+  const cues = sourceCues
+    // Cut frames are gone from the styled video, so a line's time moves earlier with them.
+    .map((cue) => ({ ...cue, startFrame: cutRemap.mapFrame(cue.startFrame), endFrame: cutRemap.mapFrame(cue.endFrame) }))
+    .filter((cue) => cue.text.trim() && cue.endFrame > cue.startFrame && cue.startFrame < durationFrames);
+  if (cues.length === 0) return null;
+  return { cues, settings, fps: Number.isFinite(exportRecording.fps) && exportRecording.fps > 0 ? exportRecording.fps : 30 };
+}
+
+function escapeSubtitleFilterPath(path) {
+  return String(path).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+}
+
+export function buildCaptionsBurnArgs({ inputPath, outputPath, assPath }) {
+  return [
+    '-y', '-hide_banner', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats',
+    '-i', inputPath,
+    '-vf', `ass='${escapeSubtitleFilterPath(assPath)}'`,
+    '-map', '0:v', '-map', '0:a?',
+    '-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-pix_fmt', 'yuv420p',
+    '-c:a', 'copy',
+    '-movflags', '+faststart',
+    outputPath,
+  ];
+}
+
+async function burnCaptionsIntoExport({ inputPath, outputPath, cues, settings, fps, onProgress, signal }) {
+  const size = await probeVideoSize(inputPath, signal);
+  if (!size) throw new Error('Could not read the exported video size to place captions.');
+  const workDir = await mkdtemp(join(tmpdir(), 'rough-cut-captions-'));
+  try {
+    const assPath = join(workDir, 'captions.ass');
+    await writeFile(assPath, buildCaptionsAss(cues, { width: size.width, height: size.height, fps, settings }), 'utf8');
+    const burnedPath = join(workDir, 'with-captions.mp4');
+    const durationSeconds = await probeDurationSeconds(inputPath, signal);
+    const result = await run('ffmpeg', buildCaptionsBurnArgs({ inputPath, outputPath: burnedPath, assPath }), {
+      signal,
+      onStdout: (chunk) => {
+        const progress = parseFfmpegProgress(chunk, durationSeconds);
+        if (progress !== null) onProgress(progress);
+      },
+    });
+    if (result.cancelled) {
+      await rm(outputPath, { force: true });
+      return { cancelled: true, bytes: 0 };
+    }
+    if (result.code !== 0) throw new Error(`Adding captions to the export failed: ${result.stderr.trim()}`);
+    // Appears under the real name only when complete: copy beside it, then one atomic rename.
+    const finishing = workingExportPath(outputPath, 'finishing');
+    await copyFile(burnedPath, finishing);
+    await rename(finishing, outputPath);
+    const exported = await stat(outputPath);
+    onProgress(1);
+    return { cancelled: false, bytes: exported.size };
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+export async function exportProjectToMp4Core({
   project,
   outputPath,
   mode = EXPORT_MODES.RAW,
@@ -898,6 +1017,14 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
       ? { ...recording.camera, sourceInFrames: cameraClips[0].sourceIn, timelineSegments: cameraTimelineSegments }
       : recording.camera,
     zoomMarkers,
+    // Caption lines on the timeline (the clips already carry any timeline offset).
+    captionCues: mapSourceMarkersToTimeline(getCaptions(project).cues, timingSegments)
+      .map((cue) => ({
+        ...cue,
+        startFrame: clampFrame(cue.startFrame, 0, Math.max(0, timelineDurationFrames - 1)),
+        endFrame: clampFrame(cue.endFrame, 1, timelineDurationFrames),
+      }))
+      .filter((cue) => cue.endFrame > cue.startFrame),
     cutRanges: cutRanges.length > 0 ? cutRanges : recording.cutRanges,
   };
 }

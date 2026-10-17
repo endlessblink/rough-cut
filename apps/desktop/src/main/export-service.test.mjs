@@ -198,6 +198,7 @@ test('imported single-video timeline remains exportable after stabilization is e
     sourceCursorEvents: [],
     sourceTimingSegments: [{ timelineIn: 0, timelineOut: 150, sourceIn: 0, sourceOut: 150 }],
     zoomMarkers: [],
+    captionCues: [],
     cutRanges: [],
   });
 });

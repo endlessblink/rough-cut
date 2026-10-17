@@ -565,6 +565,14 @@ export interface ProjectDocument {
   // paths are migrating, but v13→v14 backfills it for existing documents.
   readonly transcript?: import('./transcript.js').Transcript;
   readonly captionTracks?: readonly import('./caption-track.js').CaptionTrack[];
+  readonly captions?: {
+    readonly enabled?: boolean;
+    readonly position?: 'bottom' | 'center' | 'top';
+    readonly sizePct?: number;
+    readonly textColor?: string;
+    readonly boxOpacity?: number;
+    readonly edits?: Readonly<Record<string, string>>;
+  };
   readonly tracks?: readonly import('./track.js').NleTrack[];
   readonly timeline: import('./shared-timeline.js').SharedTimeline;
 }
