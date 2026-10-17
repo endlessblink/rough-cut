@@ -2793,6 +2793,45 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   z-index: 2;
 }
 
+/* Trim drag feedback: the clip's original extent stays as a dashed outline so the
+ * change reads as a delta, and a small readout rides the edge being dragged. */
+.trimGhost {
+  border: 1px dashed rgb(167 213 255 / 0.55);
+  border-radius: var(--radius-md);
+  bottom: 0.22rem;
+  pointer-events: none;
+  position: absolute;
+  top: 0.22rem;
+  z-index: 1;
+}
+
+.trimReadout {
+  align-items: baseline;
+  background: rgb(10 16 30 / 0.94);
+  border: 1px solid rgb(143 194 255 / 0.45);
+  border-radius: var(--radius-pill);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.4);
+  color: #dbeafe;
+  display: flex;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  gap: var(--space-1-5);
+  padding: var(--space-0-5) var(--space-2);
+  pointer-events: none;
+  position: absolute;
+  top: -1.7rem;
+  white-space: nowrap;
+  z-index: 30;
+}
+
+/* The lane clips its content; let the readout float above it only while a trim is live. */
+.timelineLane.screenLane.trimming { overflow: visible; z-index: 20; }
+
+.trimReadout strong { color: #fff; font-weight: var(--weight-semibold); }
+.trimReadout span { color: #9dbdff; }
+.trimReadout-head { left: 0; }
+.trimReadout-tail { right: 0; }
+
 .trimHandle {
   background: transparent;
   border: 0;

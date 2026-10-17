@@ -1660,9 +1660,10 @@ function App() {
                 return asset?.id ? listCutRanges(project?.document as unknown as ProjectDocument, asset.id, project?.document?.composition?.duration ?? 0) : [];
               })()}
               onApplyZoomMarker={(suggestion) => {
-                if (!project) return;
+                if (!project) return false;
+                const before = project.document as unknown as ProjectDocument;
                 const next = addManualMarkerAtFrame(
-                  project.document as unknown as ProjectDocument,
+                  before,
                   suggestion.startFrame as unknown as number,
                   project.recording?.fps ?? 30,
                   {
@@ -1671,7 +1672,27 @@ function App() {
                       (suggestion.startFrame as unknown as number),
                   },
                 );
+                // No room for the zoom (it overlaps another zoom or is out of range): say so
+                // instead of pretending it was added.
+                if (next === before) return false;
                 applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] }, AI_EDIT_CHANGE(project));
+                return true;
+              }}
+              onApplyZoomMarkers={(suggestions) => {
+                if (!project) return [];
+                let next = project.document as unknown as ProjectDocument;
+                const added: string[] = [];
+                for (const suggestion of suggestions) {
+                  const grown = addManualMarkerAtFrame(
+                    next,
+                    suggestion.startFrame as unknown as number,
+                    project.recording?.fps ?? 30,
+                    { defaultSpan: (suggestion.endFrame as unknown as number) - (suggestion.startFrame as unknown as number) },
+                  );
+                  if (grown !== next) { next = grown; added.push(suggestion.id); }
+                }
+                if (added.length > 0) applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] }, AI_EDIT_CHANGE(project));
+                return added;
               }}
               onApplyCutRange={(suggestion) => {
                 if (!project) return;
@@ -5535,7 +5556,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const pendingScrollLeftRef = React.useRef<number | null>(null);
-  const zoomAnchorScreenXRef = React.useRef<number | null>(null);
+  const zoomAnchorRef = React.useRef<{ frame: number; viewportX: number } | null>(null);
   const [timelineZoomPpf, setTimelineZoomPpf] = React.useState<number | null>(null);
   const [timelineViewWidthPx, setTimelineViewWidthPx] = React.useState(0);
   const timelineDurationFrames = Math.max(1, Math.round(model.durationSec * fps));
@@ -5596,16 +5617,13 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   React.useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el || pendingScrollLeftRef.current === null) return;
-    const targetScrollLeft = pendingScrollLeftRef.current;
-    const anchorScreenX = zoomAnchorScreenXRef.current;
-    if (anchorScreenX !== null) {
-      const playhead = el.querySelector<HTMLElement>('.playhead')?.getBoundingClientRect();
-      const currentScreenX = playhead ? playhead.left + playhead.width / 2 : anchorScreenX;
-      el.scrollLeft = Math.max(0, el.scrollLeft + currentScreenX - anchorScreenX);
-      zoomAnchorScreenXRef.current = null;
-    } else {
-      el.scrollLeft = targetScrollLeft;
-    }
+    const anchor = zoomAnchorRef.current;
+    // Keep the anchor frame under the same screen position after the zoom (pure arithmetic,
+    // no reading back the DOM mid-render); fit has no anchor and returns to the start.
+    el.scrollLeft = anchor
+      ? Math.max(0, anchor.frame * pixelsPerFrame - anchor.viewportX)
+      : pendingScrollLeftRef.current;
+    zoomAnchorRef.current = null;
     pendingScrollLeftRef.current = null;
   }, [pixelsPerFrame]);
 
@@ -5650,26 +5668,32 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     return () => viewport.removeEventListener('wheel', handleWheel);
   }, [pixelsPerFrame, timelineDurationFrames, timelineViewWidthPx]);
 
-  function applyTimelineViewportZoom(direction: 1 | -1) {
-    const next = zoomStep(pixelsPerFrame, direction, timelineViewWidthPx, timelineDurationFrames);
-    const nextPpf = resolvePixelsPerFrame(next, timelineViewWidthPx, timelineDurationFrames);
-    const playheadFrame = Math.max(0, Math.min(timelineDurationFrames, Math.round(model.currentTimeSec * fps)));
+  // Zoom keeps the playhead where it is on screen. If the playhead is scrolled out of view,
+  // the middle of the visible timeline is the anchor instead, so the view never jumps away.
+  function zoomTimelineTo(next: number | null) {
     const viewport = viewportRef.current;
+    const nextPpf = resolvePixelsPerFrame(next, timelineViewWidthPx, timelineDurationFrames);
+    if (nextPpf === pixelsPerFrame && next !== null) return;
     if (next === null || !viewport) {
+      zoomAnchorRef.current = null;
       pendingScrollLeftRef.current = 0;
     } else {
-      const playhead = viewport.querySelector<HTMLElement>('.playhead')?.getBoundingClientRect();
-      zoomAnchorScreenXRef.current = playhead ? playhead.left + playhead.width / 2 : null;
-      const renderedTrack = viewport.querySelector<HTMLElement>('.screenLane .laneTrack')?.getBoundingClientRect();
-      const renderedPpf = renderedTrack && timelineDurationFrames > 0
-        ? renderedTrack.width / timelineDurationFrames
-        : pixelsPerFrame;
-      pendingScrollLeftRef.current = Math.max(0, viewport.scrollLeft + playheadFrame * (nextPpf - renderedPpf));
+      const playheadFrame = Math.max(0, Math.min(timelineDurationFrames, model.currentTimeSec * fps));
+      const playheadX = TIMELINE_LABEL_WIDTH_PX + playheadFrame * pixelsPerFrame - viewport.scrollLeft;
+      const visible = playheadX >= TIMELINE_LABEL_WIDTH_PX && playheadX <= viewport.clientWidth;
+      const viewportX = visible ? playheadX : TIMELINE_LABEL_WIDTH_PX + (viewport.clientWidth - TIMELINE_LABEL_WIDTH_PX) / 2;
+      zoomAnchorRef.current = { frame: (viewport.scrollLeft + viewportX - TIMELINE_LABEL_WIDTH_PX) / pixelsPerFrame, viewportX: viewportX - TIMELINE_LABEL_WIDTH_PX };
+      pendingScrollLeftRef.current = 0;
     }
     setTimelineZoomPpf(next);
   }
 
+  function applyTimelineViewportZoom(direction: 1 | -1) {
+    zoomTimelineTo(zoomStep(pixelsPerFrame, direction, timelineViewWidthPx, timelineDurationFrames));
+  }
+
   function fitTimelineViewport() {
+    zoomAnchorRef.current = null;
     pendingScrollLeftRef.current = 0;
     setTimelineZoomPpf(null);
   }
@@ -6896,10 +6920,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             const maxPercent = fitPpf > 0 ? Math.max(100, Math.floor((MAX_PIXELS_PER_FRAME / fitPpf) * 100)) : 100;
             const setZoomPercent = (percent: number) => {
               if (percent <= 100 || fitPpf <= 0) { fitTimelineViewport(); return; }
-              const nextPpf = Math.min(MAX_PIXELS_PER_FRAME, fitPpf * (percent / 100));
-              const playheadFrame = Math.max(0, Math.min(timelineDurationFrames, Math.round(model.currentTimeSec * fps)));
-              pendingScrollLeftRef.current = Math.max(0, playheadFrame * nextPpf - timelineViewWidthPx / 2);
-              setTimelineZoomPpf(nextPpf);
+              zoomTimelineTo(Math.min(MAX_PIXELS_PER_FRAME, fitPpf * (percent / 100)));
             };
             return (
               <>
@@ -6992,16 +7013,31 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             </TimelineLane>
             <TimelineLane
               label="Screen"
-              className={`screenLane ${cutModeActive ? 'cutModeActive' : ''}`}
+              className={`screenLane ${cutModeActive ? 'cutModeActive' : ''} ${trimDragPreview ? 'trimming' : ''}`}
               onTrackPointerDown={cutModeActive ? undefined : handleTimelineSeekPointerDown}
               onTrackPointerDownCapture={cutModeActive ? handleScreenLaneCutPointerDown : undefined}
               trackTitle={cutModeActive ? 'Drag to mark a cut range' : 'Click or drag to seek'}
             >
           {renderGaps('screen')}
+          {trimDragPreview ? trimDragBaseline.filter((clip) => clip.id === trimDragPreview.clipId).map((clip) => (
+            <span key="trim-ghost" className="trimGhost" style={{ left: `${clip.left}%`, width: `${clip.width}%` }} aria-hidden="true" />
+          )) : null}
           {model.lanes.screen.map((region, index) => (
               <div key={region.id} className={`clipBar ${selectedScreenClipIds.includes(region.id) ? 'selectedClip' : ''} ${clipDragPreview?.clipId === region.id || trimDragPreview?.clipId === region.id ? 'dragging' : ''}`} style={screenRegionStyle(region)} data-recording-clip-id={region.id} data-recording-timeline-in={Math.round(region.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? 0)} aria-label={`${selectedScreenClipIds.includes(region.id) ? 'Selected ' : ''}Screen section ${index + 1}`}>
                 {index > 0 ? <span className="clipCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? 0)} aria-hidden="true" /> : null}
               {selectedScreenClipId === region.id && trimDragPreview?.clipId === region.id ? <span className="trimAvailabilityGuide" aria-hidden="true" /> : null}
+              {trimDragPreview?.clipId === region.id ? (() => {
+                // Signed length change, like FCP/Premiere: + means footage is being brought back.
+                const lengthChange = trimDragPreview.edge === 'head' ? -trimDragPreview.deltaFrames : trimDragPreview.deltaFrames;
+                const oldLength = Math.max(0, Math.round((region.timelineOut ?? 0) - (region.timelineIn ?? 0)));
+                const sign = lengthChange > 0 ? '+' : lengthChange < 0 ? '−' : '';
+                return (
+                  <span className={`trimReadout trimReadout-${trimDragPreview.edge}`} role="status" aria-live="off">
+                    <strong>{sign}{(Math.abs(lengthChange) / fps).toFixed(1)}s</strong>
+                    <span>{Math.max(0, (oldLength + lengthChange) / fps).toFixed(1)}s long</span>
+                  </span>
+                );
+              })() : null}
               {selectedScreenClipId === region.id ? <button type="button" role="slider" className={`trimHandle trimHandleStart${(region.sourceIn ?? 0) > 0 ? ' hasHiddenFootage' : ''}`} title={(region.sourceIn ?? 0) > 0 ? `${formatClock((region.sourceIn ?? 0) / fps)} of earlier footage is hidden. Drag left to bring it back.` : 'Drag right to trim the start'} data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} /> : null}
               <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}>Screen <span className="clipDuration">{Math.max(0, ((region.timelineOut ?? 0) - (region.timelineIn ?? 0)) / fps).toFixed(1)}s</span></button>
               {selectedScreenClipId === region.id ? <button type="button" role="slider" className={`trimHandle trimHandleEnd${(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? ' hasHiddenFootage' : ''}`} title={(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? `${formatClock((sourceFrameDuration - (region.sourceOut ?? sourceFrameDuration)) / fps)} of later footage is hidden. Drag right to bring it back.` : 'Drag left to trim the end'} data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} /> : null}

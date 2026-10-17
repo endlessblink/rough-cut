@@ -42,7 +42,9 @@ type Props = {
   fps: number;
   recordingDurationFrames: number;
   existingCutRanges: ReadonlyArray<{ startFrame: number; endFrame: number }>;
-  onApplyZoomMarker: (suggestion: AiZoomMarkerSuggestion) => void;
+  onApplyZoomMarker: (suggestion: AiZoomMarkerSuggestion) => boolean | void;
+  /** Adds several zooms in one undoable change; returns the ids that fit. */
+  onApplyZoomMarkers: (suggestions: AiZoomMarkerSuggestion[]) => string[];
   onApplyCutRange: (suggestion: AiCutRangeSuggestion) => void;
   /** Several cuts as ONE change (one undo step). */
   onApplyCutRanges: (suggestions: AiCutRangeSuggestion[]) => void;
@@ -95,6 +97,7 @@ export function AiShell(props: Props): React.ReactElement {
     recordingDurationFrames,
     existingCutRanges,
     onApplyZoomMarker,
+    onApplyZoomMarkers,
     onApplyCutRange,
     onApplyCutRanges,
     onApplyTitle,
@@ -105,6 +108,7 @@ export function AiShell(props: Props): React.ReactElement {
   const [load, setLoad] = React.useState<LoadState>({ kind: 'idle' });
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
   const [applied, setApplied] = React.useState<Set<string>>(new Set());
+  const [notice, setNotice] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const b = bridge();
@@ -175,8 +179,13 @@ export function AiShell(props: Props): React.ReactElement {
 
   function applyOne(suggestion: AiSuggestion) {
     if (isApplied(suggestion) || errors.get(suggestion.id)) return;
-    if (suggestion.kind === 'zoom-marker') onApplyZoomMarker(suggestion);
-    else if (suggestion.kind === 'cut-range') onApplyCutRange(suggestion);
+    if (suggestion.kind === 'zoom-marker') {
+      if (onApplyZoomMarker(suggestion) === false) {
+        setNotice('Could not add that zoom - it overlaps another zoom or is outside the recording.');
+        return false;
+      }
+      setNotice(null);
+    } else if (suggestion.kind === 'cut-range') onApplyCutRange(suggestion);
     else if (suggestion.kind === 'title') onApplyTitle(suggestion);
     markApplied([suggestion.id]);
   }
@@ -186,8 +195,15 @@ export function AiShell(props: Props): React.ReactElement {
     if (ready.length === 0) return;
     const cuts = ready.filter((s): s is AiCutRangeSuggestion => s.kind === 'cut-range');
     if (cuts.length > 0) onApplyCutRanges(cuts);
-    for (const s of ready) if (s.kind !== 'cut-range') applyOne(s);
-    markApplied(ready.map((s) => s.id));
+    // Zooms land in ONE change too: applying them one by one each started from the same
+    // stale project, so only the last zoom survived.
+    const zooms = ready.filter((s): s is AiZoomMarkerSuggestion => s.kind === 'zoom-marker');
+    const addedZoomIds = zooms.length > 0 ? onApplyZoomMarkers(zooms) : [];
+    if (zooms.length > addedZoomIds.length) {
+      setNotice(`Added ${addedZoomIds.length} of ${zooms.length} zooms - the rest overlap another zoom.`);
+    } else if (zooms.length > 0) setNotice(null);
+    for (const s of ready) if (s.kind === 'title') applyOne(s);
+    markApplied(ready.filter((s) => s.kind !== 'zoom-marker' || addedZoomIds.includes(s.id)).map((s) => s.id));
   }
 
   const grouped = GROUPS.map((group) => ({ ...group, items: visible.filter((s) => groupOf(s) === group.id) }))
@@ -212,6 +228,8 @@ export function AiShell(props: Props): React.ReactElement {
       </header>
 
       {load.kind === 'loading' ? <AiWorking startedAt={load.startedAt} /> : null}
+
+      {notice ? <div className="aiBanner aiBannerError" role="status">{notice}</div> : null}
 
       {load.kind === 'error' ? (
         <div className="aiBanner aiBannerError" role="alert">

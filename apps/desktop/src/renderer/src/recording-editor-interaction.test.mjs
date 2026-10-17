@@ -151,10 +151,10 @@ test('recording editor protects the other core gesture contracts', () => {
   assert.match(source, /event\.key === '\]'[\s\S]+setTrimEndToPlayhead/);
   assert.match(source, /!event\.ctrlKey && !event\.metaKey[\s\S]+applyTimelineViewportZoom\(event\.deltaY < 0 \? 1 : -1\)/);
   assert.match(source, /pendingScrollLeftRef\.current = 0/);
-  assert.match(source, /const renderedTrack = viewport\.querySelector<HTMLElement>\('\.screenLane \.laneTrack'\)\?\.getBoundingClientRect\(\)/);
-  assert.match(source, /const renderedPpf = renderedTrack[\s\S]+renderedTrack\.width \/ timelineDurationFrames/);
-  assert.match(source, /const zoomAnchorScreenXRef = React\.useRef<number \| null>\(null\)/);
-  assert.match(source, /const currentScreenX = playhead[\s\S]+el\.scrollLeft \+ currentScreenX - anchorScreenX/);
+  // Zoom keeps the playhead (or the middle of the view when it is off screen) fixed on screen.
+  assert.match(source, /const zoomAnchorRef = React\.useRef<\{ frame: number; viewportX: number \} \| null>\(null\)/);
+  assert.match(source, /function zoomTimelineTo\(next: number \| null\)/);
+  assert.match(source, /anchor\.frame \* pixelsPerFrame - anchor\.viewportX/);
   assert.match(interactionHarness, /drag-to-play verification/);
   assert.match(interactionHarness, /releasedTimelineSec/);
   assert.match(interactionHarness, /afterDragPlayback\.currentTime < releasedTimeSec/);

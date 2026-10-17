@@ -284,7 +284,7 @@ test('Recording edit timeline exposes zoom controls and +/- shortcuts', async ()
   assert.match(source, /isTypingTarget\(event\.target\)/);
   assert.match(source, /viewport\.addEventListener\('wheel', handleWheel, \{ passive: false \}\)/);
   assert.match(source, /!event\.ctrlKey && !event\.metaKey/);
-  assert.match(source, /const renderedTrack = viewport\.querySelector<HTMLElement>\('\.screenLane \.laneTrack'\)\?\.getBoundingClientRect\(\)/);
+  assert.match(source, /function zoomTimelineTo\(next: number \| null\)/);
   assert.doesNotMatch(source, /anchorFrame = frameAtClientX\(event\.clientX/);
   assert.match(styles, /\.timelineViewport\s*\{/);
   assert.match(styles, /\.timelineContent\s*\{/);
