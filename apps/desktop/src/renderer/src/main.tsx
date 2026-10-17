@@ -6747,6 +6747,39 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     }
   }
 
+  // Live layout of a ripple trim drag. It mirrors the committed edit (trimRecordingClipEdge):
+  // shortening keeps the section where it starts and slides the later sections along, and
+  // lengthening fills the empty space before it pushes anything. The preview therefore matches
+  // the result instead of leaving a hole that snaps shut on release.
+  // The Hidden start/end pills are lane-level; on a clip too short to hold one they would spill over
+  // the neighbouring clip. The edge handle still shows hidden footage with its own marker.
+  function edgeClipFitsRestorePill(clip: { width: number } | undefined) {
+    return Boolean(clip) && ((clip as { width: number }).width / 100) * timelineTrackWidthPx >= 190;
+  }
+
+  function ripplePreviewLayout() {
+    if (!trimDragPreview || !rippleTrim) return null;
+    const lane = model.lanes.screen;
+    const index = lane.findIndex((clip) => clip.id === trimDragPreview.clipId);
+    const clip = lane[index];
+    if (!clip || !Number.isFinite(clip.timelineIn) || !Number.isFinite(clip.timelineOut)) return null;
+    const start = Math.round(clip.timelineIn ?? 0);
+    const end = Math.round(clip.timelineOut ?? start + 1);
+    const previousOut = Math.round(lane[index - 1]?.timelineOut ?? 0);
+    const nextClip = lane[index + 1];
+    const nextIn = nextClip && Number.isFinite(nextClip.timelineIn) ? Math.round(nextClip.timelineIn ?? end) : Infinity;
+    const frame = trimDragPreview.frame;
+    if (trimDragPreview.edge === 'head') {
+      if (frame >= start) return { clipId: clip.id, newIn: start, newOut: end - (frame - start), shift: -(frame - start), after: end, waveFrame: frame };
+      const frames = start - frame;
+      const push = Math.max(0, frames - (start - previousOut));
+      return { clipId: clip.id, newIn: start - (frames - push), newOut: end + push, shift: push, after: end, waveFrame: Math.max(0, frame) };
+    }
+    if (frame <= end) return { clipId: clip.id, newIn: start, newOut: frame, shift: frame - end, after: end, waveFrame: start };
+    const push = Math.max(0, frame - end - (nextIn - end));
+    return { clipId: clip.id, newIn: start, newOut: frame, shift: push, after: end, waveFrame: start };
+  }
+
   function screenRegionStyle(region: { id: string; left: number; width: number; sourceIn?: number; sourceOut?: number; timelineIn?: number; timelineOut?: number }) {
     const separated = (placement: { left: number; width: number }) => ({
       left: `calc(${placement.left}% + 1px)`,
@@ -6754,6 +6787,13 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     });
     const baseline = trimDragPreview ? trimDragBaseline.find((clip) => clip.id === region.id) : null;
     void baseline;
+    const ripple = ripplePreviewLayout();
+    if (ripple) {
+      if (region.id === ripple.clipId) return separated(frameRangeToPlacement(ripple.newIn, ripple.newOut, fps, model.durationSec));
+      if (Number.isFinite(region.timelineIn) && Number.isFinite(region.timelineOut) && Math.round(region.timelineIn ?? 0) >= ripple.after) {
+        return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shift, (region.timelineOut ?? 1) + ripple.shift, fps, model.durationSec));
+      }
+    }
     if (clipDragPreview?.clipId === region.id) {
       // Screen clips are placed by raw timeline frames over durationSec (no trimStartFrame offset),
       // matching frameRangeToPlacement(clip.timelineIn, clip.timelineOut, ...) in timeline-rail.mjs.
@@ -6802,6 +6842,13 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const clipId = linkedScreen?.id ?? (region.id.startsWith('audio:') ? region.id.slice('audio:'.length) : region.id);
     const baseline = trimDragPreview ? trimDragBaseline.find((clip) => clip.id === clipId) : null;
     void baseline;
+    const ripple = ripplePreviewLayout();
+    if (ripple) {
+      if (ripple.clipId === clipId) return separated(frameRangeToPlacement(ripple.newIn, ripple.newOut, fps, model.durationSec));
+      if (Number.isFinite(region.timelineIn) && Number.isFinite(region.timelineOut) && Math.round(region.timelineIn ?? 0) >= ripple.after) {
+        return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shift, (region.timelineOut ?? 1) + ripple.shift, fps, model.durationSec));
+      }
+    }
     if (!trimDragPreview || trimDragPreview.clipId !== clipId || !linkedScreen) {
       const placement = frameRangeToPlacement(region.timelineIn ?? 0, region.timelineOut ?? region.timelineIn ?? 1, fps, model.durationSec);
       return separated(placement);
@@ -6966,8 +7013,8 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             const placement = frameRangeToPlacement(start, end, fps, model.durationSec);
             return <div className="cutDragPreview" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} aria-hidden="true" />;
           })() : null}
-          {hasHiddenStart ? <button type="button" className="hiddenTrimRange hiddenTrimStart" aria-label="Restore hidden start" title={`Restore hidden start (${model.trimStartFrame} frames)`} onClick={onRestoreTrimStart}>Hidden start</button> : null}
-          {hasHiddenEnd ? <button type="button" className="hiddenTrimRange hiddenTrimEnd" aria-label="Restore hidden end" title={`Restore hidden end (${sourceFrameDuration - model.trimEndFrame} frames)`} onClick={onRestoreTrimEnd}>Hidden end</button> : null}
+          {hasHiddenStart && !trimDragPreview && edgeClipFitsRestorePill(model.lanes.screen[0]) ? <button type="button" className="hiddenTrimRange hiddenTrimStart" aria-label="Restore hidden start" title={`Restore hidden start (${model.trimStartFrame} frames)`} onClick={onRestoreTrimStart}>Hidden start</button> : null}
+          {hasHiddenEnd && !trimDragPreview && edgeClipFitsRestorePill(model.lanes.screen[model.lanes.screen.length - 1]) ? <button type="button" className="hiddenTrimRange hiddenTrimEnd" aria-label="Restore hidden end" title={`Restore hidden end (${sourceFrameDuration - model.trimEndFrame} frames)`} onClick={onRestoreTrimEnd}>Hidden end</button> : null}
           {cutRanges.map((range) => {
             const placement = frameRangeToPlacement(range.startFrame - model.trimStartFrame, range.endFrame - model.trimStartFrame, fps, model.durationSec);
             return <button key={range.id} type="button" className="hiddenCutRange" aria-label={`Restore cut ${formatClock((range.startFrame - model.trimStartFrame) / fps)} to ${formatClock((range.endFrame - model.trimStartFrame) / fps)}`} title="Restore this hidden middle range" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} onClick={() => onRestoreCut(range.id)}>Restore cut</button>;
