@@ -7293,13 +7293,20 @@ function AutoZoomGenerationPanel({
 
   async function generateAutoZooms() {
     const previous = project;
-    const beforeCount = listMarkers(document).length;
-    const nextDocument = addAutoZoomMarkersFromTelemetry(document);
-    if (nextDocument === document) {
-      setMessage('No new zooms found');
+    const existingIds = new Set(listMarkers(document).map((marker) => marker.id));
+    const generated = addAutoZoomMarkersFromTelemetry(document);
+    // Only keep zooms that touch footage still on the timeline; zooms over trimmed-away or
+    // cut footage would never show and just clutter the project.
+    const strayIds = listMarkers(generated)
+      .filter((marker) => !existingIds.has(marker.id)
+        && !visibleSections.some((section) => marker.endFrame > section.sourceIn && marker.startFrame < section.sourceOut))
+      .map((marker) => marker.id);
+    const nextDocument = strayIds.length > 0 ? removeMarkers(generated, strayIds) : generated;
+    if (nextDocument === document || listMarkers(nextDocument).length === existingIds.size) {
+      setMessage(strayIds.length > 0 ? 'No new zooms in the footage you kept' : 'No new zooms found');
       return;
     }
-    const addedCount = Math.max(0, listMarkers(nextDocument).length - beforeCount);
+    const addedCount = Math.max(0, listMarkers(nextDocument).length - existingIds.size);
     const optimistic = { ...project, document: nextDocument as unknown as ProjectState['document'] };
     setMessage(null);
     setIsSaving(true);
