@@ -1,6 +1,7 @@
 export interface CaptionCue { id: string; startFrame: number; endFrame: number; text: string }
 export interface CaptionSettings { enabled: boolean; position: 'bottom' | 'center' | 'top'; sizePct: number; textColor: string; boxOpacity: number }
 export const CAPTION_POSITIONS: readonly string[];
+export const CAPTION_EDGE_MARGIN: number;
 export const CAPTION_LANGUAGES: readonly { code: string; label: string }[];
 export const DEFAULT_CAPTION_SETTINGS: CaptionSettings;
 export function buildCaptionCues(words: unknown, options?: { fps?: number }): CaptionCue[];

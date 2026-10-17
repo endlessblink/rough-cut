@@ -134,5 +134,5 @@ test('the subtitle file carries Hebrew text, times and the chosen style', () => 
   assert.equal(captionTextDirection('Plain English'), 'ltr');
   assert.equal((ass.match(/Dialogue:/g) ?? []).length, 1);
   assert.match(ass, /Style: Default,Heebo,54,/);
-  assert.match(ass, /,8,115,115,65,1/); // top alignment, margins
+  assert.match(ass, /,8,115,115,16,1/); // top alignment, margins (close to the edge, off the screen's buttons)
 });

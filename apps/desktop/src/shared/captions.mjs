@@ -22,11 +22,14 @@ export const DEFAULT_CAPTION_SETTINGS = {
   enabled: false,
   position: 'bottom',
   /** Text height as a percentage of the video height. */
-  sizePct: 5,
+  sizePct: 4.5,
   textColor: '#ffffff',
   /** 0 = no box behind the text, 1 = solid black box. */
   boxOpacity: 0.55,
 };
+
+/** Gap between the caption box and the top/bottom edge, as a share of the video height. */
+export const CAPTION_EDGE_MARGIN = 0.015;
 
 const MAX_CHARS = 38;
 const MAX_CUE_SEC = 4;
@@ -318,7 +321,9 @@ export function buildCaptionsAss(cues, { width, height, fps = 30, settings = DEF
   const h = Math.round(height);
   const fontSize = Math.round((settings.sizePct / 100) * h);
   const alignment = settings.position === 'top' ? 8 : settings.position === 'center' ? 5 : 2;
-  const marginV = Math.round(h * 0.06);
+  // Close to the edge of the picture: the strip below the screen recording is empty, while a
+  // higher caption would sit on top of the screen's own buttons.
+  const marginV = Math.round(h * CAPTION_EDGE_MARGIN);
   // BorderStyle 3 paints an opaque box behind the text; its alpha comes from BackColour.
   const boxAlpha = Math.round((1 - settings.boxOpacity) * 255);
   const boxed = settings.boxOpacity > 0;

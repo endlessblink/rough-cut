@@ -1,5 +1,5 @@
 import React from 'react';
-import { captionAtSourceFrame, getCaptions, type CaptionSettings } from '../../shared/captions.mjs';
+import { CAPTION_EDGE_MARGIN, captionAtSourceFrame, getCaptions, type CaptionSettings } from '../../shared/captions.mjs';
 import {
   AlignBottom as PhosphorAlignBottom,
   AlignCenterHorizontal as PhosphorAlignCenterHorizontal,
@@ -327,7 +327,7 @@ function drawCaptionLine(ctx: CanvasRenderingContext2D, text: string, canvasWidt
   const lineHeight = Math.round(fontSize * 1.25);
   const padX = Math.round(fontSize * 0.28);
   const blockHeight = lines.length * lineHeight;
-  const margin = Math.round(canvasHeight * 0.06);
+  const margin = Math.round(canvasHeight * CAPTION_EDGE_MARGIN) + Math.round(fontSize * 0.28);
   const centerY = settings.position === 'top'
     ? margin + blockHeight / 2
     : settings.position === 'center'
