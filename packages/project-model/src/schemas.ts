@@ -587,6 +587,13 @@ export const ProjectCaptionsSchema = z.object({
   textColor: z.string().optional(),
   boxOpacity: z.number().optional(),
   edits: z.record(z.string(), z.string()).optional(),
+  // Explicit lines (source frames) once the user has added, moved, split or deleted any.
+  cues: z.array(z.object({
+    id: z.string().min(1),
+    startFrame: z.number(),
+    endFrame: z.number(),
+    text: z.string(),
+  })).optional(),
 });
 
 export const NleTrackKindSchema = z.enum(['video', 'audio', 'captions', 'motion-graphics']);

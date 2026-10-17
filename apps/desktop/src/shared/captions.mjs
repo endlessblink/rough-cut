@@ -78,12 +78,108 @@ export function getCaptions(document) {
   if (Number.isFinite(stored.sizePct)) settings.sizePct = Math.max(2, Math.min(12, stored.sizePct));
   if (typeof stored.textColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(stored.textColor)) settings.textColor = stored.textColor;
   if (Number.isFinite(stored.boxOpacity)) settings.boxOpacity = Math.max(0, Math.min(1, stored.boxOpacity));
+  return { settings, cues: resolveCues(document) };
+}
+
+function transcriptFps(document) {
+  return Number.isFinite(document?.transcription?.fps) && document.transcription.fps > 0 ? document.transcription.fps : 30;
+}
+
+/** Lines in source frames: the stored (edited) list when there is one, else built from the transcript. */
+function resolveCues(document) {
+  const stored = document?.captions && typeof document.captions === 'object' ? document.captions : {};
+  if (Array.isArray(stored.cues)) {
+    return stored.cues
+      .filter((cue) => cue && typeof cue.id === 'string' && typeof cue.text === 'string' && Number.isFinite(cue.startFrame) && Number.isFinite(cue.endFrame) && cue.endFrame > cue.startFrame)
+      .map((cue) => ({ id: cue.id, startFrame: cue.startFrame, endFrame: cue.endFrame, text: cue.text }))
+      .sort((a, b) => a.startFrame - b.startFrame);
+  }
   const edits = stored.edits && typeof stored.edits === 'object' ? stored.edits : {};
-  const fps = Number.isFinite(document?.transcription?.fps) && document.transcription.fps > 0 ? document.transcription.fps : 30;
-  const cues = buildCaptionCues(document?.transcript?.words, { fps }).map((cue) => (
+  return buildCaptionCues(document?.transcript?.words, { fps: transcriptFps(document) }).map((cue) => (
     typeof edits[cue.id] === 'string' ? { ...cue, text: edits[cue.id] } : cue
   ));
-  return { settings, cues };
+}
+
+/** Same document with the lines stored explicitly (so they can be added, moved, split and deleted). */
+function withStoredCues(document, cues) {
+  const current = document?.captions && typeof document.captions === 'object' ? document.captions : {};
+  const { edits: _edits, ...rest } = current;
+  return { ...document, captions: { ...rest, cues } };
+}
+
+const MIN_CUE_FRAMES = 6;
+
+function newCueId(cues) {
+  let n = cues.length;
+  const taken = new Set(cues.map((cue) => cue.id));
+  while (taken.has(`cap_${n}`) || taken.has(`cap_n${n}`)) n += 1;
+  return `cap_n${n}`;
+}
+
+/** Move / resize / reword one line. A line never overlaps its neighbours and never gets shorter than a few frames. */
+export function updateCaption(document, cueId, patch) {
+  const cues = resolveCues(document);
+  const index = cues.findIndex((cue) => cue.id === cueId);
+  if (index < 0) return document;
+  const cue = cues[index];
+  let startFrame = Number.isFinite(patch.startFrame) ? Math.round(patch.startFrame) : cue.startFrame;
+  let endFrame = Number.isFinite(patch.endFrame) ? Math.round(patch.endFrame) : cue.endFrame;
+  const text = typeof patch.text === 'string' ? patch.text : cue.text;
+  const previousEnd = index > 0 ? cues[index - 1].endFrame : 0;
+  const nextStart = index < cues.length - 1 ? cues[index + 1].startFrame : Infinity;
+  const length = Math.max(MIN_CUE_FRAMES, endFrame - startFrame);
+  startFrame = Math.max(previousEnd, startFrame);
+  endFrame = Math.min(nextStart, Math.max(startFrame + MIN_CUE_FRAMES, startFrame + length));
+  if (endFrame - startFrame < MIN_CUE_FRAMES) {
+    // Squeezed between neighbours: keep the original place rather than invent overlap.
+    startFrame = cue.startFrame;
+    endFrame = cue.endFrame;
+  }
+  if (startFrame === cue.startFrame && endFrame === cue.endFrame && text === cue.text) return document;
+  const next = cues.map((item, i) => (i === index ? { ...item, startFrame, endFrame, text } : item));
+  return withStoredCues(document, next);
+}
+
+/** Add an empty line at a source frame, fitted into the free space there. Returns { document, id } or null. */
+export function addCaption(document, atFrame, { lengthFrames = 60, text = '' } = {}) {
+  const cues = resolveCues(document);
+  const start = Math.max(0, Math.round(atFrame));
+  if (cues.some((cue) => start >= cue.startFrame && start < cue.endFrame)) return null;
+  const nextStart = cues.find((cue) => cue.startFrame >= start)?.startFrame ?? Infinity;
+  const end = Math.min(nextStart, start + lengthFrames);
+  if (end - start < MIN_CUE_FRAMES) return null;
+  const id = newCueId(cues);
+  const next = [...cues, { id, startFrame: start, endFrame: end, text }].sort((a, b) => a.startFrame - b.startFrame);
+  return { document: withStoredCues(document, next), id };
+}
+
+export function removeCaption(document, cueId) {
+  const cues = resolveCues(document);
+  if (!cues.some((cue) => cue.id === cueId)) return document;
+  return withStoredCues(document, cues.filter((cue) => cue.id !== cueId));
+}
+
+/** Split a line in two at a source frame; the words are divided in proportion to the time. Returns { document, ids } or null. */
+export function splitCaption(document, cueId, atFrame) {
+  const cues = resolveCues(document);
+  const index = cues.findIndex((cue) => cue.id === cueId);
+  if (index < 0) return null;
+  const cue = cues[index];
+  const at = Math.round(atFrame);
+  if (at - cue.startFrame < MIN_CUE_FRAMES || cue.endFrame - at < MIN_CUE_FRAMES) return null;
+  const words = cue.text.split(/\s+/).filter(Boolean);
+  const ratio = (at - cue.startFrame) / (cue.endFrame - cue.startFrame);
+  const cut = words.length > 1 ? Math.min(words.length - 1, Math.max(1, Math.round(words.length * ratio))) : words.length;
+  const firstText = words.slice(0, cut).join(' ');
+  const secondText = words.slice(cut).join(' ');
+  const secondId = newCueId(cues);
+  const next = [
+    ...cues.slice(0, index),
+    { ...cue, endFrame: at, text: firstText },
+    { id: secondId, startFrame: at, endFrame: cue.endFrame, text: secondText },
+    ...cues.slice(index + 1),
+  ];
+  return { document: withStoredCues(document, next), ids: [cue.id, secondId] };
 }
 
 /** Return the document with caption settings changed (kept in `document.captions`). */
@@ -94,8 +190,7 @@ export function withCaptionSettings(document, patch) {
 
 /** Return the document with one line's wording changed (empty text hides that line). */
 export function withCaptionEdit(document, cueId, text) {
-  const current = document?.captions && typeof document.captions === 'object' ? document.captions : {};
-  return { ...document, captions: { ...current, edits: { ...(current.edits ?? {}), [cueId]: text } } };
+  return updateCaption(document, cueId, { text });
 }
 
 /** The line to show at a source frame, or null (empty edited text counts as hidden). */

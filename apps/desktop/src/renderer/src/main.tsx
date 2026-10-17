@@ -103,7 +103,8 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { resolveCensorSoftness } from '../../shared/censor-regions.mjs';
-import { CAPTION_POSITIONS, getCaptions, withCaptionEdit, withCaptionSettings } from '../../shared/captions.mjs';
+import { CAPTION_POSITIONS, addCaption, getCaptions, withCaptionEdit, withCaptionSettings } from '../../shared/captions.mjs';
+import { CaptionSelectionContext, CaptionsLane, sourceFrameAtTimeline } from './captions-lane';
 import {
   DEFAULT_CENSOR_RECT,
   addCensorRegionAt,
@@ -4222,6 +4223,8 @@ function ProjectPreview({
   // which reads as "this censor is already following" when it is not.
   const [censorTrack, setCensorTrack] = React.useState<{ censorId: string; message: string } | null>(null);
   const [selectedCensorId, setSelectedCensorId] = React.useState<string | null>(null);
+  const [selectedCaptionId, setSelectedCaptionId] = React.useState<string | null>(null);
+  const captionSelectionValue = React.useMemo(() => ({ selectedId: selectedCaptionId, select: setSelectedCaptionId }), [selectedCaptionId]);
   const [selectedGraphicId, setSelectedGraphicId] = React.useState<string | null>(null);
   const [graphicLayoutDraft, setGraphicLayoutDraft] = React.useState<{ id: string; layout: GraphicLayout } | null>(null);
   const graphicsStageRef = React.useRef<HTMLDivElement | null>(null);
@@ -5295,6 +5298,7 @@ function ProjectPreview({
   }
 
   return (
+    <CaptionSelectionContext.Provider value={captionSelectionValue}>
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace"  onKeyDown={handleEditorKeyDown} data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
       <ToolRail active={activeTool} onSelect={onActiveToolChange} panelOpen={setupBoardOpen} onTogglePanel={onSetupBoardToggle} />
       {activeTool === 'graphics' ? (
@@ -5332,7 +5336,7 @@ function ProjectPreview({
           <p className="timelineHeaderTitle">Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} /> : null}
+           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onCaptionsChange={(next) => { void persist(next as unknown as ProjectState['document']); }} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} /> : null}
         </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector" hidden={!inspectorOpen}>
         <div className="inspectorHeader">
@@ -5381,6 +5385,7 @@ function ProjectPreview({
         {saveError ? <p className="error">{saveError}</p> : null}
       </aside>
     </section>
+    </CaptionSelectionContext.Provider>
   );
 }
 
@@ -5527,7 +5532,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove }: { project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
+function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove, onCaptionsChange }: { onCaptionsChange?: (next: ProjectDocument) => void; project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -5542,6 +5547,8 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const [zoomDragPreview, setZoomDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [zoomSelectionPreview, setZoomSelectionPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [selectedZoomMarkerIds, setSelectedZoomMarkerIds] = React.useState<string[]>([]);
+  const captionSelection = React.useContext(CaptionSelectionContext);
+  const [captionFocusId, setCaptionFocusId] = React.useState<string | null>(null);
   const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [graphicDragPreview, setGraphicDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
@@ -7082,6 +7089,49 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                 </button>; })
              : <p className="srOnly">No audio track.</p>}
             </TimelineLane>
+            {(() => {
+              // Subtitles get their own lane, shown once captions are on or any line exists.
+              const captionDocument = project.document as unknown as ProjectDocument;
+              const stored = (captionDocument as { captions?: { cues?: unknown[] } }).captions;
+              const { settings: captionSettings } = getCaptions(captionDocument);
+              if (!onCaptionsChange || !(captionSettings.enabled || (stored?.cues?.length ?? 0) > 0)) return null;
+              const sections = model.lanes.screen.map((clip) => ({ sourceIn: clip.sourceIn ?? 0, sourceOut: clip.sourceOut ?? 0, timelineIn: clip.timelineIn ?? 0 }));
+              const playheadFrame = Math.round(model.currentTimeSec * fps);
+              const seekToFrame = (frame: number) => { const sec = Math.max(0, Math.min(model.durationSec, frame / fps)); onScrubStart(); onScrub(sec); onScrubEnd(sec); };
+              return (
+                <TimelineLane
+                  label="Captions"
+                  className="captionsLane"
+                  aria-label="Subtitles"
+                  onTrackPointerDown={handleTimelineSeekPointerDown}
+                  trackTitle="Double-click to add a subtitle"
+                  onTrackDoubleClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    if (rect.width <= 0) return;
+                    const timelineFrame = Math.round(((event.clientX - rect.left) / rect.width) * Math.max(1, Math.round(model.durationSec * fps)));
+                    const sourceFrame = sourceFrameAtTimeline(timelineFrame, sections);
+                    if (sourceFrame === null) return;
+                    const added = addCaption(captionDocument, sourceFrame, { lengthFrames: Math.round(fps * 2) });
+                    if (!added) return;
+                    setCaptionFocusId(added.id);
+                    captionSelection.select(added.id);
+                    onCaptionsChange(added.document as ProjectDocument);
+                  }}
+                >
+                  <CaptionsLane
+                    document={captionDocument}
+                    fps={fps}
+                    durationSec={model.durationSec}
+                    sections={sections}
+                    playheadFrame={playheadFrame}
+                    onChange={(next) => onCaptionsChange(next as ProjectDocument)}
+                    onSeek={seekToFrame}
+                    autoFocusId={captionFocusId}
+                    onAutoFocusDone={() => setCaptionFocusId(null)}
+                  />
+                </TimelineLane>
+              );
+            })()}
             <TimelineLane label="Zoom" className="zoomLane" aria-label="Zoom markers" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
           {zoomSelectionPreview ? <div className="zoomSelectionMarquee" style={{ left: `${zoomSelectionPreview.left}%`, width: `${zoomSelectionPreview.width}%` }} aria-hidden="true" /> : null}
           {model.lanes.zoom.length > 0
@@ -7273,6 +7323,7 @@ const TIMELINE_LANE_ICONS: Record<string, PhosphorIconType> = {
   screen: PhosphorFilmStrip,
   audio: PhosphorWaveform,
   zoom: PhosphorMagnifyingGlassPlus,
+  captions: PhosphorClosedCaptioning,
   censor: PhosphorEyeSlash,
   clicks: PhosphorCursorClick,
   camera: PhosphorVideoCamera,
@@ -7487,6 +7538,7 @@ function CaptionsPanel({
   }
 
   const hasTranscript = cues.length > 0;
+  const { selectedId, select } = React.useContext(CaptionSelectionContext);
   // Only lines in footage that is still on the timeline, listed by their time on the timeline.
   const captionFps = Math.max(1, project.recording?.fps ?? 30);
   const sections = selectRecordingEditModel({ document: document as never }).screenClips;
@@ -7500,7 +7552,7 @@ function CaptionsPanel({
   return (
     <div className="cameraFollowPanel captionsPanel" aria-label="Captions" data-ui-region="captions-panel">
       <p className="eyebrow">Captions</p>
-      {hasTranscript ? (
+      {(
         <>
           <InspectorToggle
             label="Show captions in the video and export"
@@ -7543,13 +7595,14 @@ function CaptionsPanel({
           <p className="eyebrow">Lines ({placedCues.length})</p>
           <ul className="captionCueList">
             {visibleCues.map(({ cue, timelineSec }) => (
-              <li key={cue.id} className="captionCueRow">
+              <li key={`${cue.id}:${cue.text}`} className={`captionCueRow${selectedId === cue.id ? ' selectedCue' : ''}`}>
                 <span className="captionCueTime">{formatClock(timelineSec)}</span>
                 <input
                   type="text"
                   dir="auto"
                   defaultValue={cue.text}
                   aria-label={`Caption line at ${formatClock(timelineSec)}`}
+                  onFocus={() => select(cue.id)}
                   onBlur={(event) => {
                     const text = event.currentTarget.value;
                     if (text !== cue.text) void persist(withCaptionEdit(document, cue.id, text));
@@ -7564,8 +7617,11 @@ function CaptionsPanel({
             </button>
           ) : null}
         </>
+      )}
+      {!hasTranscript && placedCues.length === 0 ? (
+        <p className="captionHint">No speech transcript yet. Turn captions on, then double-click the Captions lane on the timeline to type a subtitle in Hebrew or English.</p>
       ) : (
-        <p className="warning">No transcript yet. Captions are built from the transcript of the recording; record with a microphone, or wait for the transcript to finish.</p>
+        <p className="captionHint">Click a line on the Captions lane to edit it. Drag its edges to retime, double-click an empty spot to add one.</p>
       )}
       {saveError ? <p className="error">{saveError}</p> : null}
     </div>

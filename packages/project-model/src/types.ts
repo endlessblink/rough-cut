@@ -572,6 +572,7 @@ export interface ProjectDocument {
     readonly textColor?: string;
     readonly boxOpacity?: number;
     readonly edits?: Readonly<Record<string, string>>;
+    readonly cues?: readonly { readonly id: string; readonly startFrame: number; readonly endFrame: number; readonly text: string }[];
   };
   readonly tracks?: readonly import('./track.js').NleTrack[];
   readonly timeline: import('./shared-timeline.js').SharedTimeline;
