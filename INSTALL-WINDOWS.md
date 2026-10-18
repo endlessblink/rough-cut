@@ -28,7 +28,7 @@ Get-FileHash .\Rough-Cut-0.1.0-beta.9-Setup.exe -Algorithm SHA256
 The checksum of the installer built on 2026-10-18 is:
 
 ```
-9E6DBDCAF016B21D7C91C18EB3F3EEBB249802719A3CDA2444264C4EDFD6D417  Rough-Cut-0.1.0-beta.9-Setup.exe
+BA262A16E719587D6BCF07FB32F38748FA8B0A686935FF6344C57205FA76C265  Rough-Cut-0.1.0-beta.9-Setup.exe
 ```
 
 Compare the result with that value and with the checksum published next to the download. Do not run a build whose checksum you cannot match.
