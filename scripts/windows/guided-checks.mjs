@@ -7,14 +7,23 @@
 // through the same `confirm` command the gate reads (which refuses to run without an interactive terminal).
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
 const root = resolve(import.meta.dirname, '..', '..');
 const verify = join(root, 'scripts', 'windows', 'verify-windows-port.mjs');
 const evidencePath = join(root, '.git', 'windows-port-evidence.json');
-const installer = join(root, 'release', 'windows', 'Rough-Cut-0.1.0-beta.8-Setup.exe');
+const releaseDir = join(root, 'release', 'windows');
+// The newest installer in release/windows (the version number changes with every release).
+const installer = (() => {
+  try {
+    const names = readdirSync(releaseDir).filter((name) => /^Rough-Cut-.*-Setup\.exe$/.test(name)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return join(releaseDir, names.at(-1) ?? 'Rough-Cut-Setup.exe');
+  } catch {
+    return join(releaseDir, 'Rough-Cut-Setup.exe');
+  }
+})();
 const portable = join(root, 'dist', 'rough-cut-mvp-win32-x64', 'Rough Cut.exe');
 
 const CHECKS = {
