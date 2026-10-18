@@ -4,7 +4,7 @@ window.ROUGH_CUT_RELEASE = Object.freeze({
   version: "0.1.0-beta.10",
   appImageUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.10/Rough-Cut-0.1.0-beta.10-x86_64.AppImage",
   debUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.10/Rough-Cut-0.1.0-beta.10-amd64.deb",
-  windowsUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.9-windows/Rough-Cut-0.1.0-beta.9-Setup.exe",
+  windowsUrl: "https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.10-windows/Rough-Cut-0.1.0-beta.10-Setup.exe",
 });
 
 /* Google Form behind the Mac/Windows waitlist. Entry ids come from the form's questions. */
