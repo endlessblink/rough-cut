@@ -1,3 +1,16 @@
+# Rough Cut 0.1.0-beta.10 — Linux beta
+
+Free screen recorder and editor for Linux (x86_64, X11). Pre-release. All checksums are in `SHA256SUMS` on the release; the exact source commit is in `package-identity.json` and `SOURCE-MANIFEST.json`.
+
+## What changed since beta.9
+
+- **Captions.** Subtitles get their own timeline lane. Make them from your speech (needs the optional local transcription engine), fix any line in place, drag to retime, and switch between languages; a translation is made through Claude only when you ask. Captions are burned into styled exports, and Hebrew reads right to left.
+- **Timeline.** Zooming the timeline keeps the playhead where it is. Trimming shows the new length as you drag. End jumps to the end. Generated zooms only land on footage that is still in the edit, and AI zooms apply as one undoable step.
+- **Fix: the camera disappearing.** After trimming the start of a recording, the camera bubble could vanish partway through the video. It now stays for the whole video, in preview and export.
+- **Ubuntu 24.04 and later.** These systems only allow Chromium's sandbox for programs with a small AppArmor rule. The Debian package adds it during install; the AppImage and portable folder now ask once and add the same rule after your password, instead of closing. Rough Cut never runs with the sandbox off.
+- **Missing tools.** On first start the Linux launcher checks for ffmpeg, xdotool and xinput and offers to install any that are missing.
+- Same Electron 43.7.7, bundled media tools and notices as beta.9.
+
 # Rough Cut 0.1.0-beta.9 — Linux beta
 
 Free screen recorder and editor for Linux (x86_64, X11). Pre-release. All checksums are in `SHA256SUMS` on the release; the exact source commit is in `package-identity.json` and `SOURCE-MANIFEST.json`.

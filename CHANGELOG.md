@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-beta.10 — not yet published
+
+- Captions: their own timeline lane, speech-to-text (local engine), inline editing, language switching (translation through Claude, on request) and burned into styled exports, Hebrew right to left.
+- Timeline: zoom keeps the playhead in place; trims show a live length readout; End jumps to the end; generated zooms only land on footage still in the edit; AI zooms apply in one undoable step.
+- Fix: the camera no longer disappears partway through a video after a head trim.
+- Linux: starts on Ubuntu 24.04+ with the sandbox kept on (one-time, user-approved AppArmor rule for the AppImage and portable folder); first start can install missing ffmpeg, xdotool and xinput.
+- Windows: preview build from the same source (see INSTALL-WINDOWS.md).
+
 ## 0.1.0-beta.9 — 2026-10-08
 
 - Fix: importing a video from outside the projects folder created the project but then failed with "Project path is outside the allowed projects directory", and the editor never opened. A project you imported or opened yourself now opens and saves in the folder you chose (regression test included).

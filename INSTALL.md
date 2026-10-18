@@ -1,10 +1,10 @@
-# Install Rough Cut 0.1.0-beta.9 (Linux x86_64, X11)
+# Install Rough Cut 0.1.0-beta.10 (Linux x86_64, X11)
 
-Rough Cut is a free screen recorder and editor for Linux. This is a public beta. Download everything from https://github.com/endlessblink/rough-cut/releases/tag/v0.1.0-beta.9
+Rough Cut is a free screen recorder and editor for Linux. This is a public beta. Download everything from https://github.com/endlessblink/rough-cut/releases/tag/v0.1.0-beta.10
 
 ## Before you start
 
-- Linux **x86_64** with **X11** and glibc **2.35 or newer** (for example Ubuntu 22.04 or later). Wayland is not supported. There is no macOS or Windows build.
+- Linux **x86_64** with **X11** and glibc **2.35 or newer** (for example Ubuntu 22.04 or later). Wayland is not supported. Windows has its own preview build; see INSTALL-WINDOWS.md. There is no macOS build.
 - Tested on KDE Plasma/X11 with an NVIDIA GPU. Other setups may work but are untested.
 - FFmpeg/FFprobe (8.1.3), xdotool, xinput and pactl are bundled. You do not need Node.js or a source checkout. Standard Linux desktop libraries are still required; this is not a server or headless distribution.
 - Back up recordings you cannot redo. This is a beta.
@@ -24,29 +24,29 @@ The line for your file should say `OK`.
 **AppImage (one file)**
 
 ```bash
-chmod +x Rough-Cut-0.1.0-beta.9-x86_64.AppImage
-./Rough-Cut-0.1.0-beta.9-x86_64.AppImage
+chmod +x Rough-Cut-0.1.0-beta.10-x86_64.AppImage
+./Rough-Cut-0.1.0-beta.10-x86_64.AppImage
 ```
 
-If FUSE is missing: `APPIMAGE_EXTRACT_AND_RUN=1 ./Rough-Cut-0.1.0-beta.9-x86_64.AppImage`
+If FUSE is missing: `APPIMAGE_EXTRACT_AND_RUN=1 ./Rough-Cut-0.1.0-beta.10-x86_64.AppImage`
 
 **Debian / Ubuntu package**
 
 ```bash
-sudo apt install ./Rough-Cut-0.1.0-beta.9-amd64.deb
+sudo apt install ./Rough-Cut-0.1.0-beta.10-amd64.deb
 ```
 
 **Portable folder (.tar.gz)**
 
 ```bash
-tar -xzf rough-cut-0.1.0-beta.9-linux-x64.tar.gz
+tar -xzf rough-cut-0.1.0-beta.10-linux-x64.tar.gz
 cd rough-cut-mvp-linux-x64
 ./run.sh
 ```
 
 Keep the whole folder together. Replace it with a new download when a new version comes out.
 
-The Chromium sandbox stays on, and the launchers refuse options that turn it off. If the app does not start because of a sandbox error, do not work around it: open an issue with the exact error text.
+The Chromium sandbox stays on, and the launchers refuse options that turn it off. Ubuntu 24.04 and later only allow that sandbox for programs with a small AppArmor rule. The Debian package adds it during install. The AppImage and the portable folder ask once, the first time you open them on such a system, and add the same rule after your password; if you decline, Rough Cut does not start (it never runs unprotected). If the app still does not start because of a sandbox error, open an issue with the exact error text.
 
 ## 3. First use
 
@@ -56,7 +56,7 @@ The Chromium sandbox stays on, and the launchers refuse options that turn it off
 4. **Export.** Use Export to make an MP4. The file is checked when it finishes before it appears.
 5. Your files: recordings and exports go to `~/Documents/Rough Cut MVP`. Settings and logs are in `~/.config/rough-cut-mvp` (log: `logs/app-runtime.log`).
 
-Existing recordings can be reopened from Projects. You can also import a video file from any folder; beta.9 fixes importing a video from outside the projects folder, which failed in beta.8.
+Existing recordings can be reopened from Projects. You can also import a video file from any folder.
 
 **NVIDIA tip:** if recordings show tearing, turn off **Allow Flipping** in nvidia-settings (OpenGL Settings). That fixed it on the tested setup.
 

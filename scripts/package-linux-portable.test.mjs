@@ -59,6 +59,36 @@ test('generated launcher enables sandbox and rejects bypass arguments before sta
   }
 });
 
+test('launcher asks for the sandbox rule on restricted systems and never starts unprotected', () => {
+  assert.match(packager, /ensure-sandbox\.sh\\" \|\| exit 64; fi\\nexec \\"\$DIR\/electron\\" --enable-sandbox/);
+  assert.match(packager, /scripts\/linux\/ensure-sandbox\.sh/);
+  const directory = mkdtempSync(join(tmpdir(), 'rough-cut-ensure-sandbox-'));
+  try {
+    const helper = join(directory, 'ensure-sandbox.sh');
+    writeFileSync(helper, readFileSync(new URL('./linux/ensure-sandbox.sh', import.meta.url)), { mode: 0o755 });
+    const restrict = join(directory, 'restrict');
+    const run = (value, extra = {}) => {
+      writeFileSync(restrict, value);
+      return spawnSync(helper, [], { encoding: 'utf8', env: { PATH: process.env.PATH, ROUGH_CUT_USERNS_RESTRICT_FILE: restrict, ...extra } });
+    };
+    // Not restricted: nothing to do.
+    const open = run('0\n', { ROUGH_CUT_SANDBOX_DRY_RUN: '1' });
+    assert.equal(open.status, 0);
+    assert.equal(open.stdout, '');
+    // Restricted: the rule is for this folder's exact binary and only allows user namespaces.
+    const dry = run('1\n', { ROUGH_CUT_SANDBOX_DRY_RUN: '1' });
+    assert.equal(dry.status, 0);
+    assert.match(dry.stdout, new RegExp(`profile rough-cut-portable "${join(directory, 'electron').replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}" flags=\\(unconfined\\)`));
+    assert.match(dry.stdout, /\n {2}userns,\n/);
+    // Restricted with no way to ask or authorise (no display, no terminal): refuses to start.
+    const refused = run('1\n');
+    assert.equal(refused.status, 65);
+    assert.match(refused.stderr, /cannot start without its protection/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('launcher installs missing ffmpeg/ffprobe/xdotool/xinput itself, never fatally', () => {
   const helper = readFileSync(new URL('./linux/ensure-deps.sh', import.meta.url), 'utf8');
   assert.match(packager, /ensure-deps\.sh\\" \|\| true/);

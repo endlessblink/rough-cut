@@ -1,5 +1,6 @@
 import { installReleaseServices } from './release-services.mjs';
 import { configureBundledTools } from './bundled-tools.mjs';
+import { runAppImageSandboxed, sandboxDisabledByArgs, shouldHandOffAppImage } from './linux-sandbox-permission.mjs';
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect } from './region-selector.mjs';
@@ -92,7 +93,10 @@ import { translateCaptionLines } from './captions-translate-service.mjs';
 import { transcribeSpeechForCaptions } from './captions-speech-service.mjs';
 
 configureBundledTools({ resourcesPath: process.resourcesPath });
-if (process.env.ELECTRON_DISABLE_SANDBOX && process.env.ELECTRON_DISABLE_SANDBOX !== '0' || process.argv.some((arg) => /^--(?:no-sandbox|disable-(?:setuid|gpu|seccomp-filter|namespace)-sandbox)(?:=|$)/.test(arg))) {
+// The AppImage launcher adds --no-sandbox on systems that block the sandbox (Ubuntu 24.04+).
+// Run the real app sandboxed instead (asking once for the system rule it needs); this never returns.
+if (shouldHandOffAppImage()) await runAppImageSandboxed();
+if (process.env.ELECTRON_DISABLE_SANDBOX && process.env.ELECTRON_DISABLE_SANDBOX !== '0' || sandboxDisabledByArgs(process.argv)) {
   console.error('Rough Cut requires the Chromium sandbox.');
   process.exit(64);
 }
