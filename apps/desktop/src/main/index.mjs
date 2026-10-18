@@ -2,7 +2,7 @@ import { installReleaseServices } from './release-services.mjs';
 import { configureBundledTools } from './bundled-tools.mjs';
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
-import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect } from './region-selector.mjs';
+import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -1025,11 +1025,13 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_SELECT_CAPTURE_REGION, async (event, optio
   });
   overlay.setAlwaysOnTop(true, 'screen-saver');
   const html = buildRegionSelectorHtml({ snapshotDataUrl: snapshot && !snapshot.isEmpty() ? snapshot.toDataURL() : '', initialRect });
+  const pagePath = writeRegionSelectorPage(html);
   return new Promise((resolve) => {
     let settled = false;
     const settle = (result) => {
       if (settled) return;
       settled = true;
+      removeRegionSelectorPage(pagePath);
       if (!overlay.isDestroyed()) overlay.destroy();
       if (parent && !parent.isDestroyed()) parent.focus();
       resolve(result);
@@ -1040,10 +1042,13 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_SELECT_CAPTURE_REGION, async (event, optio
       settle(result.cancelled ? null : regionFromOverlayRect(result.rect, display));
     });
     overlay.on('closed', () => settle(null));
-    void overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
+    overlay.loadFile(pagePath).then(() => {
       overlay.setBounds(display.bounds);
       overlay.show();
       overlay.focus();
+    }).catch((error) => {
+      console.error('[region-selector] could not open the overlay:', error instanceof Error ? error.message : error);
+      settle(null);
     });
   });
 });

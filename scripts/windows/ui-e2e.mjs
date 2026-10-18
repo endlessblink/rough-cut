@@ -161,6 +161,48 @@ try {
   await wait(2000);
   step('sources selected');
 
+  // Layout on a short window: the recorder body scrolls, and no card may spill under another. The panel is forced short
+  // (as on a small laptop screen) so the check does not depend on this PC's resolution. Regression: the controls block
+  // used to shrink below its content, so the Mic activity and Camera rows ended up underneath the camera preview card.
+  if (withCamera) {
+    await page.addStyleTag({ content: '.preRecordPanel { max-height: 520px !important; }' });
+    await wait(400);
+    const layout = await page.evaluate(() => {
+      const box = (el) => { const b = el.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
+      const controls = document.querySelector('.preRecordControls');
+      const camera = document.querySelector('.preRecordCameraSetup');
+      const body = document.querySelector('.preRecordBody');
+      if (!controls || !camera || !body) return { missing: true };
+      const c = box(controls);
+      const cam = box(camera);
+      const spilled = [...controls.querySelectorAll('.preRecordInputRow')].filter((row) => box(row).bottom > c.bottom + 1).map((row) => row.textContent.trim().slice(0, 16));
+      return { spilled, overlap: Math.min(c.bottom, cam.bottom) - Math.max(c.top, cam.top) > 1 && c.bottom > cam.top + 1, scrolls: body.scrollHeight > body.clientHeight };
+    });
+    if (layout.missing) fail('The recorder panel has no controls, camera card or body to check.');
+    if (layout.spilled.length > 0) fail(`Recorder rows spill outside their block on a short window: ${layout.spilled.join(', ')}.`);
+    if (layout.overlap) fail('The camera card overlaps the recorder controls on a short window.');
+    step('recorder cards do not overlap on a short window', layout.scrolls ? 'the body scrolls' : 'everything fits');
+    await page.evaluate(() => { for (const style of document.querySelectorAll('style')) if (style.textContent.includes('max-height: 520px !important')) style.remove(); });
+    await wait(300);
+  }
+
+  // The Region picker: the full-screen overlay must open (regression: it embedded the whole screen snapshot in a data:
+  // URL over Chromium's 2 MB limit, so ERR_INVALID_URL crashed it) and Escape must cancel it without changing the mode.
+  const overlayOpened = app.waitForEvent('window', { timeout: 15000 });
+  await page.locator('[data-source-option="region"]').click();
+  const overlay = await overlayOpened;
+  await overlay.waitForLoadState('domcontentloaded');
+  await overlay.locator('#apply').waitFor({ timeout: 10000 });
+  if (!overlay.url().startsWith('file:')) fail(`The region overlay should load from a temporary file, but loaded ${overlay.url().slice(0, 40)}.`);
+  // Escape destroys the overlay while the key press is still being reported, so that call is allowed to throw.
+  const overlayClosed = overlay.waitForEvent('close', { timeout: 10000 });
+  await overlay.keyboard.press('Escape').catch(() => undefined);
+  await overlayClosed.catch(() => fail('Escape did not close the region overlay.'));
+  await wait(500);
+  const modeAfter = await page.locator('[data-source-option="region"]').getAttribute('aria-pressed');
+  if (modeAfter === 'true') fail('Cancelling the region overlay should not switch the recorder to Region.');
+  step('region picker opens from a file and Escape cancels it');
+
   // --- Record
   await page.getByRole('button', { name: 'Start recording' }).click();
   await page.getByRole('button', { name: 'Stop recording' }).waitFor({ timeout: 20000 });

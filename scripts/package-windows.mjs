@@ -12,6 +12,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/pro
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { releaseSourceIdentity } from './lib/release-source-identity.mjs';
+import { makeIcon } from './windows/make-icon.mjs';
 
 if (process.platform !== 'win32') throw new Error('package-windows.mjs builds the Windows package on Windows.');
 
@@ -125,7 +126,7 @@ for (const name of ['THIRD_PARTY_NOTICES.md', 'README.md', 'INSTALL.md', 'RELEAS
   await cp(join(root, name), join(artifactRoot, name)).catch(() => undefined);
 }
 const iconPath = join(root, 'build-resources', 'windows-tools', 'rough-cut.ico');
-await makeIcon(join(root, 'apps/desktop/assets/rough-cut-mvp-icon.png'), iconPath);
+makeIcon(join(root, 'apps/desktop/assets/rough-cut-mvp-icon.png'), iconPath);
 const { rcedit } = await import('rcedit');
 await rcedit(join(artifactRoot, `${productName}.exe`), {
   icon: iconPath,
@@ -145,13 +146,6 @@ console.info(JSON.stringify({ ok: true, artifactRoot, executable: join(artifactR
 
 function readFileSyncSafe(path) {
   return createRequire(import.meta.url)('node:fs').readFileSync(path, 'utf8');
-}
-
-// A multi-size .ico (16/32/48/256) from the 1024 px PNG, via ffmpeg (already a required tool here).
-async function makeIcon(png, out) {
-  const filter = '[0:v]split=4[a][b][c][d];[a]scale=16:16,format=rgba[i16];[b]scale=32:32,format=rgba[i32];[c]scale=48:48,format=rgba[i48];[d]scale=256:256,format=rgba[i256]';
-  const result = spawnSync('ffmpeg', ['-y', '-v', 'error', '-i', png, '-filter_complex', filter, '-map', '[i16]', '-map', '[i32]', '-map', '[i48]', '-map', '[i256]', '-c:v', 'png', out], { encoding: 'utf8' });
-  if (result.status !== 0) throw new Error(`Could not build the app icon with ffmpeg: ${result.stderr}`);
 }
 
 async function copyProductionDependencies(name, from, copied = new Map()) {

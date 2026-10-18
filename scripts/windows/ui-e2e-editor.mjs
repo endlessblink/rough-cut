@@ -99,6 +99,42 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll('video')].some((video) => video.readyState >= 2 && video.videoWidth > 0) || document.querySelector('canvas'), null, { timeout: 30000 });
   step('editor shows the recording (video or canvas ready)');
 
+  // Small windows: the tool strip on the right must keep every tab whole (icon above label, no tab on top of another)
+  // and scroll when it does not fit. Regression: on a short window the tabs shrank until icons and labels overlapped.
+  for (const [width, height] of [[1280, 720], [1100, 620]]) {
+    await app.evaluate(({ BrowserWindow }, [w, h]) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (window.isMaximized()) window.unmaximize();
+      window.setMinimumSize(300, 300);
+      window.setSize(w, h);
+    }, [width, height]);
+    await wait(600);
+    const rail = await page.evaluate(() => {
+      const strip = document.querySelector('.projectEditor > .toolRail');
+      if (!strip) return { missing: true };
+      const tabs = [...strip.querySelectorAll('.toolButton')].map((button) => {
+        const b = button.getBoundingClientRect();
+        const icon = button.querySelector('.icon')?.getBoundingClientRect();
+        const label = button.querySelector('.toolButtonLabel')?.getBoundingClientRect();
+        return { name: button.textContent.trim(), top: b.top, bottom: b.bottom, iconBottom: icon?.bottom ?? null, labelTop: label?.top ?? null, labelBottom: label?.bottom ?? null };
+      });
+      return { tabs, scrolls: strip.scrollHeight > strip.clientHeight, overflowY: getComputedStyle(strip).overflowY };
+    });
+    if (rail.missing || rail.tabs.length < 5) fail(`The editor tool strip is missing or has too few tabs at ${width}x${height}.`);
+    const bad = [];
+    rail.tabs.forEach((tab, index) => {
+      if (tab.iconBottom !== null && tab.labelTop !== null && tab.labelTop < tab.iconBottom - 0.5) bad.push(`${tab.name}: label overlaps its icon`);
+      if (tab.labelBottom !== null && tab.labelBottom > tab.bottom + 0.5) bad.push(`${tab.name}: label sticks out of its tab`);
+      const next = rail.tabs[index + 1];
+      if (next && next.top < tab.bottom - 0.5) bad.push(`${tab.name} overlaps ${next.name}`);
+    });
+    if (bad.length > 0) fail(`Editor tool strip is squashed at ${width}x${height}: ${bad.join('; ')}.`);
+    if (rail.scrolls && rail.overflowY !== 'auto' && rail.overflowY !== 'scroll') fail(`The tool strip overflows at ${width}x${height} but does not scroll.`);
+    step(`editor tool strip is not squashed at ${width}x${height}`, `${rail.tabs.length} tabs${rail.scrolls ? ', strip scrolls' : ''}`);
+  }
+  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.maximize(); });
+  await wait(400);
+
   // 3. Export through the UI.
   await page.locator('[data-ui-region="export-popover-toggle"]').first().click();
   await page.locator('button.exportGo[data-export-action="export"]').first().waitFor({ state: 'visible', timeout: 15000 });
