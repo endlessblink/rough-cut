@@ -37,6 +37,10 @@ applications/
 # landing page clips ship with the site
 !docs/site/assets/proof-*.mp4
 
+# Linux bundled tools (restored and verified by scripts/prepare-bundled-tools.mjs)
+build-resources/linux-tools/
+build-resources/tool-cache/
+
 # Windows bundled tools (fetched and verified by scripts/prepare-windows-tools.mjs)
 build-resources/windows-tools/
 build-resources/.windows-tools-cache/
