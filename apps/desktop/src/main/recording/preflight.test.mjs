@@ -47,7 +47,9 @@ test('Windows preflight needs only ffmpeg/ffprobe and suggests winget', async ()
   const originalPath = process.env.PATH;
   process.env.PATH = '/nonexistent-rough-cut-path';
   try {
-    const status = await getRecordingPreflightStatus({ recordingsDir: '/tmp', displayInfo: { width: 1280, height: 720 }, options: { captureMode: 'display' }, platform: 'win32' });
+    const status = await getRecordingPreflightStatus({ recordingsDir: '/tmp', displayInfo: { width: 1280, height: 720 }, options: { captureMode: 'display' }, platform: 'win32',
+      // The real check loads the Windows input hook, which crashes a display-less Linux test run.
+      isInputHookAvailable: () => true });
     assert.equal(status.status, 'critical');
     assert.deepEqual(status.missingTools, ['ffmpeg', 'ffprobe']);
     assert.equal(status.installHint.commands[0].command, 'winget install -e --id Gyan.FFmpeg');

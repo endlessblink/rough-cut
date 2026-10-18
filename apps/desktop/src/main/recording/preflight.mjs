@@ -9,7 +9,7 @@ import { buildInstallHint, readDistroFamily } from './missing-tools-hint.mjs';
 const MIN_FREE_BYTES_30_MIN = 8 * 1024 * 1024 * 1024;
 const MIN_FREE_BYTES_60_MIN = 16 * 1024 * 1024 * 1024;
 
-export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, micSources = [], systemAudioSources = [], cameraSources = [], options = {}, platform = process.platform } = {}) {
+export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, micSources = [], systemAudioSources = [], cameraSources = [], options = {}, platform = process.platform, isInputHookAvailable = isUiohookAvailable } = {}) {
   const disk = await readDiskStatus(recordingsDir);
   const display = displayInfo ?? {};
   const selectedMic = options.recordMic ? findSource(micSources, options.micSource) : null;
@@ -22,7 +22,7 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
   const ffprobeAvailable = commandAvailable('ffprobe');
   const onWindows = platform === 'win32';
   const xdotoolAvailable = onWindows || isXdotoolAvailable();
-  const xinputAvailable = onWindows ? isUiohookAvailable() : isXinputAvailable();
+  const xinputAvailable = onWindows ? isInputHookAvailable() : isXinputAvailable();
 
   const checks = [
     createCheck('session', sessionLabel(platform), sessionSeverity(platform), sessionDetail(platform)),
