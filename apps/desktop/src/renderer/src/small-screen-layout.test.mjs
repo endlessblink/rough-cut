@@ -52,3 +52,9 @@ test('editor: the tool strip scrolls and its tabs never shrink, so icons and lab
 test('editor: short windows get a tighter tool strip', () => {
   assert.match(css, /@media \(max-height: 760px\) \{[^@]*\.toolRail \.toolButton \.icon \{ height: 1\.25rem; width: 1\.25rem; \}/);
 });
+
+test('editor: the top bar keeps its actions column at content width so Undo and Redo cannot slide under the page tabs', () => {
+  // On a 900 px window the right-hand column (minmax(0, 1fr)) shrank to nothing and Undo/Redo were hidden behind the tabs.
+  assert.ok(blocks('.editorShell .topBar').some((body) => /grid-template-columns\s*:\s*minmax\(0,\s*1fr\)\s+auto\s+minmax\(min-content,\s*1fr\)/.test(body)), 'actions column keeps min-content');
+  assert.match(css, /@media \(max-width: 1000px\) \{\s*\.editorShell \.topBar \{ gap: var\(--space-2\); \}\s*\.topBar \.appViewTab \{ padding: 0 var\(--space-2\); \}/);
+});

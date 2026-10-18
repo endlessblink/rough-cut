@@ -65,6 +65,10 @@ export function createRecordingSession({
   // Windows: take the camera's head start from its real first-frame time (a DirectShow camera takes ~2 s to open, so
   // 'screen start minus camera spawn' overshoots and the editor would trim that much real footage). Linux keeps the estimate.
   measureCameraPrerollFromBanner = process.platform === 'win32',
+  // Windows: ffmpeg starts the system-audio input's clock when it connects to the feed, not when the screen's first
+  // frame is captured, so the sound plays early or late by however far apart those two moments were (measured: about
+  // -220 to +110 ms between recordings). The feed shifts itself by that measured gap. ROUGH_CUT_LOOPBACK_ALIGN=0 turns it off.
+  alignSystemAudioToVideo = process.platform === 'win32' && process.env.ROUGH_CUT_LOOPBACK_ALIGN !== '0',
   audioTailGraceMs = DEFAULT_AUDIO_TAIL_GRACE_MS,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
@@ -201,6 +205,7 @@ export function createRecordingSession({
       children: [],
       inputsArePhysical: inputCoordinatesArePhysical,
       measureCameraPreroll: measureCameraPrerollFromBanner,
+      alignSystemAudio: alignSystemAudioToVideo,
       ...displayInfo,
     };
 
@@ -506,6 +511,19 @@ async function startActiveSegment(session, {
     cameraFirstFrameMs = firstFrameMs;
     applyMeasuredCameraPreroll();
   };
+  // The screen's first frame is when its clock starts; the loopback feed's clock started when ffmpeg connected to it.
+  // The gap is logged for every take, and applied unless alignment is turned off.
+  const alignSystemAudio = (firstFrameMs) => {
+    const feed = session.systemAudioFeed;
+    if (!feed || typeof feed.alignToVideoStart !== 'function') return;
+    if (!session.alignSystemAudio) {
+      const connectedAtMs = feed.connectedAtMs;
+      session.eventLogger?.event('system-audio-offset', { applied: false, deltaMs: Number.isFinite(connectedAtMs) ? connectedAtMs - firstFrameMs : null, segmentIndex: session.segmentIndex });
+      return;
+    }
+    const result = feed.alignToVideoStart(firstFrameMs);
+    session.eventLogger?.event('system-audio-offset', { ...(result ?? { applied: false, deltaMs: null }), segmentIndex: session.segmentIndex });
+  };
   const noteFirstFrame = (firstFrameMs, meta = null) => {
     session.eventLogger?.event('first-frame-anchor', { firstFrameMs, segmentIndex: session.segmentIndex, ...(meta ?? {}) });
     if (!Number.isFinite(firstFrameMs)) return;
@@ -513,6 +531,7 @@ async function startActiveSegment(session, {
       pendingFirstFrameMs = firstFrameMs;
       pendingFirstFrameMeta = meta;
       applyMeasuredCameraPreroll();
+      alignSystemAudio(firstFrameMs);
     }
     if (session.currentSegment
       && session.currentSegment.index === session.segmentIndex

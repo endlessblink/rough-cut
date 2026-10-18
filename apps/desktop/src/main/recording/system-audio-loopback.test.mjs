@@ -82,3 +82,70 @@ test('the TCP feed serves a connected reader a continuous stream, pads silence, 
   feed.close();
   assert.equal(stopped, true);
 });
+
+// The position of a marker in the written stream: frames written before the first non-zero byte.
+const markerPosition = (buffers) => {
+  let frames = 0;
+  for (const buffer of buffers) {
+    const first = buffer.findIndex((byte) => byte !== 0);
+    if (first >= 0) return frames + Math.floor(first / FRAME);
+    frames += buffer.length / FRAME;
+  }
+  return null;
+};
+
+test('aligning a feed that connected after the screen delays the stream by that gap', () => {
+  const pacer = createPcmPacer({ startMs: 1000 });
+  const written = [];
+  written.push(...pacer.drain(1100)); // 100 ms of silence is already out
+  pacer.align(200); // the screen's first frame was 200 ms before the feed connected: audio would play 200 ms early
+  pacer.push(chunk10ms(7)); // sound heard at wall time 1100 ms
+  written.push(...pacer.drain(1110));
+  // Heard 100 ms after the feed connected = 300 ms after the screen's first frame.
+  assert.equal(markerPosition(written), Math.round(0.3 * 48000));
+  assert.equal(pacer.offsetFrames, Math.round(0.2 * 48000));
+});
+
+test('aligning a feed that connected before the screen advances the stream by that gap', () => {
+  const pacer = createPcmPacer({ startMs: 1000 });
+  const written = [];
+  written.push(...pacer.drain(1300)); // 300 ms of silence is already out
+  pacer.align(-100); // the screen's first frame was 100 ms after the feed connected: audio would play 100 ms late
+  for (let ms = 1320; ms <= 1500; ms += 20) written.push(...pacer.drain(ms)); // the PC is still silent
+  pacer.push(chunk10ms(7)); // sound heard at wall time 1500 ms
+  written.push(...pacer.drain(1510));
+  // Heard 500 ms after the feed connected = 400 ms after the screen's first frame. Silence is padded in blocks of at
+  // least 60 ms, so the sound may sit up to one block early, never late.
+  const position = markerPosition(written);
+  assert.ok(position <= Math.round(0.4 * 48000) && position >= Math.round(0.4 * 48000) - 3200, 'position ' + position);
+});
+
+test('an advance requested during silence does not eat audio that plays later', () => {
+  const pacer = createPcmPacer({ startMs: 0 });
+  let frames = 0;
+  for (let ms = 20; ms <= 400; ms += 20) frames += totalFrames(pacer.drain(ms));
+  pacer.align(-100);
+  for (let ms = 420; ms <= 2000; ms += 20) frames += totalFrames(pacer.drain(ms)); // silence: the gap closes by itself
+  pacer.push(chunk10ms(5));
+  const out = pacer.drain(2020);
+  assert.equal(out[out.length - 1][0] === 5 || out[0][0] === 5, true, 'the sound that played later is intact');
+  assert.equal(totalFrames(out.filter((b) => b[0] === 5)), 480);
+});
+
+test('a feed lines itself up with the screen of the connected segment, and ignores an impossible gap', async () => {
+  let nowMs = 5000;
+  const capture = { startSystemAudio() {}, stop() {} };
+  const feed = await createLoopbackFeed({ loadCapture: () => capture, now: () => nowMs, tickMs: 5 });
+  try {
+    assert.equal(feed.alignToVideoStart(4800), null, 'nothing to align before ffmpeg connects');
+    const socket = connect(feed.port, '127.0.0.1');
+    await new Promise((resolve) => socket.once('connect', resolve));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(feed.connectedAtMs, 5000);
+    assert.deepEqual(feed.alignToVideoStart(4800), { deltaMs: 200, applied: true });
+    assert.deepEqual(feed.alignToVideoStart(-100000), { deltaMs: 105000, applied: false });
+    socket.destroy();
+  } finally {
+    feed.close();
+  }
+});
