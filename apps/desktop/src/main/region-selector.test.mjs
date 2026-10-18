@@ -41,3 +41,31 @@ test('a region dragged to the screen edge never extends past the real screen at 
   const linux = regionFromOverlayRect({ x: 1000, y: 100, width: 707, height: 860 }, display, 'linux');
   assert.equal(linux.x + linux.width, 2561);
 });
+
+test('a full-resolution screen snapshot is loaded from a temporary file, not a data: URL (Chromium refuses data: URLs over 2 MB)', async () => {
+  const { existsSync, mkdtempSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { removeRegionSelectorPage, writeRegionSelectorPage } = await import('./region-selector.mjs');
+  const snapshot = `data:image/png;base64,${'QUJD'.repeat(2_000_000)}`; // about 8 MB, like a real 1080p+ screen
+  const html = buildRegionSelectorHtml({ snapshotDataUrl: snapshot });
+  const asDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  assert.ok(asDataUrl.length > 2 * 1024 * 1024, 'the old data: URL would have been over the limit');
+
+  const dir = mkdtempSync(join(tmpdir(), 'rough-cut-region-test-'));
+  try {
+    const path = writeRegionSelectorPage(html, dir);
+    assert.ok(path.startsWith(dir) && path.endsWith('.html'));
+    assert.equal(readFileSync(path, 'utf8').length, html.length, 'the whole page is on disk');
+    removeRegionSelectorPage(path);
+    assert.equal(existsSync(path), false, 'the temporary page is removed afterwards');
+    removeRegionSelectorPage(path); // removing twice is harmless
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  const source = await readFile(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /loadURL\(`data:text\/html/, 'the overlay must not be loaded from a data: URL');
+  assert.match(source, /overlay\.loadFile\(pagePath\)/);
+  assert.match(source, /removeRegionSelectorPage\(pagePath\)/);
+});

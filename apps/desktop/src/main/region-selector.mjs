@@ -3,9 +3,30 @@
 // rectangle and confirms with "Use region" (Enter) or cancels (Esc). The page
 // reports its result through document.title so it needs no preload bridge.
 
+import { randomBytes } from 'node:crypto';
+import { rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { physicalExtent } from './recording/windows-devices.mjs';
 
 export const REGION_RESULT_PREFIX = 'rough-cut-region:';
+
+// The page embeds a full-resolution snapshot of the screen (several MB as base64). Chromium refuses a data: URL longer
+// than 2 MB (ERR_INVALID_URL, found on Windows 2026-10-18: choosing Region crashed), so the page is written to a
+// temporary file and loaded from there. Remove the file with removeRegionSelectorPage when the overlay closes.
+export function writeRegionSelectorPage(html, directory = tmpdir()) {
+  const path = join(directory, `rough-cut-region-${randomBytes(6).toString('hex')}.html`);
+  writeFileSync(path, html, 'utf8');
+  return path;
+}
+
+export function removeRegionSelectorPage(path) {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // A leftover temp file is harmless.
+  }
+}
 
 export function regionFromOverlayRect(rect, display, platform = process.platform) {
   if (!rect || !display) return null;
