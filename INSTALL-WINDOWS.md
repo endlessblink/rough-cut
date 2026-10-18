@@ -1,6 +1,6 @@
 # Install Rough Cut on Windows
 
-Candidate: **0.1.0-beta.8 (Windows port)**, Electron 43.7.7, Windows x64. FFmpeg and ffprobe are bundled. Node.js, pnpm and a source checkout are not needed for an installed build.
+Candidate: **0.1.0-beta.9 (Windows port)**, Electron 43.7.7, Windows x64. FFmpeg and ffprobe are bundled. Node.js, pnpm and a source checkout are not needed for an installed build.
 
 This is a pre-release for early users, and we want your bug reports. It was developed and tested on one Windows laptop (Windows 11 Home, a USB webcam, a USB microphone) and one Linux PC. Other hardware, a second monitor and long recordings have not been tested. Back up recordings you cannot redo.
 
@@ -13,22 +13,22 @@ This is a pre-release for early users, and we want your bug reports. It was deve
 
 ## Install
 
-**Installer (recommended).** Run `Rough-Cut-0.1.0-beta.8-Setup.exe`. It installs for your user only and needs no administrator rights. You can change the folder; it adds a Start Menu entry and an optional desktop shortcut. Uninstalling removes the app and never touches your recordings or projects.
+**Installer (recommended).** Run `Rough-Cut-0.1.0-beta.9-Setup.exe`. It installs for your user only and needs no administrator rights. You can change the folder; it adds a Start Menu entry and an optional desktop shortcut. Uninstalling removes the app and never touches your recordings or projects.
 
-**Portable zip.** Unzip `Rough-Cut-0.1.0-beta.8-win-x64.zip` anywhere you can write to, keep the folder together, and run `Rough Cut.exe`. There is no updater; replace the folder with a newer one after closing the app.
+**Portable zip.** Unzip `Rough-Cut-0.1.0-beta.9-win-x64.zip` anywhere you can write to, keep the folder together, and run `Rough Cut.exe`. There is no updater; replace the folder with a newer one after closing the app.
 
 ### The "Windows protected your PC" warning
 
 The build is **not code-signed yet**, so Windows SmartScreen will warn that the publisher is unknown. Check the file first, then choose **More info → Run anyway**:
 
 ```powershell
-Get-FileHash .\Rough-Cut-0.1.0-beta.8-Setup.exe -Algorithm SHA256
+Get-FileHash .\Rough-Cut-0.1.0-beta.9-Setup.exe -Algorithm SHA256
 ```
 
-The checksum of the installer built on 2026-10-16 is:
+The checksum of the installer built on 2026-10-18 is:
 
 ```
-3FA056C878E60C8400775D4B49254ED0E6A5CDAE7DEF6866FA990FD9A871C3CB  Rough-Cut-0.1.0-beta.8-Setup.exe
+9E6DBDCAF016B21D7C91C18EB3F3EEBB249802719A3CDA2444264C4EDFD6D417  Rough-Cut-0.1.0-beta.9-Setup.exe
 ```
 
 Compare the result with that value and with the checksum published next to the download. Do not run a build whose checksum you cannot match.
