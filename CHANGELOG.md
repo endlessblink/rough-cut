@@ -21,6 +21,8 @@ First public beta. Linux/X11 only; tested on KDE Plasma with NVIDIA.
 - The Recording tab shows a live panel (sources on/off, pause, stop) while a take runs.
 - Pre-record panel warns when the microphone or camera is off.
 
+- Install handles its own dependencies: on first start `run.sh` checks for ffmpeg, ffprobe, xdotool and xinput and installs any that are missing (apt, dnf, pacman or zypper; graphical password prompt, or sudo in a terminal). Nothing to type by hand.
+
 ### Fixes
 
 - Finishing a take no longer decodes the whole file twice (a 2 minute take went from about 52 s to under 1 s).

@@ -41,3 +41,13 @@ applications/
 build-resources/windows-tools/
 build-resources/.windows-tools-cache/
 release/
+
+# promo/marketing work lives in ../rough-cut-release/marketing
+/promotion/
+/marketing/
+
+# internal planning and design notes stay on this machine (removed from the public repo before release)
+/MASTER_PLAN.md
+/docs/DECISION-*.md
+/docs/PLAN-*.md
+/design-references/

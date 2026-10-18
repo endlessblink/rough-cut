@@ -58,3 +58,12 @@ test('generated launcher enables sandbox and rejects bypass arguments before sta
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('launcher installs missing ffmpeg/ffprobe/xdotool/xinput itself, never fatally', () => {
+  const helper = readFileSync(new URL('./linux/ensure-deps.sh', import.meta.url), 'utf8');
+  assert.match(packager, /ensure-deps\.sh\\" \|\| true/);
+  assert.match(packager, /scripts\/linux\/ensure-deps\.sh/);
+  for (const tool of ['ffmpeg', 'ffprobe', 'xdotool', 'xinput']) assert.match(helper, new RegExp(tool));
+  for (const manager of ['apt-get', 'dnf', 'pacman', 'zypper', 'pkexec', 'sudo']) assert.match(helper, new RegExp(manager));
+  assert.match(helper, /ROUGH_CUT_DEP_DRY_RUN/);
+});

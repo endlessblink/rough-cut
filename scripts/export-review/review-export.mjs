@@ -25,7 +25,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const args = parseArgs(process.argv.slice(2));
 const projectPath = resolve(args.positional[0] || '');
 if (!args.positional[0] || !existsSync(projectPath)) {
-  console.error('Usage: node scripts/export-review/review-export.mjs <project.roughcut> [--reuse <export.mp4>] [--no-editor] [--out-root DIR]');
+  console.error('Usage: node scripts/export-review/review-export.mjs <project.roughcut> [--reuse <export.mp4>] [--no-editor] [--out-root DIR] [--app-dir DIR]');
   process.exit(2);
 }
 
@@ -114,11 +114,13 @@ finish();
 // ================================================================ implementation
 
 async function buildPlan(path) {
-  const main = (f) => import(pathToFileURL(join(repoRoot, 'apps/desktop/src/main', f)).href);
+  // With --app-dir, plan with the installed build's own code so expectations match what it exports.
+  const codeRoot = args.flags['app-dir'] ? join(resolve(args.flags['app-dir']), 'resources', 'app') : repoRoot;
+  const main = (f) => import(pathToFileURL(join(codeRoot, 'apps/desktop/src/main', f)).href);
   const { openProjectFile, getPrimaryRecording } = await main('project-files.mjs');
   const { resolveTimelineExportRecording, buildCutFrameRemap } = await main('export-service.mjs');
-  const { listGraphics } = await import(pathToFileURL(join(repoRoot, 'apps/desktop/src/shared/motion-graphics.mjs')).href);
-  const { isBackgroundGridOn } = await import(pathToFileURL(join(repoRoot, 'apps/desktop/src/shared/background-grid.mjs')).href);
+  const { listGraphics } = await import(pathToFileURL(join(codeRoot, 'apps/desktop/src/shared/motion-graphics.mjs')).href);
+  const { isBackgroundGridOn } = await import(pathToFileURL(join(codeRoot, 'apps/desktop/src/shared/background-grid.mjs')).href);
   const opened = await openProjectFile(path);
   const document = opened.document;
   const recording = getPrimaryRecording(document);
@@ -172,14 +174,17 @@ function buildSamples(p) {
 
 // ---------------------------------------------------------------- app: shots + export
 async function runApp({ doExport, doShots }) {
-  const packaged = join(repoRoot, 'dist', 'rough-cut-mvp-linux-x64');
-  const electronPath = join(packaged, 'electron');
+  // --app-dir reviews an installed build instead (e.g. an unpacked release AppImage, whose binary is rough-cut).
+  const packaged = args.flags['app-dir'] ? resolve(args.flags['app-dir']) : join(repoRoot, 'dist', 'rough-cut-mvp-linux-x64');
+  const electronPath = ['electron', 'rough-cut'].map((name) => join(packaged, name)).find((path) => existsSync(path)) ?? join(packaged, 'electron');
   const appPath = join(packaged, 'resources', 'app');
   if (!existsSync(electronPath) || !existsSync(appPath)) throw new Error('The packaged app is missing; run pnpm package:linux first.');
   const { _electron: electron } = loadPlaywright();
   const app = await electron.launch({
     executablePath: electronPath,
-    args: ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${join(workDir, 'user-data')}`, appPath],
+    chromiumSandbox: Boolean(args.flags['app-dir']),
+    // Release builds refuse to start without the Chromium sandbox, exactly as the dock launches them.
+    args: [args.flags['app-dir'] ? '--enable-sandbox' : '--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${join(workDir, 'user-data')}`, appPath],
     env: {
       ...process.env,
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',

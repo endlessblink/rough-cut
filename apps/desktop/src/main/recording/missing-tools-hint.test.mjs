@@ -28,6 +28,6 @@ test('buildInstallHint gives one exact command for a known family', () => {
 test('buildInstallHint lists every family when the distro is unknown, and nothing when nothing is missing', () => {
   const hint = buildInstallHint(['xdotool'], null);
   assert.equal(hint.family, null);
-  assert.deepEqual(hint.commands.map((c) => c.command), ['sudo apt install xdotool', 'sudo dnf install xdotool', 'sudo pacman -S xdotool']);
+  assert.deepEqual(hint.commands.map((c) => c.command), ['sudo apt install xdotool', 'sudo dnf install xdotool', 'sudo pacman -S xdotool', 'sudo zypper install xdotool']);
   assert.equal(buildInstallHint([], 'apt'), null);
 });

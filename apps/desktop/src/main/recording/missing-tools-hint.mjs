@@ -5,11 +5,13 @@ const PACKAGES = {
   apt: { label: 'Ubuntu / Debian / Mint', prefix: 'sudo apt install', ffmpeg: 'ffmpeg', xdotool: 'xdotool', xinput: 'xinput' },
   dnf: { label: 'Fedora / RHEL', prefix: 'sudo dnf install', ffmpeg: 'ffmpeg-free', xdotool: 'xdotool', xinput: 'xinput' },
   pacman: { label: 'Arch / Manjaro', prefix: 'sudo pacman -S', ffmpeg: 'ffmpeg', xdotool: 'xdotool', xinput: 'xorg-xinput' },
+  zypper: { label: 'openSUSE', prefix: 'sudo zypper install', ffmpeg: 'ffmpeg', xdotool: 'xdotool', xinput: 'xinput' },
 };
 
 const FAMILY_BY_ID = {
   debian: 'apt', ubuntu: 'apt', linuxmint: 'apt', pop: 'apt', elementary: 'apt', zorin: 'apt', raspbian: 'apt', kali: 'apt', tuxedo: 'apt',
   fedora: 'dnf', rhel: 'dnf', centos: 'dnf', rocky: 'dnf', almalinux: 'dnf', nobara: 'dnf',
+  opensuse: 'zypper', 'opensuse-leap': 'zypper', 'opensuse-tumbleweed': 'zypper', sles: 'zypper', suse: 'zypper',
   arch: 'pacman', manjaro: 'pacman', endeavouros: 'pacman', garuda: 'pacman', cachyos: 'pacman',
 };
 
