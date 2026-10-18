@@ -645,18 +645,21 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .liveDot.paused { background: var(--muted); box-shadow: 0 0 0 6px rgb(148 163 184 / 0.12); }
 
 .preRecordBody {
+  align-content: start;
   display: grid;
   gap: var(--space-4);
+  grid-auto-rows: max-content;
   min-height: 0;
   overflow: auto;
   padding-right: var(--space-0-5);
 }
 
+/* No min-height:0 here: it let this block shrink below its content inside the scrolling body, so the Mic activity and
+   Camera rows spilled underneath the camera preview card. The body scrolls instead. */
 .preRecordControls {
   display: grid;
   column-gap: var(--space-2);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  min-height: 0;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   row-gap: var(--space-2);
 }
 
@@ -5506,6 +5509,10 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .screenPickerPreview video { transition: none; }
 }
+/* Short windows: smaller screen and region pictures, so the mic, system and camera cards fit without scrolling past them. */
+@media (max-height: 700px) {
+  .screenPickerPreview { aspect-ratio: auto; height: 7.25rem; }
+}
 
 /* Region sits in the same row as the screens: a dashed frame instead of a
    live picture. The chosen area is outlined on its screen's picture, with
@@ -6518,6 +6525,16 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .projectEditor > .toolRail { display: flex; flex-direction: column; }
 .toolRail .toolPanelToggle { margin-top: auto; min-height: 2.5rem; }
 .toolRail .toolPanelToggle span { display: none; }
+/* Short windows: the tabs keep their full size and the strip scrolls, instead of every tab shrinking until icons and
+   labels overlap. */
+.projectEditor > .toolRail { overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+.toolRail .toolButton,
+.toolRail .toolPanelToggle { flex: 0 0 auto; }
+.toolRail .toolButton { min-height: max-content; }
+@media (max-height: 760px) {
+  .toolRail .toolButton { gap: var(--space-1); padding: var(--space-1-5) 0 var(--space-1); }
+  .toolRail .toolButton .icon { height: 1.25rem; width: 1.25rem; }
+}
 .studioPane .rangeAnchors { margin-top: var(--space-2); }
 
 /* Projects: a centered column; header = title, search, view, Import, New ▾, New recording. */
