@@ -58,6 +58,25 @@
     document.querySelector("[data-linux-copy]").textContent =
       "The verified Linux beta is available through GitHub Releases. Linux x86_64 with X11 is required; Wayland is unsupported.";
   }
+  // Windows appears only once a real installer is on GitHub Releases; until then it stays on the waitlist.
+  const windowsAsset = official(config.windowsUrl);
+  if (config.published === true && windowsAsset) {
+    const cta = document.querySelector("[data-windows-cta]");
+    cta.href = windowsAsset;
+    cta.hidden = false;
+    document.querySelector("[data-windows-status]").hidden = false;
+    document.querySelector("[data-release-status]").textContent =
+      "Free and open source · Linux and Windows beta";
+    document.querySelector(".lead").textContent =
+      "Screen recording and editing, together on Linux and Windows.";
+    document.querySelector("[data-waitlist-title]").textContent = "Mac";
+    document.querySelector("[data-waitlist-copy]").textContent =
+      "No Mac build or date yet. It gets built once enough people ask for it. Leave your email and we will write once, when it is ready.";
+    const windowsChoice = document.querySelector("input[name='platform'][value='Windows']");
+    windowsChoice?.closest("label")?.remove();
+    const macChoice = document.querySelector("input[name='platform'][value='Mac']");
+    if (macChoice) macChoice.checked = true;
+  }
 
   // Waitlist posts straight into a Google Form (responses land in a Sheet).
   const waitlist = document.querySelector("[data-waitlist]");
