@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { prepareMetadata, signMetadata, verifyMetadata, verifyArtifactMetadata } from './release-metadata.mjs';
+import { publisherSignaturePayload } from '../apps/desktop/src/main/update-controller.mjs';
 const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { parseUpdateInfo } = require('electron-updater/out/providers/Provider');
 const { GitHubProvider } = require('electron-updater/out/providers/GitHubProvider');
@@ -97,10 +98,12 @@ test('a Windows signature verifies for Windows and for nothing else', { skip: pr
     assert.equal(parsed.publisherSignature, signed.publisherSignature);
     // The same metadata is not valid as a Linux release.
     assert.throws(() => verifyMetadata({ metadata: signed, publicKeyPath: f.pub, currentVersion: '0.1.0-beta.10', platform: 'linux' }));
-    // A Linux signature over the same bytes does not authorise the Windows installer.
-    const asLinux = signMetadata({ metadata, encryptedKeyPath: f.key, passphrase: 'test-only-passphrase', platform: 'linux' });
-    assert.notEqual(asLinux.publisherSignature, signed.publisherSignature);
-    assert.throws(() => verifyMetadata({ metadata: asLinux, publicKeyPath: f.pub, currentVersion: '0.1.0-beta.10', platform: 'win32' }));
+    // The tool refuses to sign a Windows installer as a Linux asset...
+    assert.throws(() => signMetadata({ metadata, encryptedKeyPath: f.key, passphrase: 'test-only-passphrase', platform: 'linux' }));
+    // ...and even a Linux-style signature made directly with the same key does not authorise the Windows installer.
+    const forged = { ...metadata, publisherSignature: sign(null, publisherSignaturePayload(metadata, 'linux'), knownTestKey).toString('base64') };
+    assert.notEqual(forged.publisherSignature, signed.publisherSignature);
+    assert.throws(() => verifyMetadata({ metadata: forged, publicKeyPath: f.pub, currentVersion: '0.1.0-beta.10', platform: 'win32' }));
     assert.throws(() => signMetadata({ metadata, encryptedKeyPath: f.key, passphrase: 'wrong', platform: 'win32' }));
     assert.throws(() => signMetadata({ metadata, encryptedKeyPath: f.key, passphrase: 'test-only-passphrase', platform: 'darwin' }));
   } finally { rmSync(f.dir, { recursive: true, force: true }); }
