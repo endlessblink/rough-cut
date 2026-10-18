@@ -34,7 +34,7 @@ The `pexels-*.jpg` files in `apps/desktop/src/renderer/public/backgrounds/` are 
 
 Packaged builds include Electron (MIT) and the Chromium engine, which bundles many components under their own licences (BSD-style, MIT, Apache-2.0, LGPL and others). Electron's `LICENSE` and `LICENSES.chromium.html` files are included in the packaged application folder.
 
-## Bundled media tools in 0.1.0-beta.8
+## Bundled media tools in 0.1.0-beta.9 (unchanged since 0.1.0-beta.8)
 
 This candidate includes FFmpeg/ffprobe 8.1.3-roughcut-source1, compiled from official FFmpeg 8.1.3 release sources with GPL/version3 features. Private shared libraries include GPL libx264 and LGPL libass and their dependencies. FFmpeg's GPL-3.0 text, exact Ubuntu binary-package copyright notices, NVIDIA codec-header MIT notices and referenced standard license texts are under `resources/licenses/media-tools` (also in `resources/media-tools/licenses`). Ubuntu 22.04 xdotool, xinput and pactl are included. Individual notices specify each component's license; this paragraph does not relicense third-party components.
 

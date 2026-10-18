@@ -38,11 +38,14 @@ export async function stopRecordingAndCreateProject({
   console.info(`[recording:stop] phase=screen-remux-begin ${result.rawPath} -> ${result.outputPath}`);
   const isUnifiedCapture = Boolean(result.cameraRawPath && result.cameraRawPath === result.rawPath);
   const screenRawSegments = Array.isArray(result.rawSegments) && result.rawSegments.length > 0 ? result.rawSegments : null;
+  // Seconds recorded after each Stop/Pause press (audio tail grace); the remux cuts them off.
+  const tailTrimSec = Array.isArray(result.rawTailTrimSec) ? result.rawTailTrimSec : [];
   captureRemuxWarning('screen', screenRawSegments && typeof remuxMkvSegmentsToMp4 === 'function'
     ? await remuxMkvSegmentsToMp4({
         rawPaths: screenRawSegments,
         outputPath: result.outputPath,
         maps: isUnifiedCapture ? ['0:v:0', '0:a?'] : ['0'],
+        tailTrimSec,
         onLog: onRemuxLog,
         validate: skipDeepRemuxValidation,
       })
@@ -50,6 +53,7 @@ export async function stopRecordingAndCreateProject({
         rawPath: result.rawPath,
         outputPath: result.outputPath,
         maps: isUnifiedCapture ? ['0:v:0', '0:a?'] : ['0'],
+        tailTrimSec: tailTrimSec[0] ?? 0,
         onLog: onRemuxLog,
         validate: skipDeepRemuxValidation,
   }));
@@ -69,6 +73,8 @@ export async function stopRecordingAndCreateProject({
             rawPaths: cameraRawSegments,
             outputPath: result.cameraOutputPath,
             maps: isUnifiedCapture ? [`0:v:${result.camera?.sourceStreamIndex ?? 1}`] : ['0'],
+            // Unified capture: the camera is in the same file, so it is cut at the same press moment.
+            tailTrimSec: isUnifiedCapture ? tailTrimSec : [],
             onLog: onRemuxLog,
             validate: skipDeepRemuxValidation,
           })
@@ -76,6 +82,7 @@ export async function stopRecordingAndCreateProject({
             rawPath: result.cameraRawPath,
             outputPath: result.cameraOutputPath,
             maps: isUnifiedCapture ? [`0:v:${result.camera?.sourceStreamIndex ?? 1}`] : ['0'],
+            tailTrimSec: isUnifiedCapture ? (tailTrimSec[0] ?? 0) : 0,
             onLog: onRemuxLog,
             validate: skipDeepRemuxValidation,
       }));

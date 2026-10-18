@@ -138,11 +138,37 @@ test('the persistent editor slot is not inside a keyed subtree', async () => {
 test('recording view switches the native window into the compact profile', async () => {
   const source = await readSource('main.tsx');
   assert.ok(
-    source.includes("activeAppView === 'recording' && recording.state !== 'recording' ? 'recording' : 'studio'"),
+    source.includes("activeAppView === 'recording' ? 'recording' : 'studio'"),
     'main.tsx must derive the native window profile from the active Recording view',
   );
   assert.ok(
     source.includes('window.roughCut.setWindowProfile(profile)'),
     'main.tsx must call the preload bridge that resizes/restores the native BrowserWindow',
+  );
+});
+
+test('a take started from the Recording tab hides the window and never re-maximizes it while recording', async () => {
+  const source = await readSource('main.tsx');
+  assert.ok(
+    source.includes("if (recording.state === 'recording') return undefined;"),
+    'the window-profile effect must not flip to studio (maximize re-shows a hidden window) during a take',
+  );
+  assert.equal(
+    source.includes('hideWindowDuringRecording: isRecorderMode'),
+    false,
+    'the window must be hidden for takes started from the Recording tab too, or the recording captures Rough Cut itself',
+  );
+});
+
+test('starting a take records the screen the user picked, not always the primary one', async () => {
+  const source = await readSource('main.tsx');
+  assert.equal(
+    source.includes("const region = captureMode === 'region' ? captureRegion : null;"),
+    false,
+    'a whole-screen take must pass the selected display as its region (multi-monitor desk)',
+  );
+  assert.ok(
+    (source.match(/wholeDisplayCaptureRegion\(captureDisplays\.find\(\(display\) => display\.id === selectedCaptureDisplayId\)\)/g) ?? []).length >= 3,
+    'start, restart and preflight must all use the selected display',
   );
 });
