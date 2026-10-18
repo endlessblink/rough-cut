@@ -17,6 +17,10 @@ export const LOOPBACK_BYTES_PER_FRAME = 4; // s16le stereo
 // jitter from punching 10 ms holes into real audio; real silence is padded in blocks of at least this size.
 const PAD_AFTER_DEFICIT_MS = 60;
 
+// A feed/screen start-up difference larger than this is not a real offset (a stale or mis-read first frame), so it is
+// logged but not applied.
+const MAX_ALIGN_MS = 1500;
+
 /**
  * Keeps a PCM stream continuous against the wall clock. `push` real audio, call `drain(nowMs)` on a timer, and
  * write what it returns: queued audio first (never dropped), then zeros once the stream is far enough behind.
@@ -24,20 +28,47 @@ const PAD_AFTER_DEFICIT_MS = 60;
 export function createPcmPacer({ startMs, sampleRate = LOOPBACK_SAMPLE_RATE, bytesPerFrame = LOOPBACK_BYTES_PER_FRAME, padAfterDeficitMs = PAD_AFTER_DEFICIT_MS } = {}) {
   const queue = [];
   let writtenFrames = 0;
+  // `align` moves the stream against the wall clock: the target position becomes wall-clock frames + offsetFrames.
+  let offsetFrames = 0;
+  let skipFrames = 0;
   const padAfterFrames = Math.round((padAfterDeficitMs * sampleRate) / 1000);
 
   return {
+    startMs,
     push(buffer) {
       if (buffer?.length) queue.push(buffer);
     },
+    /**
+     * Shifts this stream by `deltaMs` against the wall clock. ffmpeg gives every input its own zero, so a feed that
+     * connected `deltaMs` after the screen's first frame plays that much too early: positive delays the stream
+     * (silence is inserted now), negative advances it (the next |deltaMs| of output is dropped).
+     */
+    align(deltaMs) {
+      const frames = Math.round((deltaMs * sampleRate) / 1000);
+      if (!Number.isFinite(frames) || frames === 0) return 0;
+      offsetFrames += frames;
+      if (frames > 0) queue.push(Buffer.alloc(frames * bytesPerFrame));
+      else skipFrames += -frames;
+      return frames;
+    },
     drain(nowMs) {
       const out = [];
+      const targetFrames = Math.floor(((nowMs - startMs) * sampleRate) / 1000) + offsetFrames;
       while (queue.length > 0) {
-        const buffer = queue.shift();
+        let buffer = queue.shift();
+        if (skipFrames > 0) {
+          // Only drop while the stream really is ahead of where it should be; in silence that gap closes by itself
+          // (no padding is written until the wall clock catches up), and the budget must not eat audio played later.
+          const ahead = Math.max(0, writtenFrames - targetFrames);
+          const drop = Math.min(Math.floor(buffer.length / bytesPerFrame), skipFrames, ahead);
+          skipFrames -= drop;
+          buffer = buffer.subarray(drop * bytesPerFrame);
+          if (buffer.length === 0) continue;
+        }
         out.push(buffer);
         writtenFrames += Math.floor(buffer.length / bytesPerFrame);
       }
-      const targetFrames = Math.floor(((nowMs - startMs) * sampleRate) / 1000);
+      if (skipFrames > 0 && writtenFrames <= targetFrames) skipFrames = 0;
       const deficit = targetFrames - writtenFrames;
       if (deficit >= padAfterFrames) {
         out.push(Buffer.alloc(deficit * bytesPerFrame));
@@ -47,6 +78,9 @@ export function createPcmPacer({ startMs, sampleRate = LOOPBACK_SAMPLE_RATE, byt
     },
     get writtenFrames() {
       return writtenFrames;
+    },
+    get offsetFrames() {
+      return offsetFrames;
     },
   };
 }
@@ -113,6 +147,20 @@ export async function createLoopbackFeed({ loadCapture = defaultLoadCapture, now
   }, tickMs);
   timer.unref?.();
 
+  /**
+   * Lines this feed up with the screen capture of the segment that is connected now. ffmpeg starts each input's clock at
+   * its first sample, so a feed that connected later than the screen's first frame (`videoFirstFrameMs`) plays that much
+   * too early, and one that connected earlier plays too late. Returns what was applied, or null when nothing was (no
+   * connection yet, or a gap too large to be a real start-up difference).
+   */
+  function alignToVideoStart(videoFirstFrameMs) {
+    if (!pacer || !Number.isFinite(videoFirstFrameMs)) return null;
+    const deltaMs = pacer.startMs - videoFirstFrameMs;
+    if (Math.abs(deltaMs) > MAX_ALIGN_MS) return { deltaMs, applied: false };
+    pacer.align(deltaMs);
+    return { deltaMs, applied: true };
+  }
+
   function close() {
     if (closed) return;
     closed = true;
@@ -122,5 +170,5 @@ export async function createLoopbackFeed({ loadCapture = defaultLoadCapture, now
     server.close();
   }
 
-  return { url: `tcp://${host}:${port}`, port, close };
+  return { url: `tcp://${host}:${port}`, port, close, alignToVideoStart, get connectedAtMs() { return pacer?.startMs ?? null; } };
 }

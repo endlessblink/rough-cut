@@ -1793,3 +1793,52 @@ test('a take without sound stops at once and asks for no trim', async () => {
   assert.deepEqual(stopped.rawTailTrimSec, [0]);
   await rm(root, { recursive: true, force: true });
 });
+
+// Windows system audio: the loopback feed's clock starts when ffmpeg connects to it, the screen's when its first frame is
+// captured. The session hands the screen's first-frame time to the feed so the feed can line itself up.
+function loopbackAlignFixture(root, { align, firstFrameMs = 4830 }) {
+  const calls = [];
+  const events = [];
+  const feed = { url: 'tcp://127.0.0.1:1', connectedAtMs: 5000, close() {}, alignToVideoStart(ms) { calls.push(ms); return { deltaMs: 5000 - ms, applied: true }; } };
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    buttonListenerFactory: null,
+    unifiedCaptureFactory: null,
+    measureCameraPrerollFromBanner: false,
+    alignSystemAudioToVideo: align,
+    systemAudioFeedFactory: async () => feed,
+    eventLoggerFactory: () => ({ start() {}, stop() {}, flush() {}, event(kind, data) { events.push({ kind, ...data }); } }),
+    captureFactory: (options) => {
+      options.onFirstFrame?.(firstFrameMs, { source: 'banner' });
+      return { outputPath: options.outputPath, stop: async () => options.outputPath, cancel: async () => options.outputPath };
+    },
+  });
+  return { session, calls, events };
+}
+
+test('the screen\'s first frame time is handed to the system-audio feed, and the gap is logged', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-align-'));
+  const { session, calls, events } = loopbackAlignFixture(root, { align: true });
+  await session.start({ systemAudioSource: 'wasapi-loopback' });
+  assert.deepEqual(calls, [4830]);
+  const logged = events.find((event) => event.kind === 'system-audio-offset');
+  assert.equal(logged.deltaMs, 170);
+  assert.equal(logged.applied, true);
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
+});
+
+test('with alignment switched off the feed is left alone but the gap is still logged', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-align-off-'));
+  const { session, calls, events } = loopbackAlignFixture(root, { align: false });
+  await session.start({ systemAudioSource: 'wasapi-loopback' });
+  assert.deepEqual(calls, []);
+  const logged = events.find((event) => event.kind === 'system-audio-offset');
+  assert.equal(logged.applied, false);
+  assert.equal(logged.deltaMs, 170);
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
+});
