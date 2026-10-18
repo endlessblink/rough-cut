@@ -1631,3 +1631,15 @@ footer {
   flex-wrap: wrap;
   gap: 14px 16px;
 }
+
+/* Language link in the header (English and Hebrew pages). */
+.lang-switch {
+  color: #e0d1e7;
+  font-size: 14px;
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 999px;
+}
+.lang-switch:hover {
+  background: rgba(255, 255, 255, 0.08);
+}

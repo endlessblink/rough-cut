@@ -29,6 +29,8 @@
   });
   window.addEventListener("hashchange", reveal);
   reveal();
+  const he = document.documentElement.lang === "he";
+  const t = (en, hebrew) => (he ? hebrew : en);
   const config = window.ROUGH_CUT_RELEASE || {};
   const official = (value) => {
     try {
@@ -50,13 +52,13 @@
   if (config.published === true && asset) {
     document.querySelector("[data-linux-cta]").href = asset;
     document.querySelector("[data-linux-label]").textContent =
-      "Download for Linux";
+      t("Download for Linux", "הורדה ל-Linux");
     document.querySelector("[data-release-status]").textContent =
-      "Free and open source · Linux beta";
+      t("Free and open source · Linux beta", "חינמי וקוד פתוח · גרסת בטא ל-Linux");
     document.querySelector("[data-linux-summary]").textContent =
-      "Verified Linux beta available";
+      t("Verified Linux beta available", "גרסת בטא מאומתת ל-Linux זמינה");
     document.querySelector("[data-linux-copy]").textContent =
-      "The verified Linux beta is available through GitHub Releases. Linux x86_64 with X11 is required; Wayland is unsupported.";
+      t("The verified Linux beta is available through GitHub Releases. Linux x86_64 with X11 is required; Wayland is unsupported.", "גרסת הבטא המאומתת ל-Linux זמינה דרך GitHub Releases. נדרש Linux x86_64 עם X11; Wayland אינו נתמך.");
   }
   // Windows appears only once a real installer is on GitHub Releases; until then it stays on the waitlist.
   const windowsAsset = official(config.windowsUrl);
@@ -66,13 +68,13 @@
     cta.hidden = false;
     document.querySelector("[data-windows-status]").hidden = false;
     document.querySelector("[data-release-status]").textContent =
-      "Free and open source · Linux and Windows beta";
+      t("Free and open source · Linux and Windows beta", "חינמי וקוד פתוח · גרסת בטא ל-Linux ול-Windows");
     document.querySelector(".lead").textContent =
-      "Screen recording and editing, together on Linux and Windows.";
+      t("Screen recording and editing, together on Linux and Windows.", "הקלטה ועריכת מסך, ביחד ב-Linux וב-Windows.");
     document.querySelector("[data-waitlist-title]").textContent = "Mac";
-    document.querySelector("[data-waitlist-link]").textContent = "Mac waitlist";
+    document.querySelector("[data-waitlist-link]").textContent = t("Mac waitlist", "רשימת המתנה ל-Mac");
     document.querySelector("[data-waitlist-copy]").textContent =
-      "No Mac build or date yet. It gets built once enough people ask for it. Leave your email and we will write once, when it is ready.";
+      t("No Mac build or date yet. It gets built once enough people ask for it. Leave your email and we will write once, when it is ready.", "אין עדיין גרסה ל-Mac ואין תאריך. היא תיבנה כשמספיק אנשים יבקשו. השאירו אימייל ונכתוב פעם אחת, כשהיא מוכנה.");
     const windowsChoice = document.querySelector("input[name='platform'][value='Windows']");
     windowsChoice?.closest("label")?.remove();
     const macChoice = document.querySelector("input[name='platform'][value='Mac']");
@@ -99,27 +101,27 @@
       event.preventDefault();
       const platforms = [...waitlist.querySelectorAll("input[name='platform']:checked")].map((i) => i.value);
       email.removeAttribute("aria-invalid");
-      if (!platforms.length) return say("Pick Mac, Windows, or both.", "error");
+      if (!platforms.length) return say(t("Pick Mac, Windows, or both.", "בחרו Mac, Windows, או שניהם."), "error");
       if (!email.checkValidity()) {
         email.setAttribute("aria-invalid", "true");
         email.focus();
-        return say("That email doesn't look right. Check it and try again.", "error");
+        return say(t("That email doesn't look right. Check it and try again.", "האימייל לא נראה תקין. בדקו ונסו שוב."), "error");
       }
       if (!formUrl || !wl.emailEntry || !wl.platformEntry)
-        return say("Sign-ups open in a few days. Follow on GitHub until then.", "error");
+        return say(t("Sign-ups open in a few days. Follow on GitHub until then.", "ההרשמה נפתחת בעוד כמה ימים. עד אז עקבו ב-GitHub."), "error");
       const body = new URLSearchParams();
       body.append(wl.emailEntry, email.value.trim());
       platforms.forEach((p) => body.append(wl.platformEntry, p));
       button.disabled = true;
-      say("Adding you…");
+      say(t("Adding you…", "מוסיפים אתכם…"));
       try {
         // Google Forms sends no CORS headers; an opaque response means it was accepted.
         await fetch(formUrl, { method: "POST", mode: "no-cors", body });
         waitlist.dataset.done = "";
-        say(`You're on the ${platforms.join(" and ")} list. One email when it's ready, nothing else.`, "done");
+        say(t(`You're on the ${platforms.join(" and ")} list. One email when it's ready, nothing else.`, `נרשמתם לרשימה (${platforms.join(", ")}). אימייל אחד כשזה מוכן, ותו לא.`), "done");
       } catch {
         button.disabled = false;
-        say("Couldn't reach the waitlist. Check your connection and try again.", "error");
+        say(t("Couldn't reach the waitlist. Check your connection and try again.", "לא הצלחנו להגיע לרשימה. בדקו את החיבור ונסו שוב."), "error");
       }
     });
   }

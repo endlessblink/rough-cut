@@ -1,0 +1,52 @@
+/* Hebrew (right-to-left) overrides on top of ../styles.css. Hebrew falls back to the system sans. */
+:root {
+  --he-font: "Archivo", "Heebo", "Assistant", "Noto Sans Hebrew", "Segoe UI", Arial, sans-serif;
+}
+body {
+  font-family: var(--he-font);
+}
+h1,
+h2,
+h3 {
+  letter-spacing: 0;
+}
+.skip-link {
+  left: auto;
+  right: 20px;
+}
+.app-showcase figcaption {
+  text-align: start;
+}
+.compare th,
+.compare td {
+  text-align: start;
+}
+.compare tbody th {
+  left: auto;
+  right: 0;
+}
+.steps li {
+  text-align: start;
+  border-left: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+.steps li:first-child {
+  border-right: 0;
+  padding-right: 0;
+}
+/* Arrows that point up and to the right (↗) read the other way in right-to-left text. */
+.pill-link span[aria-hidden="true"],
+.source-action span[aria-hidden="true"],
+.release-copy a span[aria-hidden="true"],
+footer a span[aria-hidden="true"] {
+  display: inline-block;
+  transform: scaleX(-1);
+}
+input[type="email"] {
+  text-align: left;
+}
+
+/* Screen-reader-only text must stay fully hidden in right-to-left layout too. */
+.sr {
+  clip-path: inset(50%);
+}
