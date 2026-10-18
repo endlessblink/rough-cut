@@ -70,6 +70,7 @@
     document.querySelector(".lead").textContent =
       "Screen recording and editing, together on Linux and Windows.";
     document.querySelector("[data-waitlist-title]").textContent = "Mac";
+    document.querySelector("[data-waitlist-link]").textContent = "Mac waitlist";
     document.querySelector("[data-waitlist-copy]").textContent =
       "No Mac build or date yet. It gets built once enough people ask for it. Leave your email and we will write once, when it is ready.";
     const windowsChoice = document.querySelector("input[name='platform'][value='Windows']");

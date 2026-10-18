@@ -1625,3 +1625,9 @@ footer {
     transition: none;
   }
 }
+
+/* Two hero download buttons (Linux and Windows) sit apart and wrap on narrow screens. */
+.hero-actions {
+  flex-wrap: wrap;
+  gap: 14px 16px;
+}
