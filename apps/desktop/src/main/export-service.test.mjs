@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createProjectForImport, createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildGraphicsFailureResult, workingExportPath, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+import { escapeFilterPath, buildBackgroundExpression, buildCensorSourceFilters, buildCutFrameRemap, buildGraphicsFailureResult, workingExportPath, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawStabilizedTrimExportArgs, buildRawTimelineExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, memoryCappedCommand, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveAssetStabilization, resolveTimelineExportRecording } from './export-service.mjs';
+
+// These tests plant fake ffmpeg/ffprobe bash scripts on PATH; Windows cannot execute them. Linux CI still runs them.
+const BASH_STUBS = process.platform === 'win32' ? 'uses #!/usr/bin/env bash ffmpeg stubs' : false;
 
 test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
   const previous = {
@@ -16,7 +20,8 @@ test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
   delete process.env.ROUGH_CUT_EXPORT_CPU_QUOTA;
   delete process.env.ROUGH_CUT_EXPORT_IO_WEIGHT;
   try {
-    const scoped = memoryCappedCommand('ffmpeg', ['-version']);
+    const scoped = memoryCappedCommand('ffmpeg', ['-version'], 'linux');
+    assert.equal(memoryCappedCommand('ffmpeg', ['-version'], 'win32'), null);
     assert.deepEqual(scoped.args.slice(0, 14), [
       '--user', '--scope', '-q', '--collect',
       '-p', 'MemoryMax=32G', '-p', 'MemorySwapMax=0',
@@ -94,7 +99,7 @@ test('raw export mode keeps byte-for-byte copy behavior', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test('trimmed ffmpeg export can be cancelled and removes partial output', async () => {
+test('trimmed ffmpeg export can be cancelled and removes partial output', { skip: BASH_STUBS }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-cancel-'));
   const binDir = join(root, 'bin');
   const sourcePath = join(root, 'source.mp4');
@@ -230,7 +235,7 @@ test('raw timeline export args compact canonical edit segments with aligned audi
   assert(joined.includes('-metadata rough_cut_style=raw-timeline'));
 });
 
-test('raw export accepts a compact canonical timeline after ripple deletion', async () => {
+test('raw export accepts a compact canonical timeline after ripple deletion', { skip: BASH_STUBS }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-raw-timeline-'));
   const binDir = join(root, 'bin');
   const sourcePath = join(root, 'source.mp4');
@@ -275,6 +280,7 @@ printf encoded > "\${@: -1}"
       project: edited,
       outputPath,
       mode: 'raw',
+      levelQuietVoice: false, // this test inspects the single fake ffmpeg call of the export itself
     });
 
     assert.equal(result.byteEqualCandidate, false);
@@ -438,7 +444,7 @@ test('experimental headless export mode reports a composition plan and falls bac
   assert(progress.some((event) => event.phase === 'rendering-styled' && event.fallback?.to === 'ffmpeg-styled'), 'fallback styled progress should stay visible');
 });
 
-test('experimental headless export encodes successful rendered frame artifacts without styled fallback', async () => {
+test('experimental headless export encodes successful rendered frame artifacts without styled fallback', { skip: BASH_STUBS }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-success-'));
   const binDir = join(root, 'bin');
   const frameDir = join(root, 'frames');
@@ -526,7 +532,7 @@ printf headless-mp4 > "${'$'}out"
   }
 });
 
-test('experimental headless export falls back to styled export when artifact encode fails', async () => {
+test('experimental headless export falls back to styled export when artifact encode fails', { skip: BASH_STUBS }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-encode-fallback-'));
   const binDir = join(root, 'bin');
   const frameDir = join(root, 'frames');
@@ -704,7 +710,7 @@ test('experimental headless export plan samples shared composition frames', () =
   assert(plan.frames.every((frame) => frame.background.startColor && frame.background.endColor));
   assert(plan.frames.some((frame) => frame.screen?.zoomTransform));
   assert.equal(plan.frames[0].screen.sourcePath, '/tmp/source.mp4');
-  assert.match(plan.frames[0].screen.sourceUrl, /^file:\/\/\/tmp\/source\.mp4$/);
+  assert.equal(plan.frames[0].screen.sourceUrl, pathToFileURL('/tmp/source.mp4').href);
   assert.equal(plan.frames[0].screen.fps, 30);
   assert.equal(plan.frames[0].screen.frameSource, 'background-padding');
   assert.deepEqual(plan.frames[0].screen.frame, { x: 0.133203, y: 0.133333, w: 0.733594, h: 0.733333 });
@@ -741,7 +747,7 @@ test('experimental headless export plan carries background gradient colors', () 
   assert.equal(plan.frames[0].background.endColor, '#778899');
   assert.equal(plan.frames[0].background.gradient, 'linear-gradient(135deg, #112233 0%, #445566 45%, #778899 100%)');
   assert.equal(plan.frames[0].background.image, 'backgrounds/dark-waves.png');
-  assert.match(plan.frames[0].background.imagePath, /apps\/desktop\/src\/renderer\/public\/backgrounds\/dark-waves\.png$|dist\/renderer\/backgrounds\/dark-waves\.png$/);
+  assert.match(plan.frames[0].background.imagePath, /apps[\\/]desktop[\\/]src[\\/]renderer[\\/]public[\\/]backgrounds[\\/]dark-waves\.png$|dist[\\/]renderer[\\/]backgrounds[\\/]dark-waves\.png$/);
   assert.match(plan.frames[0].background.imageUrl, /^file:\/\//);
   assert.match(plan.frames[0].background.imageUrl, /backgrounds\/dark-waves\.png$/);
   assert.equal(plan.frames[0].background.styleKind, 'gradient');
@@ -1193,7 +1199,8 @@ test('styled export args can use NVIDIA NVENC without changing the preview-parit
   assert(joined.includes('[base]subtitles=/tmp/cursor.ass[with_cursor]'));
   assert(joined.includes('[screen][screen_mask]alphamerge[rounded]'));
   assert(joined.includes('boxblur=58:5'));
-  assert(joined.includes('[camera_scaled][camera_mask]alphamerge[camera_rounded]'));
+  assert(joined.includes('[camera_source_alpha][camera_mask]blend=all_mode=multiply[camera_alpha]'));
+  assert(joined.includes('[camera_color][camera_alpha]alphamerge[camera_rounded]'));
   assert(joined.includes('[with_screen][camera_rounded]overlay='));
 });
 
@@ -1508,8 +1515,8 @@ test('styled export args give each camera timeline segment its own seeked input'
 
   // Screen keeps inputs 2 and 3; the camera's land after them.
   assert.equal(args.filter((arg, index) => args[index - 1] === '-i' && arg === '/tmp/camera.mp4').length, 3);
-  assert(joined.includes('-ss 0.5 -t 2.267 -i /tmp/camera.mp4'));
-  assert(joined.includes('-ss 300.5 -t 2.267 -i /tmp/camera.mp4'));
+  assert(joined.includes('-seek_timestamp 1 -ss 0.499999 -t 2.267 -i /tmp/camera.mp4'));
+  assert(joined.includes('-seek_timestamp 1 -ss 300.499999 -t 2.267 -i /tmp/camera.mp4'));
   assert(joined.includes('[4:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[camera_base_seg_0]'));
   assert(joined.includes('[5:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[camera_base_seg_1]'));
   assert(!joined.includes('camera_base_seg_0]') || !joined.includes('[1:v]trim=start_frame=9000'));
@@ -1627,10 +1634,10 @@ test('styled export draws the faint background grid behind everything only when 
 });
 
 test('the in-progress video lives under a hidden name beside the real file, never under the real name', () => {
-  assert.equal(workingExportPath('/home/me/Videos/Demo 2026-10-02_1335.mp4'), '/home/me/Videos/.Demo 2026-10-02_1335.rendering.mp4');
-  assert.equal(workingExportPath('/x/out.mp4', 'finishing'), '/x/.out.finishing.mp4');
+  assert.equal(workingExportPath('/home/me/Videos/Demo 2026-10-02_1335.mp4'), join('/home/me/Videos', '.Demo 2026-10-02_1335.rendering.mp4'));
+  assert.equal(workingExportPath('/x/out.mp4', 'finishing'), join('/x', '.out.finishing.mp4'));
   assert.notEqual(workingExportPath('/x/out.mp4'), '/x/out.mp4');
-  assert.equal(workingExportPath('/x/out.mp4').startsWith('/x/.'), true);
+  assert.equal(basename(workingExportPath('/x/out.mp4')).startsWith('.'), true);
 });
 
 test('a failed graphics pass keeps the finished styled video and carries the reason', () => {
@@ -2861,4 +2868,26 @@ test('styled export args read each seeked screen segment a few frames long and t
   assert(joined.includes('-ss 10 -t 2.267 -i /tmp/source.mp4'));
   assert(joined.includes('[1:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[base_seg_0]'));
   assert(joined.includes('[2:v]fps=30,setpts=PTS-STARTPTS,trim=end_frame=60,format=rgba[base_seg_1]'));
+});
+
+test('virtual camera export rebases padding and concat, precisely seeks and hides beyond-end seeds',()=>{
+ const args=buildStyledExportArgs({inputPath:'/screen.mp4',outputPath:'/export.mp4',sourceWidth:96,sourceHeight:64,sourceFps:30,cameraInputPath:'/camera.mp4',cameraSourceWidth:96,cameraSourceHeight:64,cameraSourceStartSeconds:.066016,cameraDelayFrames:2,cameraDecodedDurationSeconds:3,timelineDurationFrames:10,timelineSegments:[{timelineIn:0,timelineOut:2,sourceIn:88,sourceOut:90},{timelineIn:2,timelineOut:10,sourceIn:110,sourceOut:118}],cameraTimelineSegments:[{timelineIn:0,timelineOut:2,sourceIn:88,sourceOut:90},{timelineIn:2,timelineOut:10,sourceIn:110,sourceOut:118}]});
+ const graph=args[args.indexOf('-filter_complex')+1];
+ assert(args.join(' ').includes('-seek_timestamp 1 -ss 2.932681'));
+ assert(graph.includes('tpad=stop_mode=clone:stop=15'));
+ assert(graph.includes('tpad=stop_mode=clone:stop=0'));
+ assert(graph.includes('setpts=N/30/TB,colorchannelmixer=aa=0'));
+ assert(graph.includes('[camera_base]setpts=N/30/TB[camera_clock]'));
+ assert(graph.includes('[camera_clock]scale='));
+ assert(args.includes('-noaccurate_seek'));
+ assert(graph.includes('fps=30:start_time=0'));
+ const cameraInputPositions=args.map((arg,index)=>arg==='/camera.mp4'&&args[index-1]==='-i'?index:null).filter(index=>index!==null).slice(1);
+ for(const position of cameraInputPositions)assert.equal(args[position-3],'-ss','virtual input window stays frame-bounded after retained keyframe preroll');
+});
+
+test('filter paths: Linux escaping is unchanged, Windows paths use forward slashes and a doubled colon escape', () => {
+  assert.equal(escapeFilterPath('/tmp/a b/cursor.ass', { platform: 'linux' }), '/tmp/a b/cursor.ass');
+  assert.equal(escapeFilterPath("/tmp/it's:here.ass", { platform: 'linux' }), "/tmp/it\\'s\\:here.ass");
+  assert.equal(escapeFilterPath('C:\\Users\\me\\AppData\\Local\\Temp\\cursor.ass', { platform: 'win32' }), 'C\\\\:/Users/me/AppData/Local/Temp/cursor.ass');
+  assert.equal(escapeFilterPath('C:\\Users\\me\\x.trf', { platform: 'win32', quoted: true }), 'C\\:/Users/me/x.trf');
 });

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { probeMp4Integrity } from './media-probe.mjs';
 
 const COHERENCE_TOLERANCE_FRAMES = 5;
@@ -78,7 +78,7 @@ export async function remuxMkvSegmentsToMp4({
   if (paths.length === 1) {
     return remuxMkvToMp4({ rawPath: paths[0], outputPath, maps, onLog, validate, runner });
   }
-  const listPath = join(dirname(outputPath), `${outputPath.split('/').pop().replace(/\.mp4$/i, '')}.concat.txt`);
+  const listPath = join(dirname(outputPath), `${basename(outputPath).replace(/\.mp4$/i, '')}.concat.txt`);
   const listBody = paths.map((path) => `file '${escapeConcatPath(path)}'`).join('\n') + '\n';
   await writeFile(listPath, listBody, 'utf8');
   try {
@@ -105,8 +105,10 @@ function normalizeMaps(maps) {
   return normalized.length > 0 ? normalized : ['0'];
 }
 
-function escapeConcatPath(path) {
-  return String(path).replace(/'/g, "'\\''");
+// Forward slashes are accepted by the Windows file APIs and avoid any backslash escaping in the concat list.
+export function escapeConcatPath(path, platform = process.platform) {
+  const text = platform === 'win32' ? String(path).replace(/\\/g, '/') : String(path);
+  return text.replace(/'/g, "'\\''");
 }
 
 function run(command, args, onLog) {

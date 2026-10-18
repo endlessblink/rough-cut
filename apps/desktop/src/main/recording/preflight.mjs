@@ -3,12 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { isXinputAvailable } from './xinput-button-listener.mjs';
 import { isXdotoolAvailable } from './xdotool-cursor.mjs';
+import { isUiohookAvailable } from './uiohook-button-listener.mjs';
 import { buildInstallHint, readDistroFamily } from './missing-tools-hint.mjs';
 
 const MIN_FREE_BYTES_30_MIN = 8 * 1024 * 1024 * 1024;
 const MIN_FREE_BYTES_60_MIN = 16 * 1024 * 1024 * 1024;
 
-export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, micSources = [], systemAudioSources = [], cameraSources = [], options = {} } = {}) {
+export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, micSources = [], systemAudioSources = [], cameraSources = [], options = {}, platform = process.platform } = {}) {
   const disk = await readDiskStatus(recordingsDir);
   const display = displayInfo ?? {};
   const selectedMic = options.recordMic ? findSource(micSources, options.micSource) : null;
@@ -19,18 +20,18 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
   const captureHeight = captureRegion?.height ?? display.height ?? 0;
   const ffmpegAvailable = commandAvailable('ffmpeg');
   const ffprobeAvailable = commandAvailable('ffprobe');
-  const onWindows = process.platform === 'win32';
+  const onWindows = platform === 'win32';
   const xdotoolAvailable = onWindows || isXdotoolAvailable();
-  const xinputAvailable = onWindows ? false : isXinputAvailable();
+  const xinputAvailable = onWindows ? isUiohookAvailable() : isXinputAvailable();
 
   const checks = [
-    createCheck('session', sessionLabel(), sessionSeverity(), sessionDetail()),
+    createCheck('session', sessionLabel(platform), sessionSeverity(platform), sessionDetail(platform)),
     createCheck('capture', options.captureMode === 'region' ? 'Region capture' : 'Full display', captureWidth > 0 && captureHeight > 0 ? 'ok' : 'warn', `${captureWidth || 'unknown'} x ${captureHeight || 'unknown'} at 30 FPS`),
     createCheck('destination', 'Save destination', disk.severity, disk.detail),
     createCheck('ffmpeg', 'FFmpeg', ffmpegAvailable ? 'ok' : 'critical', ffmpegAvailable ? 'Available' : 'Missing; recording/export cannot start safely'),
     createCheck('ffprobe', 'FFprobe', ffprobeAvailable ? 'ok' : 'critical', ffprobeAvailable ? 'Available' : 'Missing; saved media cannot be verified'),
     createCheck('xdotool', 'Cursor position', xdotoolAvailable ? 'ok' : 'warn', onWindows ? 'Windows cursor polling' : xdotoolAvailable ? 'xdotool available' : 'xdotool missing; cursor tracking may be unreliable'),
-    createCheck('xinput', 'Click telemetry', xinputAvailable ? 'ok' : 'warn', onWindows ? 'Not available on Windows yet; auto-zoom uses the cursor-jump heuristic' : xinputAvailable ? 'xinput available' : 'xinput missing; click telemetry may be skipped'),
+    createCheck('xinput', 'Click telemetry', xinputAvailable ? 'ok' : 'warn', onWindows ? (xinputAvailable ? 'Windows input hook available' : 'Windows input hook unavailable; auto-zoom uses the cursor-jump heuristic') : xinputAvailable ? 'xinput available' : 'xinput missing; click telemetry may be skipped'),
     optionalSourceCheck('mic', 'Microphone', options.recordMic, selectedMic, micSources.length),
     optionalSourceCheck('system-audio', 'System audio', options.recordSystemAudio, selectedSystemAudio, systemAudioSources.length),
     optionalSourceCheck('camera', 'Camera', options.recordCamera, selectedCamera, cameraSources.length),
@@ -43,7 +44,7 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
   return {
     status: summarizeSeverity(checks),
     missingTools,
-    installHint: buildInstallHint(missingTools, readDistroFamily()),
+    installHint: onWindows ? buildWindowsInstallHint(missingTools) : buildInstallHint(missingTools, readDistroFamily()),
     checkedAt: new Date().toISOString(),
     recordingsDir,
     display,
@@ -51,6 +52,12 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
     disk,
     checks,
   };
+}
+
+// FFmpeg ships ffprobe in the same package; winget needs no admin prompt beyond its own.
+export function buildWindowsInstallHint(missingToolIds) {
+  if (!missingToolIds.some((id) => id === 'ffmpeg' || id === 'ffprobe')) return null;
+  return { family: 'winget', commands: [{ family: 'winget', label: 'Windows', command: 'winget install -e --id Gyan.FFmpeg' }] };
 }
 
 export function classifyDiskFreeBytes(freeBytes) {
@@ -95,19 +102,19 @@ function findSource(sources, name) {
   return sources.find((source) => source.name === name) ?? null;
 }
 
-function sessionLabel() {
-  if (process.platform === 'win32') return 'Windows session';
+function sessionLabel(platform) {
+  if (platform === 'win32') return 'Windows session';
   return process.env.XDG_SESSION_TYPE ? `${process.env.XDG_SESSION_TYPE.toUpperCase()} session` : 'Unknown session';
 }
 
-function sessionSeverity() {
-  if (process.platform === 'win32') return 'ok';
+function sessionSeverity(platform) {
+  if (platform === 'win32') return 'ok';
   const type = String(process.env.XDG_SESSION_TYPE ?? '').toLowerCase();
   return type === 'wayland' ? 'critical' : type === 'x11' || process.env.DISPLAY ? 'ok' : 'warn';
 }
 
-function sessionDetail() {
-  if (process.platform === 'win32') return 'Desktop capture via FFmpeg gdigrab';
+function sessionDetail(platform) {
+  if (platform === 'win32') return 'Desktop capture via FFmpeg gdigrab';
   const type = String(process.env.XDG_SESSION_TYPE ?? '').toLowerCase();
   if (type === 'wayland') return 'Wayland is outside the current reliability scope; use X11 for client recordings';
   if (type === 'x11' || process.env.DISPLAY) return `DISPLAY ${process.env.DISPLAY || 'available'}`;

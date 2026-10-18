@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const source = readFileSync(join(here, 'screen-layer-renderer-capabilities.ts'), 'utf8');
 
 test('preview renderer ladder keeps WebGPU first and Canvas2D last', () => {

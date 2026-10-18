@@ -2,7 +2,8 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
-import { createNoopButtonListener } from './noop-button-listener.mjs';
+import { createUiohookButtonListener } from './uiohook-button-listener.mjs';
+import { LOOPBACK_SOURCE_ID, createLoopbackFeed } from './system-audio-loopback.mjs';
 import { probeVideoStreamStartOffsets } from '../media-probe.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 import { createProjectFolder } from '../project-folders.mjs';
@@ -33,15 +34,27 @@ export function createRecordingSession({
   getCursorPoint = null,
   captureFactory = startFfmpegCapture,
   cameraCaptureFactory = startFfmpegCameraCapture,
-  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture ? startFfmpegUnifiedCapture : null,
+  // One ffmpeg for screen + camera is used on Linux only. On Windows (measured, ffmpeg 9, 2560x1440) that combined
+  // process drags BOTH video streams down to roughly the camera's rate: the screen recorded ~9 fps instead of 30 while
+  // the camera was re-encoded in the same process. Separate processes keep the screen at 30 fps, so Windows uses the
+  // separate camera capture (the same path Linux falls back to).
+  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture && process.platform !== 'win32' ? startFfmpegUnifiedCapture : null,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
   cameraWarmupMs = DEFAULT_CAMERA_WARMUP_MS,
-  buttonListenerFactory = process.platform === 'win32' ? createNoopButtonListener : createXinputButtonListener,
+  buttonListenerFactory = process.platform === 'win32' ? createUiohookButtonListener : createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
   videoStreamStartProbe = probeVideoStreamStartOffsets,
+  // Windows system audio: a local feed that turns WASAPI loopback into an ffmpeg input. Null elsewhere.
+  systemAudioFeedFactory = process.platform === 'win32' ? createLoopbackFeed : null,
+  // Windows hands us physical pixels from every input (low-level hook, screen.dipToScreenPoint), so they must not be
+  // multiplied by the display scale factor again. Linux keeps its original behaviour.
+  inputCoordinatesArePhysical = process.platform === 'win32',
+  // Windows: take the camera's head start from its real first-frame time (a DirectShow camera takes ~2 s to open, so
+  // 'screen start minus camera spawn' overshoots and the editor would trim that much real footage). Linux keeps the estimate.
+  measureCameraPrerollFromBanner = process.platform === 'win32',
 }) {
   let active = null;
   let stopping = null;
@@ -173,8 +186,23 @@ export function createRecordingSession({
       // (screen, then camera) and xinput button listener once telemetry
       // starts. Each entry is `{ name, getPid, kill }`.
       children: [],
+      inputsArePhysical: inputCoordinatesArePhysical,
+      measureCameraPreroll: measureCameraPrerollFromBanner,
       ...displayInfo,
     };
+
+    if (systemAudioSource === LOOPBACK_SOURCE_ID && typeof systemAudioFeedFactory === 'function') {
+      try {
+        session.systemAudioFeed = await systemAudioFeedFactory();
+        session.systemAudioInput = session.systemAudioFeed.url;
+        registerChild(session, 'system-audio-loopback', { kill: () => closeSystemAudioFeed(session) });
+      } catch (err) {
+        // Same fallback shape as a missing camera: keep recording the screen, say what was lost.
+        session.systemAudioError = err instanceof Error ? err.message : String(err);
+        session.systemAudioSource = null;
+        console.warn(`[recording-session] system audio disabled: ${session.systemAudioError}`);
+      }
+    }
 
     eventLogger.event('recording-start', {
       startedAt: session.startedAt,
@@ -195,16 +223,24 @@ export function createRecordingSession({
     await writeRecoveryMarker(session);
 
     active = session;
-    await startActiveSegment(active, {
-      captureFactory,
-      cameraCaptureFactory,
-      unifiedCaptureFactory,
-      cameraWarmupMs,
-      now,
-      getCursorPoint,
-      sampleIntervalMs,
-      buttonListenerFactory,
-    });
+    try {
+      await startActiveSegment(active, {
+        captureFactory,
+        cameraCaptureFactory,
+        unifiedCaptureFactory,
+        cameraWarmupMs,
+        now,
+        getCursorPoint,
+        sampleIntervalMs,
+        buttonListenerFactory,
+      });
+    } catch (err) {
+      // Nothing may outlive a failed start, or every later start says "already active".
+      active = null;
+      await cancelActiveSession(session).catch(() => undefined);
+      closeSystemAudioFeed(session);
+      throw err;
+    }
     return status();
   }
 
@@ -313,6 +349,7 @@ export function createRecordingSession({
     if (!session.paused) {
       await stopCurrentSegment(session, 'stop', now, { videoStreamStartProbe });
     }
+    closeSystemAudioFeed(session);
     const rawPath = session.segments.length > 1 ? session.rawPath : session.segments[0]?.rawPath ?? session.rawPath;
     let cameraRawPath = session.unifiedCapture ? rawPath : session.cameraSegments[0]?.rawPath ?? null;
     let cameraError = session.cameraError ?? null;
@@ -377,6 +414,7 @@ export function createRecordingSession({
   async function cancelActiveSession(session) {
     session.stopped = true;
     stopTelemetry(session);
+    closeSystemAudioFeed(session);
     if (session.eventLogger) session.eventLogger.event('recording-cancel');
     await Promise.allSettled([
       cancelCapture(session.capture),
@@ -438,12 +476,28 @@ async function startActiveSegment(session, {
   // and attach it when the segment record is created below.
   let pendingFirstFrameMs = null;
   let pendingFirstFrameMeta = null;
+  let cameraFirstFrameMs = null;
+  // When both the screen's and the camera's real first-frame times are known, the camera's head start is their difference.
+  const applyMeasuredCameraPreroll = () => {
+    if (!session.measureCameraPreroll || session.segmentIndex !== 1 || !session.cameraDevicePath) return;
+    if (!Number.isFinite(cameraFirstFrameMs) || !Number.isFinite(pendingFirstFrameMs)) return;
+    const measuredMs = Math.max(0, pendingFirstFrameMs - cameraFirstFrameMs);
+    session.eventLogger?.event('camera-preroll-measured', { measuredMs, estimatedMs: session.cameraPrerollMs, cameraFirstFrameMs, screenFirstFrameMs: pendingFirstFrameMs });
+    session.cameraPrerollMs = measuredMs;
+    session.cameraPrerollFrames = Math.max(0, Math.round((measuredMs / 1000) * DEFAULT_FPS));
+  };
+  const noteCameraFirstFrame = (firstFrameMs) => {
+    if (!Number.isFinite(firstFrameMs) || cameraFirstFrameMs !== null) return;
+    cameraFirstFrameMs = firstFrameMs;
+    applyMeasuredCameraPreroll();
+  };
   const noteFirstFrame = (firstFrameMs, meta = null) => {
     session.eventLogger?.event('first-frame-anchor', { firstFrameMs, segmentIndex: session.segmentIndex, ...(meta ?? {}) });
     if (!Number.isFinite(firstFrameMs)) return;
     if (pendingFirstFrameMs === null) {
       pendingFirstFrameMs = firstFrameMs;
       pendingFirstFrameMeta = meta;
+      applyMeasuredCameraPreroll();
     }
     if (session.currentSegment
       && session.currentSegment.index === session.segmentIndex
@@ -463,6 +517,7 @@ async function startActiveSegment(session, {
         factory: cameraCaptureFactory,
         outputPath: paths.cameraRawPath,
         devicePath: session.cameraDevicePath,
+        onFirstFrame: session.measureCameraPreroll ? noteCameraFirstFrame : null,
         maxAttempts: 6,
         earlyExitWindowMs: 1500,
         backoffMs: 500,
@@ -494,7 +549,7 @@ async function startActiveSegment(session, {
         cameraDevicePath: session.cameraDevicePath,
         micSource: session.micSource,
         micGainPercent: session.micGainPercent,
-        systemAudioSource: session.systemAudioSource,
+        systemAudioSource: session.systemAudioInput ?? session.systemAudioSource,
         systemAudioGainPercent: session.systemAudioGainPercent,
         onFirstFrame: noteFirstFrame,
         maxAttempts: 6,
@@ -519,17 +574,21 @@ async function startActiveSegment(session, {
       height: session.height,
       micSource: session.micSource,
       micGainPercent: session.micGainPercent,
-      systemAudioSource: session.systemAudioSource,
+      systemAudioSource: session.systemAudioInput ?? session.systemAudioSource,
       systemAudioGainPercent: session.systemAudioGainPercent,
       onFirstFrame: noteFirstFrame,
     });
   }
+
+  await assertScreenCaptureStayedUp(capture, { unified: Boolean(unifiedCapture) });
 
   const segmentStartedAtDate = now();
   const cameraPrerollMs = cameraStartedAtDate ? Math.max(0, segmentStartedAtDate.getTime() - cameraStartedAtDate.getTime()) : 0;
   if (session.segmentIndex === 1) {
     session.cameraPrerollMs = cameraCapture ? cameraPrerollMs : 0;
     session.cameraPrerollFrames = cameraCapture ? Math.max(0, Math.round((cameraPrerollMs / 1000) * DEFAULT_FPS)) : 0;
+    // The measured value (if both first frames were already seen) wins over this estimate.
+    applyMeasuredCameraPreroll();
   }
 
   session.capture = capture;
@@ -637,6 +696,17 @@ function segmentPaths(session, index) {
   };
 }
 
+function inputScaleFactor(session) {
+  return session.inputsArePhysical ? 1 : session.scaleFactor || 1;
+}
+
+function closeSystemAudioFeed(session) {
+  const feed = session?.systemAudioFeed;
+  if (!feed) return;
+  session.systemAudioFeed = null;
+  try { feed.close(); } catch { /* already closed */ }
+}
+
 function stopTelemetry(session) {
   if (session.cursorTimer) clearInterval(session.cursorTimer);
   session.cursorTimer = null;
@@ -661,6 +731,7 @@ async function spawnCameraCaptureWithRetry({
   factory,
   outputPath,
   devicePath,
+  onFirstFrame = null,
   maxAttempts = 6,
   earlyExitWindowMs = 1500,
   backoffMs = 500,
@@ -673,6 +744,7 @@ async function spawnCameraCaptureWithRetry({
       devicePath,
       width: 1280,
       height: 720,
+      ...(onFirstFrame ? { onFirstFrame } : {}),
     });
     // Test mocks may not expose whenExited; in that case skip the early-exit
     // race entirely and assume the spawn succeeded. Real ffmpeg-camera
@@ -796,6 +868,20 @@ function monitorCameraCaptureExit(session) {
     session.cameraError = err instanceof Error ? err.message : String(err);
     session.eventLogger?.event('camera-capture-monitor-failed', { error: session.cameraError, cameraDevicePath: session.cameraDevicePath });
   });
+}
+
+// ffmpeg that exits within this window failed to start (bad capture area, device busy), as opposed to a later crash.
+const EARLY_EXIT_WINDOW_MS = 1500;
+
+async function assertScreenCaptureStayedUp(capture, { unified }) {
+  if (!capture || typeof capture.whenExited !== 'function') return;
+  const early = await Promise.race([
+    capture.whenExited(),
+    new Promise((resolve) => setTimeout(() => resolve(null), EARLY_EXIT_WINDOW_MS)),
+  ]);
+  if (!early || early.code === 0) return;
+  const tail = String(early.stderr ?? '').split(/\r?\n/).filter((line) => line.trim() && !/^\s*(lib|built with|configuration)/.test(line)).slice(-3).join(' | ');
+  throw new Error(`${unified ? 'Screen and camera' : 'Screen'} capture failed to start (ffmpeg exit ${early.code})${tail ? `: ${tail}` : '.'}`);
 }
 
 async function cancelCapture(capture) {
@@ -1006,7 +1092,7 @@ function recordButtonEvent(session, event, now) {
       point: { x: event.x, y: event.y },
       originX: session.originX || 0,
       originY: session.originY || 0,
-      scaleFactor: session.scaleFactor || 1,
+      scaleFactor: inputScaleFactor(session),
     });
     const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
     session.latestCursorPoint = cursor;
@@ -1045,7 +1131,7 @@ function recordKeyEvent(session, event, now) {
           point: { x: event.x, y: event.y },
           originX: session.originX || 0,
           originY: session.originY || 0,
-          scaleFactor: session.scaleFactor || 1,
+          scaleFactor: inputScaleFactor(session),
         })
       : null;
     const anchor = session.typingAnchor ?? session.latestCursorPoint ?? eventPoint;
@@ -1112,7 +1198,7 @@ function sampleCursor(session, getCursorPoint, now) {
       point,
       originX: session.originX || 0,
       originY: session.originY || 0,
-      scaleFactor: session.scaleFactor || 1,
+      scaleFactor: inputScaleFactor(session),
     });
     const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
     session.latestCursorPoint = cursor;

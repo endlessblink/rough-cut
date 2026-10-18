@@ -1,3 +1,4 @@
+import { getDshowCameraMode } from './windows-devices.mjs';
 // Per-platform FFmpeg input arguments. Linux output is byte-identical to the
 // args that used to be inlined in ffmpeg-capture.mjs (guarded by
 // ffmpeg-capture-args.test.mjs); the win32 branches are the Windows port.
@@ -60,6 +61,12 @@ export function screenInputArgs({ fps, width, height, display, platform = proces
 
 export function audioInputArgs(source, { platform = process.platform } = {}) {
   if (platform === 'win32') {
+    // System audio arrives from the local loopback feed (see system-audio-loopback.mjs) as raw s16le over TCP.
+    // The feed already paces itself against the wall clock. Do not add -use_wallclock_as_timestamps here: measured
+    // with ffmpeg 9 it makes the raw demuxer deliver nothing, while the plain input is read normally.
+    if (typeof source === 'string' && source.startsWith('tcp://')) {
+      return ['-f', 's16le', '-ar', '48000', '-ac', '2', '-i', source];
+    }
     return ['-f', 'dshow', '-ac', '2', '-ar', '48000', '-i', `audio=${source}`];
   }
   return ['-f', 'pulse', '-ac', '2', '-ar', '48000', '-i', source];
@@ -67,6 +74,23 @@ export function audioInputArgs(source, { platform = process.platform } = {}) {
 
 export function cameraInputArgs({ fps, width, height, device, platform = process.platform }) {
   if (platform === 'win32') {
+    // Open the camera in a mode it really advertises (see windows-devices.mjs). Requesting a rate or size it does not
+    // offer fails with "I/O error"; the preview and capture filters lower the rate afterwards. An unprobed camera
+    // falls back to the requested values.
+    const mode = getDshowCameraMode(device, { width, height, fps });
+    if (mode) {
+      return [
+        '-f',
+        'dshow',
+        ...(mode.kind === 'codec' ? ['-vcodec', mode.format] : ['-pixel_format', mode.format]),
+        '-framerate',
+        String(mode.fps),
+        '-video_size',
+        `${mode.width}x${mode.height}`,
+        '-i',
+        `video=${device}`,
+      ];
+    }
     return [
       '-f',
       'dshow',

@@ -1,9 +1,12 @@
+import { installReleaseServices } from './release-services.mjs';
+import { configureBundledTools } from './bundled-tools.mjs';
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect } from './region-selector.mjs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
@@ -17,6 +20,7 @@ import { trackCensorRegion } from './censor-tracking.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveBlankProject, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
+import { cancelWaveformDecoders } from './waveform-envelope.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
 import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
@@ -46,7 +50,8 @@ import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import { createStabilizationService } from './stabilization-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
 import { generateGraphic } from './claude-graphics-service.mjs';
-import { typicalClaudeAnswerMs } from './claude-cli.mjs';
+import { typicalClaudeAnswerMs, resolveClaudeBinary } from './claude-cli.mjs';
+import { inspectClaudeSubscription } from './claude-connection.mjs';
 import { detectSilences, silencesToCutRanges } from './silence-detect.mjs';
 
 /** Silent stretches of the open recording as cut ranges (frames); [] if none or unreadable. */
@@ -86,6 +91,13 @@ import {
 import { translateCaptionLines } from './captions-translate-service.mjs';
 import { transcribeSpeechForCaptions } from './captions-speech-service.mjs';
 
+configureBundledTools({ resourcesPath: process.resourcesPath });
+if (process.env.ELECTRON_DISABLE_SANDBOX && process.env.ELECTRON_DISABLE_SANDBOX !== '0' || process.argv.some((arg) => /^--(?:no-sandbox|disable-(?:setuid|gpu|seccomp-filter|namespace)-sandbox)(?:=|$)/.test(arg))) {
+  console.error('Rough Cut requires the Chromium sandbox.');
+  process.exit(64);
+}
+app.enableSandbox();
+
 const ownsSingleInstance = app.requestSingleInstanceLock();
 if (!ownsSingleInstance) {
   app.quit();
@@ -103,7 +115,7 @@ if (process.platform === 'linux') {
 }
 
 if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
-  app.setDesktopName('@rough-cut/desktop');
+  app.setDesktopName('rough-cut.desktop');
 }
 
 // The build this process started from. A hidden window (e.g. the recorder)
@@ -138,7 +150,7 @@ app.on('second-instance', (_event, argv) => {
 });
 
 const runtimeLogPath = installRuntimeLog();
-const dockProvenancePath = '/tmp/rough-cut-dock-provenance.json';
+const dockProvenancePath = process.env.ROUGH_CUT_DOCK_PROVENANCE_PATH ?? (process.platform === 'win32' ? join(tmpdir(), 'rough-cut-dock-provenance.json') : '/tmp/rough-cut-dock-provenance.json');
 
 function recordDockProvenance() {
   const launchSource = process.env.ROUGH_CUT_DOCK_LAUNCH === '1'
@@ -177,7 +189,7 @@ if (process.platform === 'linux' && !isXdotoolAvailable()) {
 }
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
 ]);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -250,8 +262,12 @@ const recordingSession = createRecordingSession({
   // stale/stuck values when the cursor leaves the primary display on Linux/X11
   // (electron/electron#42519). Fall back to it on platforms where xdotool is
   // unavailable so the app still records cursor under simpler setups.
+  // On Windows the point is converted to physical pixels per display (mixed-DPI safe); the session is told so
+  // via inputCoordinatesArePhysical, so it does not scale it again.
   getCursorPoint: () =>
-    (process.platform === 'linux' ? readCursorViaXdotool() : null) ?? screen.getCursorScreenPoint(),
+    process.platform === 'win32'
+      ? screen.dipToScreenPoint(screen.getCursorScreenPoint())
+      : (process.platform === 'linux' ? readCursorViaXdotool() : null) ?? screen.getCursorScreenPoint(),
 });
 const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
   environment: process.env,
@@ -1338,6 +1354,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_SAVE, (_event, payload) 
 registerAiAssetIpcHandlers(ipcMain, { store: aiAssetsStore });
 
 ipcMain.handle(IPC_CHANNELS.AI_GET_STATUS, () => getAiStatus());
+ipcMain.handle(IPC_CHANNELS.CLAUDE_CONNECTION_STATUS, () => inspectClaudeSubscription({ binary: resolveClaudeBinary() }));
 const graphicsStyleStore = createGraphicsStyleStore({ filePath: defaultGraphicsStylePath(app.getPath('appData')) });
 const graphicRequests = new Map();
 // Last few Claude exchanges, for diagnosing a bad or missing result. Under
@@ -1667,7 +1684,7 @@ ipcMain.handle(IPC_CHANNELS.STABILIZATION_PREPARE, async (event, payload = {}) =
   };
 });
 ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
-  const { projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx } = payload;
+  const { projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, startSec, spanSec } = payload;
   if (typeof projectPath !== 'string' || !projectPath) throw new Error('clip-visuals: projectPath required');
   if (typeof sourcePath !== 'string' || !sourcePath) throw new Error('clip-visuals: sourcePath required');
   const resolvedSource = isAbsolute(sourcePath) ? sourcePath : join(dirname(projectPath), sourcePath);
@@ -1678,6 +1695,8 @@ ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
     durationSec: Number(durationSec) || 1,
     targetTiles,
     targetWidthPx,
+    startSec,
+    spanSec,
   });
   const { path: visualPath, ...meta } = visual;
   return { ...meta, url: toMediaUrl(visualPath) };
@@ -1806,6 +1825,7 @@ async function resolveDockStartupProject(explicitProjectPath) {
 }
 
 app.whenReady().then(() => {
+  installReleaseServices({ app, Menu, dialog, BrowserWindow, isBusy: () => Boolean(activeRecordingFinalizePromise || activeExportController || ['recording', 'paused', 'starting', 'stopping', 'finishing'].includes(recordingSession.status().state)) });
   recordDockProvenance();
   registerMediaProtocol();
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -1817,7 +1837,8 @@ app.whenReady().then(() => {
   }
   const requestedProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
   const startupProjectPathPromise = resolveDockStartupProject(requestedProjectPath);
-  const requestedMode = process.env.ROUGH_CUT_STARTUP_MODE;
+  // The Linux launcher (run.sh) sets editor mode; an installed Windows app has no launcher script to do that.
+  const requestedMode = process.env.ROUGH_CUT_STARTUP_MODE ?? (process.platform === 'win32' && app.isPackaged ? 'editor' : undefined);
   void startupProjectPathPromise.then((startupProjectPath) => {
     const startupMode = requestedMode === 'editor'
         || process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1'
@@ -1844,6 +1865,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  cancelWaveformDecoders();
   void recordingTranscriptionBridgePromise.then((bridge) => bridge?.dispose());
   void stopActiveAudioPreview();
   void stopActiveCameraPreview();
@@ -2046,6 +2068,22 @@ function reapAndExit(signal) {
 }
 process.on('SIGTERM', () => reapAndExit('SIGTERM'));
 process.on('SIGINT', () => reapAndExit('SIGINT'));
+
+if (process.platform === 'win32') {
+  // Windows never delivers SIGTERM to this process on quit, and ffmpeg.exe children outlive their parent, so a
+  // quit mid-recording would leave a capture running forever. Reap on will-quit and, as a last resort, on exit.
+  const reapWindowsChildren = (why) => {
+    try {
+      activeAudioPreview?.handle?.kill?.('SIGTERM');
+      const reaped = recordingSession.terminateChildren('SIGTERM');
+      if (reaped.length > 0) console.warn(`[recording] ${why}: terminated ${reaped.length} child process(es): ${reaped.map((c) => `${c.name}(${c.pid ?? '?'})`).join(', ')}`);
+    } catch (err) {
+      console.error(`[recording] ${why}: reap failed`, err);
+    }
+  };
+  app.on('will-quit', () => reapWindowsChildren('will-quit'));
+  process.on('exit', () => reapWindowsChildren('exit'));
+}
 
 function registerHiddenRecordingStopShortcut(window) {
   globalShortcut.unregister(recordingStopShortcut);

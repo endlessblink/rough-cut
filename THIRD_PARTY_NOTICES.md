@@ -34,6 +34,30 @@ The `pexels-*.jpg` files in `apps/desktop/src/renderer/public/backgrounds/` are 
 
 Packaged builds include Electron (MIT) and the Chromium engine, which bundles many components under their own licences (BSD-style, MIT, Apache-2.0, LGPL and others). Electron's `LICENSE` and `LICENSES.chromium.html` files are included in the packaged application folder.
 
-## External tools (not bundled)
+## Bundled media tools in 0.1.0-beta.8
 
-`ffmpeg`, `ffprobe`, `xdotool` and `xinput` are separate programs that Rough Cut runs from your system. They are not distributed with Rough Cut and keep their own licences. The optional Claude CLI, `whisper-cli` and Vibe/Sona are likewise separate.
+This candidate includes FFmpeg/ffprobe 8.1.3-roughcut-source1, compiled from official FFmpeg 8.1.3 release sources with GPL/version3 features. Private shared libraries include GPL libx264 and LGPL libass and their dependencies. FFmpeg's GPL-3.0 text, exact Ubuntu binary-package copyright notices, NVIDIA codec-header MIT notices and referenced standard license texts are under `resources/licenses/media-tools` (also in `resources/media-tools/licenses`). Ubuntu 22.04 xdotool, xinput and pactl are included. Individual notices specify each component's license; this paragraph does not relicense third-party components.
+
+`scripts/bundled-tools.lock.json` records exact runtime hashes. The separate matching media-sources archive preserves FFmpeg/NVIDIA sources, all 45 Ubuntu source-package versions and their original/debian build files, recipes and exact compiler-package version/hash manifests. See `docs/MEDIA-SOURCE-BUILD.md` for reproduction and remaining distribution conditions. A network-disabled repeat build produced 23 byte-identical FFmpeg executable/shared-library files. The Ubuntu distribution libraries were not independently rebuilt in this task.
+
+Electron-updater 6.8.9 is MIT. Production dependency licenses remain in the shipped `node_modules` tree. Optional Claude CLI, whisper-cli and Vibe/Sona are external and are not bundled.
+
+## Complete embedded-font notices
+
+The complete family-specific notices are preserved in `build-resources/font-licenses/` in corresponding source and copied to `resources/licenses/fonts/` by the packaging recipe: Amatic-SC-OFL.txt, Karantina-OFL.txt, Caveat-OFL.txt and Permanent-Marker-LICENSE.txt. Attribution matches the copyright embedded in the shipped WOFF2 subsets. PROVENANCE.json records the official upstream URLs and notice hashes. Existing sealed packages predate this notice-copy change; verify inclusion in the newly built package before distributing it.
+
+## Windows build
+
+The Windows package (`Rough Cut.exe`, installer and portable zip) bundles the following in addition to Electron and Chromium (see above). It is a separate build from the Linux candidate; nothing below ships in the Linux package.
+
+| Component | Version | Licence | Used for |
+| --- | --- | --- | --- |
+| FFmpeg and ffprobe (Gyan.dev "full" build) | 9.0.2 | GPL-3.0-or-later (built with `--enable-gpl --enable-version3`; includes GPL libx264) | Screen, microphone and camera capture, remux, export. Pinned by URL and SHA-256 in `scripts/bundled-tools-windows.lock.json`; the licence text and the build's README are in `resources/licenses/media-tools`. |
+| uiohook-napi | 1.5.5 | MIT (wrapper) | Global mouse and keyboard hook, for click telemetry and auto-zoom. Key events record the key code only, never typed text. |
+| libuiohook (statically linked into uiohook-napi) | bundled with uiohook-napi 1.5.5 | LGPL-3.0-or-later, Copyright (C) 2006-2023 Alexander Barker | The hook implementation. Its source ships inside the `uiohook-napi` npm package; because Rough Cut itself is open source (AGPL-3.0), you can rebuild or replace the module. |
+| loopback-capture | 3.0.2 | MIT | WASAPI system-audio capture ("everything you hear"). The package ships its C++ source; its prebuilt binary was audited for network, process and file APIs but not independently rebuilt. |
+| bindings, file-uri-to-path, node-gyp-build | 1.5.0, 1.0.0, 4.8.4 | MIT | Loading the native modules above. |
+| rcedit (build time only, not shipped) | 5.0.2 | MIT | Setting the icon and version information on `Rough Cut.exe`. |
+| electron-builder (build time only, not shipped) | 26.15.3 | MIT | Building the NSIS installer and zip. |
+
+This table does not relicense third-party components. The Windows FFmpeg corresponding-source information is in `docs/MEDIA-SOURCE-BUILD.md`.

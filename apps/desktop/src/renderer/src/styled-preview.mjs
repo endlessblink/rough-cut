@@ -248,11 +248,11 @@ export function cameraSyncCorrection(driftSec, baseRate = 1, frameRate = 30) {
   return { seek: false, playbackRate: rate * (driftSec > 0 ? 0.9 : 1.1) };
 }
 
-export function cameraCoversSourceTime(sourceTimeSec, cameraOffsetSec, cameraDurationSec, frameRate = 30) {
+export function cameraCoversSourceTime(sourceTimeSec, cameraOffsetSec, cameraDurationSec, frameRate = 30, boundaryHoldSec = 0) {
   if (!Number.isFinite(cameraDurationSec) || cameraDurationSec <= 0) return true;
   const requested = (Number.isFinite(sourceTimeSec) ? sourceTimeSec : 0) + (Number.isFinite(cameraOffsetSec) ? cameraOffsetSec : 0);
   const frameSlack = 1 / (Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30);
-  return requested <= Math.max(0, cameraDurationSec - frameSlack);
+  return requested <= Math.max(0, cameraDurationSec - frameSlack) + Math.max(0, Math.min(0.5, boundaryHoldSec));
 }
 
 export function coverSourceRect(sourceWidth, sourceHeight, destWidth, destHeight) {
@@ -296,10 +296,24 @@ export function frameResizeHandles(rect) {
   ];
 }
 
-export function resizeHandleAtPoint(x, y, rect) {
+// A circle is drawn with its four handles on the circle's diagonals (inside the bounding box), so those are the
+// places a person clicks. The bounding-box corners and edges are empty space for a circle.
+export function circleResizeHandles(rect) {
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const d = Math.min(rect.w, rect.h) / 2 / Math.SQRT2;
+  return [
+    { handle: 'nw', x: cx - d, y: cy - d },
+    { handle: 'ne', x: cx + d, y: cy - d },
+    { handle: 'se', x: cx + d, y: cy + d },
+    { handle: 'sw', x: cx - d, y: cy + d },
+  ];
+}
+
+export function resizeHandleAtPoint(x, y, rect, { circle = false } = {}) {
   const radius = Math.max(12, Math.min(24, Math.min(rect.w, rect.h) * 0.11));
   let best = null;
-  for (const handle of frameResizeHandles(rect)) {
+  for (const handle of circle ? circleResizeHandles(rect) : frameResizeHandles(rect)) {
     const distance = Math.hypot(x - handle.x, y - handle.y);
     if (distance <= radius && (!best || distance < best.distance)) best = { handle: handle.handle, distance };
   }

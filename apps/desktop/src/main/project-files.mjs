@@ -12,6 +12,8 @@ import { migrate } from '../../../../packages/project-model/dist/migrations.js';
 import { PROJECT_SIBLING_SPECS } from './project-sibling-specs.mjs';
 import { alignCursorEvents, deriveCursorAnchorsFromEventsLog } from '../shared/cursor-alignment.mjs';
 import { createProjectFolder } from './project-folders.mjs';
+import { probeCameraMediaTiming } from './media-probe.mjs';
+import { repairUnifiedCameraClock } from '../shared/camera-clock.mjs';
 
 export function createProjectForRecording({ recording, now = new Date() }) {
   const fps = recording.fps || 30;
@@ -65,6 +67,13 @@ export function createProjectForRecording({ recording, now = new Date() }) {
           isCamera: true,
           devicePath: recording.camera.devicePath ?? null,
           sourceInFrames: cameraSourceInFrames,
+          cameraDelayFrames: recording.camera.cameraDelayFrames,
+          decodedDurationFrames: recording.sync?.cameraFrames,
+          decodedDurationSeconds: recording.camera.mediaTiming?.durationSeconds ?? recording.camera.streamTiming?.durationSeconds,
+          mediaTiming: recording.camera.mediaTiming,
+          boundaryHoldSeconds: recording.camera.boundaryHoldSeconds,
+          cameraClockVersion: recording.camera.cameraClockVersion,
+          mediaTimeOffsetSec: recording.camera.mediaTimeOffsetSec,
           prerollMs: recording.camera.prerollMs ?? null,
           sync: recording.sync ?? null,
           streamTiming: recording.camera.streamTiming ?? recording.streamTiming?.camera ?? null,
@@ -237,7 +246,29 @@ export async function saveProjectFile(projectPath, project) {
   return { path: projectPath, document: await resolveProjectAssetPaths(projectPath, document) };
 }
 
-export async function openProjectFile(projectPath) {
+export async function enrichUnifiedCameraMediaTiming(document, { probe = probeCameraMediaTiming } = {}) {
+  for (const recording of document.assets ?? []) {
+    if (recording.type !== 'recording' || !recording.cameraAssetId) continue;
+    const camera = document.assets.find(asset => asset.id === recording.cameraAssetId);
+    const metadata = camera?.metadata;
+    if (!metadata || !recording.metadata?.rawPath || metadata.rawPath !== recording.metadata.rawPath || metadata.mediaTiming) continue;
+    if (!(await stat(camera.filePath).catch(() => null))?.isFile()) continue;
+    try {
+      const timing = await probe(camera.filePath);
+      const fps = recording.metadata.fps ?? document.settings.frameRate;
+      camera.metadata = { ...metadata, mediaTiming: timing };
+      if (metadata.cameraClockVersion === 1) {
+        camera.metadata.decodedDurationSeconds = timing.durationSeconds;
+        camera.metadata.decodedDurationFrames = timing.durationFrames ?? Math.round(timing.durationSeconds * fps);
+        camera.metadata.mediaTimeOffsetSec = timing.startTimeSeconds - (metadata.cameraDelayFrames ?? 0) / fps;
+      }
+    } catch {
+      // Missing/unfinalized sources remain loadable; no project/media writes.
+    }
+  }
+}
+
+export async function openProjectFile(projectPath, { probeCameraTiming = probeCameraMediaTiming } = {}) {
   const tmpPath = `${projectPath}${PROJECT_TEMP_SUFFIX}`;
   const backupPath = `${projectPath}${PROJECT_BACKUP_SUFFIX}`;
   const interruptedTmp = await stat(tmpPath).catch(() => null);
@@ -259,6 +290,8 @@ export async function openProjectFile(projectPath) {
   }
   document = await resolveProjectAssetPaths(projectPath, document);
   await migrateCursorEventAlignment(document);
+  await enrichUnifiedCameraMediaTiming(document, { probe: probeCameraTiming });
+  repairUnifiedCameraClock(document);
   repairCameraSyncOffset(document);
   ensureRecordingAudioTrack(document);
   return {
@@ -313,6 +346,7 @@ export function repairCameraSyncOffset(document) {
   for (const recording of assets) {
     if (recording?.type !== 'recording' || !recording.cameraAssetId) continue;
     const camera = assets.find((asset) => asset?.id === recording.cameraAssetId);
+    if (camera?.metadata?.cameraClockVersion === 1) continue;
     const offset = Math.round(camera?.metadata?.sourceInFrames ?? camera?.metadata?.sync?.cameraSourceInFrames ?? 0);
     if (!Number.isFinite(offset) || offset <= 0) continue;
     const layouts = [
@@ -390,7 +424,8 @@ function prepareAssetForSave(projectDir, asset) {
   const metadata = asset.metadata && typeof asset.metadata === 'object' ? asset.metadata : {};
   return {
     ...asset,
-    filePath: relativeFilePath,
+    // Always '/' in the saved document so a project made on Windows opens on Linux and back.
+    filePath: relativeFilePath.split(sep).join('/'),
     pathMode: 'relative',
     metadata: {
       ...metadata,
@@ -848,7 +883,12 @@ export function getPrimaryRecording(project) {
           // How far the camera file runs ahead of the screen file. The camera clip's own sourceIn
           // already includes any head trim shared with the screen clip, so subtract that or the
           // preview shifts the camera twice and it runs off the end of its file mid-video.
-          sourceInFrames: typeof cameraClip?.sourceIn === 'number' ? Math.max(0, cameraClip.sourceIn - sourceIn) : 0,
+          sourceInFrames: cameraAsset.metadata.sourceInFrames ?? Math.max(0, (cameraClip?.sourceIn ?? 0) - sourceIn),
+          cameraClockVersion: cameraAsset.metadata.cameraClockVersion,
+          cameraDelayFrames: cameraAsset.metadata.cameraDelayFrames,
+          decodedDurationSeconds: cameraAsset.metadata.decodedDurationSeconds,
+          boundaryHoldSeconds: cameraAsset.metadata.boundaryHoldSeconds,
+          mediaTimeOffsetSec: cameraAsset.metadata.mediaTimeOffsetSec,
         }
       : null,
   };

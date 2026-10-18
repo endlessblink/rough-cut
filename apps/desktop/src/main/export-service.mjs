@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { constants as osConstants, setPriority, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
-import { probeVideoStreamStartOffsets } from './media-probe.mjs';
+import { probeCameraMediaTiming, probeVideoStreamStartOffsets } from './media-probe.mjs';
 import { buildScreenCropTrack, createCropPanSendcmdLayer, createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import {
@@ -17,6 +17,7 @@ import {
 import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
 import { buildGraphicsOverlayArgs, planGraphicsOverlay } from './graphics-export.mjs';
 import { buildCaptionsAss, getCaptions } from '../shared/captions.mjs';
+import { levelQuietExport } from './export-leveling.mjs';
 import { buildBackgroundGridFilter, isBackgroundGridOn } from '../shared/background-grid.mjs';
 import {
   canonicalizeProjectDocument,
@@ -78,11 +79,27 @@ export function buildGraphicsFailureResult({ styledResult, error, expected }) {
 }
 
 /**
+ * Exports the project, then lifts the sound when the finished file is quiet (a quiet mic take stays quiet
+ * otherwise). Exports that are already loud enough, plain file copies and cancelled exports are not touched.
+ */
+export async function exportProjectToMp4(options = {}) {
+  const { levelQuietVoice = true, ...exportOptions } = options;
+  const result = await exportProjectToMp4WithCaptions(exportOptions);
+  if (!levelQuietVoice || !result || result.cancelled || result.byteEqualCandidate) return result;
+  const outputPath = result.outputPath ?? options.outputPath;
+  if (!outputPath || !existsSync(outputPath)) return result;
+  const leveling = await levelQuietExport(outputPath, { signal: options.signal ?? null });
+  if (!leveling.leveled) return result;
+  const exported = await stat(outputPath);
+  return { ...result, bytes: exported.size, voiceLeveledDb: leveling.gainDb };
+}
+
+/**
  * Styled exports with captions switched on get one extra pass: the finished video is re-encoded
  * with the subtitles burned in (libass, so Hebrew comes out right-to-left). Everything else about
  * the export is untouched; without captions this is a straight call into the normal export.
  */
-export async function exportProjectToMp4(options = {}) {
+async function exportProjectToMp4WithCaptions(options = {}) {
   const plan = planCaptionsForExport(options);
   if (!plan) return exportProjectToMp4Core(options);
   const { outputPath, onProgress = () => undefined, signal = null } = options;
@@ -750,6 +767,9 @@ export async function exportStyledProjectToMp4({
   const cameraSourceStartSeconds = recording.camera?.filePath
     ? await probeCameraStartSeconds(recording.camera.filePath)
     : 0;
+  const cameraMediaTiming = recording.camera?.cameraClockVersion === 1 && recording.camera?.filePath
+    ? await probeCameraMediaTiming(recording.camera.filePath, { runner: (command, args) => run(command, args, { signal }) }).catch(() => null)
+    : null;
   let useSimpleFastPath = false;
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
@@ -791,6 +811,8 @@ export async function exportStyledProjectToMp4({
       cameraSourceWidth: recording.camera?.width ?? null,
       cameraSourceHeight: recording.camera?.height ?? null,
       cameraSourceInFrames: recording.camera?.sourceInFrames ?? 0,
+      cameraDelayFrames: recording.camera?.cameraClockVersion === 1 ? recording.camera.cameraDelayFrames ?? 0 : null,
+      cameraDecodedDurationSeconds: cameraMediaTiming?.durationSeconds ?? recording.camera?.decodedDurationSeconds ?? null,
       cameraSourceStartSeconds,
       cameraTimelineSegments: recording.camera?.timelineSegments ?? [],
       cameraPresentation: recording.presentation?.camera ?? null,
@@ -964,7 +986,8 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
   const sourceOut = screenClips[screenClips.length - 1].sourceOut;
   const needsSegmentComposition = screenClips.length !== 1
     || screenClips[0].timelineIn !== 0
-    || screenClips[0].timelineOut !== timelineDurationFrames;
+    || screenClips[0].timelineOut !== timelineDurationFrames
+    || cameraClips.some((clip, index) => clip.timelineIn !== screenClips[index]?.timelineIn || clip.timelineOut !== screenClips[index]?.timelineOut);
   const timelineSegments = needsSegmentComposition
     ? screenClips.map((clip) => ({
         timelineIn: clip.timelineIn,
@@ -1633,6 +1656,8 @@ export function buildStyledExportArgs({
   cameraSourceWidth = null,
   cameraSourceHeight = null,
   cameraSourceInFrames = 0,
+  cameraDelayFrames = null,
+  cameraDecodedDurationSeconds = null,
   cameraSourceStartSeconds = 0,
   cameraTimelineSegments = [],
   cameraPresentation = null,
@@ -1716,6 +1741,18 @@ export function buildStyledExportArgs({
       : `${screenManualCropStep ??`crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2`},${screenScaleStep}`;
   const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
+  const virtualCameraClock = Number.isFinite(cameraDelayFrames);
+  const boundaryHoldFrames = Math.floor(0.5 * fps);
+  const cameraPadding = (headFrames, tailHoldFrames = boundaryHoldFrames) => {
+    const head = Math.max(0, Math.round(headFrames));
+    const cloneHead = Math.min(boundaryHoldFrames, head);
+    const transparentHead = head - cloneHead;
+    return `${head > 0 ? `,tpad=start_mode=clone:start=${cloneHead}${transparentHead > 0 ? `,tpad=start_mode=add:start=${transparentHead}:color=black@0` : ''}` : headFrames < 0 ? `,trim=start_frame=${-headFrames},setpts=PTS-STARTPTS` : ''},tpad=stop_mode=clone:stop=${Math.max(0, tailHoldFrames)},tpad=stop_mode=add:stop=${Math.max(1, timelineDuration ?? trimDurationFrames ?? 1)}:color=black@0,setpts=N/${formatFilterNumber(fps)}/TB`;
+  };
+  // tpad can inherit an EOF timestamp that omits its start padding. Rebase the
+  // complete virtual frame sequence so cloned/transparent tails cannot jump
+  // backward and be selected two frames early by overlay's timestamp sync.
+  const cameraFrameFilter = virtualCameraClock ? `fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS,format=rgba${cameraPadding(cameraDelayFrames)}` : null;
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
   const cameraAlpha = buildRoundedAlphaExpression(cameraRadius);
   const screenAlpha = buildRoundedAlphaExpression(screenRadius);
@@ -1760,8 +1797,14 @@ export function buildStyledExportArgs({
   // start offset back keeps the seek landing on the same frame the trim did.
   const cameraSegmentInputArgs = useCameraSegmentInputs
     ? normalizedCameraTimelineSegments.flatMap((segment) => [
-        '-ss', formatFilterNumber(Math.max(0, cameraSourceStartSeconds + segment.sourceIn / fps)),
-        '-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps),
+        ...(virtualCameraClock ? ['-noaccurate_seek'] : []),
+        '-seek_timestamp', '1',
+        '-ss', formatCameraSeekSeconds(Math.max(0, cameraSourceStartSeconds + (virtualCameraClock
+          ? Math.min(Math.max(0, segment.sourceIn - cameraDelayFrames), Number.isFinite(cameraDecodedDurationSeconds) ? Math.max(0, Math.round(cameraDecodedDurationSeconds * fps) - 1) : Infinity)
+          : segment.sourceIn) / fps)),
+        // The frame trim bounds virtual inputs. Input -t counts retained
+        // keyframe preroll and would cut their desired VFR segment short.
+        ...(!virtualCameraClock ? ['-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps)] : []),
         '-i', cameraInputPath,
       ])
     : [];
@@ -1799,8 +1842,29 @@ export function buildStyledExportArgs({
         segmentInputLabels: cameraSegmentInputLabels,
         outputLabel: 'camera_base',
         transparent: true,
+        sourceFrameFilter: cameraFrameFilter,
+        segmentFrameFilters: virtualCameraClock ? normalizedCameraTimelineSegments.map(segment => {
+          const endFrame = Number.isFinite(cameraDecodedDurationSeconds) ? cameraDelayFrames + Math.round(cameraDecodedDurationSeconds * fps) : Infinity;
+          // A seek past decoded media is seeded from its last frame. Count that
+          // frame inside the remaining hold budget; after the budget every
+          // seeded/padded frame is transparent, including the very first one.
+          const afterMedia = segment.sourceIn >= endFrame;
+          const remainingHold = Math.max(0, endFrame + boundaryHoldFrames - segment.sourceIn);
+          const tailHold = afterMedia ? Math.max(0, remainingHold - 1) : boundaryHoldFrames;
+          const hideSeed = afterMedia && remainingHold === 0 ? ',colorchannelmixer=aa=0' : '';
+          // Retain keyframe preroll, then let the timestamp grid choose the frame
+          // active at the seek instant. Accurate seek alone discards that frame
+          // when a dropped/VFR frame leaves the target inside its display span.
+          return `fps=${formatFilterNumber(fps)}:start_time=0,setpts=PTS-STARTPTS,format=rgba${cameraPadding(Math.max(0, cameraDelayFrames - segment.sourceIn), tailHold)}${hideSeed}`;
+        }) : null,
       })
     : [];
+  if (virtualCameraClock && useCameraTimelineSegments) {
+    // concat can assign the next segment the same PTS as a one-frame part.
+    // Canonical source ranges already define exact counts; give the assembled
+    // camera those counts on one monotonic grid before compositor frame sync.
+    cameraBaseFilters.push(`[camera_base]setpts=N/${formatFilterNumber(fps)}/TB[camera_clock]`);
+  }
   const cameraBaseTransformFilter = cameraInputPath && cameraStabilizationTransform?.transformPath
     ? `[1:v]${buildStabilizationTransformFilter({
       transformPath: cameraStabilizationTransform.transformPath,
@@ -1840,10 +1904,13 @@ export function buildStyledExportArgs({
     ...(cameraFrame
       ? [
           useCameraTimelineSegments
-            ? `[camera_base]${cameraScaleStep}[camera_scaled]`
-            : `${cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]'}fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
+            ? `${virtualCameraClock ? '[camera_clock]' : '[camera_base]'}${cameraScaleStep}[camera_scaled]`
+            : `${cameraStabilizationTransform?.transformPath ? '[camera_stabilized]' : '[1:v]'}${cameraFrameFilter ?? `fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS`}${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
           `nullsrc=s=${cameraFrame.w}x${cameraFrame.h}:r=1:d=1,format=gray,geq=lum='${cameraAlpha}',${staticLoop}[camera_mask]`,
-          '[camera_scaled][camera_mask]alphamerge[camera_rounded]',
+          '[camera_scaled]split[camera_color][camera_alpha_source]',
+          '[camera_alpha_source]alphaextract[camera_source_alpha]',
+          '[camera_source_alpha][camera_mask]blend=all_mode=multiply[camera_alpha]',
+          '[camera_color][camera_alpha]alphamerge[camera_rounded]',
           `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
         ]
       : ['[with_screen]format=yuv420p[v]']),
@@ -2265,6 +2332,13 @@ function isCompactRawTimelineSegments(segments, durationFrames) {
 // segment and the filter graph trims to the exact frame count.
 const SEGMENT_INPUT_TAIL_FRAMES = 8;
 
+function formatCameraSeekSeconds(seconds) {
+  // Stream starts from ffprobe are rounded to microseconds. Seek just below
+  // the decoded-frame boundary, never milliseconds beyond it: accurate seek
+  // then keeps the requested frame rather than silently dropping it.
+  return (Math.max(0, Math.floor((seconds - 0.000001) * 1e6)) / 1e6).toFixed(6);
+}
+
 function buildTimelineVideoBaseFilters({
   segments,
   sourceWidth,
@@ -2276,6 +2350,8 @@ function buildTimelineVideoBaseFilters({
   segmentInputLabels = null,
   outputLabel = 'base',
   transparent = false,
+  sourceFrameFilter = null,
+  segmentFrameFilters = null,
 } = {}) {
   const safeWidth = Math.max(2, Math.round(Number.isFinite(sourceWidth) ? sourceWidth : 1280));
   const safeHeight = Math.max(2, Math.round(Number.isFinite(sourceHeight) ? sourceHeight : 720));
@@ -2300,9 +2376,9 @@ function buildTimelineVideoBaseFilters({
     if (segmentInputLabels) {
       // The input is already seeked to this segment, so there is nothing left to trim
       // and — crucially — nothing for this branch to buffer while concat drains another.
-      filters.push(`${segmentInputLabels[index]}fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS,trim=end_frame=${Math.max(1, segment.sourceOut - segment.sourceIn)},format=rgba[${segmentLabel}]`);
+      filters.push(`${segmentInputLabels[index]}${segmentFrameFilters?.[index] ?? `fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS`},trim=end_frame=${Math.max(1, segment.sourceOut - segment.sourceIn)},format=rgba[${segmentLabel}]`);
     } else {
-      filters.push(`${sourceLabel}fps=${formatFilterNumber(fps)},trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+      filters.push(`${sourceLabel}${sourceFrameFilter ?? `fps=${formatFilterNumber(fps)}`},trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
     }
     labels.push(`[${segmentLabel}]`);
     cursor = segment.timelineOut;
@@ -2742,7 +2818,16 @@ function formatAssTime(ms) {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
 }
 
-function escapeFilterPath(path) {
+// ffmpeg unescapes filter text twice (filtergraph, then option), so a Windows path with a drive colon and
+// backslashes needs its own form. Measured against ffmpeg 9: forward slashes plus `\\:` unquoted, or forward
+// slashes plus `\:` inside single quotes. Other platforms keep the original escaping unchanged.
+export function escapeFilterPath(path, { quoted = false, platform = process.platform } = {}) {
+  if (platform === 'win32') {
+    const forward = path.replaceAll('\\', '/');
+    return quoted
+      ? forward.replaceAll(':', '\\:')
+      : forward.replaceAll(':', '\\\\:').replaceAll("'", "\\\\\\'");
+  }
   return path.replaceAll('\\', '\\\\').replaceAll(':', '\\:').replaceAll("'", "\\'");
 }
 
@@ -2753,7 +2838,7 @@ function buildStabilizationTransformFilter({ transformPath, strength = 50, smoot
   const safePath = typeof transformPath === 'string' ? transformPath : '';
   if (!safePath) throw new Error('Stabilization transform path is required');
   return `vidstabtransform=${[
-    `input='${escapeFilterPath(safePath)}'`,
+    `input='${escapeFilterPath(safePath, { quoted: true })}'`,
     `smoothing=${safeSmoothing}`,
     `optzoom=${safeOptzoom}`,
     'zoom=0',
@@ -3061,8 +3146,8 @@ const DEFAULT_EXPORT_MEMORY_MAX = '32G';
 const DEFAULT_EXPORT_CPU_QUOTA = '400%';
 const DEFAULT_EXPORT_IO_WEIGHT = '20';
 
-export function memoryCappedCommand(command, args) {
-  if (command !== 'ffmpeg' || process.platform !== 'linux') return null;
+export function memoryCappedCommand(command, args, platform = process.platform) {
+  if (command !== 'ffmpeg' || platform !== 'linux') return null;
   const cap = (process.env.ROUGH_CUT_EXPORT_MEMORY_MAX ?? DEFAULT_EXPORT_MEMORY_MAX).trim();
   const cpuQuota = (process.env.ROUGH_CUT_EXPORT_CPU_QUOTA ?? DEFAULT_EXPORT_CPU_QUOTA).trim();
   const ioWeight = (process.env.ROUGH_CUT_EXPORT_IO_WEIGHT ?? DEFAULT_EXPORT_IO_WEIGHT).trim();
@@ -3170,7 +3255,11 @@ async function run(command, args, options = {}) {
 
 function spawnProcess(command, args, { onStdout = () => undefined, signal = null } = {}) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    // Windows has no systemd scope for the CPU/IO limits Linux applies; below-normal priority keeps the editor responsive.
+    if (process.platform === 'win32' && command === 'ffmpeg' && proc.pid) {
+      try { setPriority(proc.pid, osConstants.priority.PRIORITY_BELOW_NORMAL); } catch { /* best effort */ }
+    }
     let stdout = '';
     let stderr = '';
     let cancelled = false;

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   createBlankProject,
@@ -524,7 +524,7 @@ test('validateProjectPath without allowedRoots still enforces extension and null
     (err) => err instanceof ProjectPathError && err.reason === 'bad-extension',
   );
   const ok = validateProjectPath('/tmp/anywhere.roughcut');
-  assert.equal(ok, '/tmp/anywhere.roughcut');
+  assert.equal(ok, resolve('/tmp/anywhere.roughcut'));
 });
 
 test('validateProjectPath rejects a sibling directory whose name shares the root prefix', () => {
@@ -1068,11 +1068,11 @@ test("saveBlankProject writes a unique .roughcut and round-trips through openPro
     const recordingsDir = join(root, "recordings");
     const first = await saveBlankProject({ recordingsDir, name: "Untitled" });
     // One dated folder per project: <date_time> Untitled/Untitled.roughcut
-    assert.match(first.path, /\/\d{4}-\d{2}-\d{2}_\d{4} Untitled\/Untitled\.roughcut$/);
+    assert.match(first.path, /[\\/]\d{4}-\d{2}-\d{2}_\d{4} Untitled[\\/]Untitled\.roughcut$/);
     assert.equal(existsSync(first.path), true);
 
     const second = await saveBlankProject({ recordingsDir, name: "Untitled" });
-    assert.match(second.path, /\/\d{4}-\d{2}-\d{2}_\d{4} Untitled \(2\)\/Untitled\.roughcut$/);
+    assert.match(second.path, /[\\/]\d{4}-\d{2}-\d{2}_\d{4} Untitled \(2\)[\\/]Untitled\.roughcut$/);
     assert.notEqual(dirname(second.path), dirname(first.path));
 
     const reopened = await openProjectFile(first.path);

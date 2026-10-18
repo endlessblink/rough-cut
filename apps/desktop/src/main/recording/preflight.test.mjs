@@ -34,10 +34,24 @@ test('preflight reports missing tools with an install hint', async () => {
   const originalPath = process.env.PATH;
   process.env.PATH = '/nonexistent-rough-cut-path';
   try {
-    const status = await getRecordingPreflightStatus({ recordingsDir: '/tmp', displayInfo: { width: 1280, height: 720 }, options: { captureMode: 'display' } });
+    const status = await getRecordingPreflightStatus({ recordingsDir: '/tmp', displayInfo: { width: 1280, height: 720 }, options: { captureMode: 'display' }, platform: 'linux' });
     assert.equal(status.status, 'critical');
     assert.deepEqual(status.missingTools, ['ffmpeg', 'ffprobe', 'xdotool', 'xinput']);
     assert.match(status.installHint.commands[0].command, /^sudo (apt install|dnf install|pacman -S) .*ffmpeg/u);
+  } finally {
+    process.env.PATH = originalPath;
+  }
+});
+
+test('Windows preflight needs only ffmpeg/ffprobe and suggests winget', async () => {
+  const originalPath = process.env.PATH;
+  process.env.PATH = '/nonexistent-rough-cut-path';
+  try {
+    const status = await getRecordingPreflightStatus({ recordingsDir: '/tmp', displayInfo: { width: 1280, height: 720 }, options: { captureMode: 'display' }, platform: 'win32' });
+    assert.equal(status.status, 'critical');
+    assert.deepEqual(status.missingTools, ['ffmpeg', 'ffprobe']);
+    assert.equal(status.installHint.commands[0].command, 'winget install -e --id Gyan.FFmpeg');
+    assert.equal(status.checks.find((c) => c.id === 'session').detail, 'Desktop capture via FFmpeg gdigrab');
   } finally {
     process.env.PATH = originalPath;
   }

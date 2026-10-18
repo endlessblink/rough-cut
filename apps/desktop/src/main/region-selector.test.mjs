@@ -31,3 +31,13 @@ test('the region picker request is answered by the main process', async () => {
   assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.RECORDING_SELECT_CAPTURE_REGION,/);
   assert.match(source, /previewSourceId: sources\.find\(\(source\) => String\(source\.display_id\) === display\.id\)/);
 });
+
+test('a region dragged to the screen edge never extends past the real screen at fractional scaling (Windows)', () => {
+  const display = { id: 1, bounds: { x: 0, y: 0, width: 1707, height: 960 }, scaleFactor: 1.5 };
+  const region = regionFromOverlayRect({ x: 1000, y: 100, width: 707, height: 860 }, display, 'win32');
+  assert.ok(region.x + region.width <= 2560, `right edge ${region.x + region.width}`);
+  assert.ok(region.y + region.height <= 1440, `bottom edge ${region.y + region.height}`);
+  // Other platforms keep the original rounding.
+  const linux = regionFromOverlayRect({ x: 1000, y: 100, width: 707, height: 860 }, display, 'linux');
+  assert.equal(linux.x + linux.width, 2561);
+});

@@ -10,7 +10,7 @@
 // tool does not recognise stays exactly where it is.
 
 import { mkdir, readFile, readdir, rename, rmdir, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { projectFolderName } from './project-folders.mjs';
 
 const STAMP_IN_NAME = /^rough-cut-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?=[.\-])/;
@@ -145,19 +145,24 @@ export async function planOrganize(root) {
   };
 }
 
+// Project documents store relative paths with '/' on every platform, so a project made on Windows opens on Linux.
+const toSlashes = (path) => String(path).replaceAll('\\', '/');
+
 function rewritePaths(value, { root, projectDir, destinationOf }) {
   if (Array.isArray(value)) return value.map((item) => rewritePaths(item, { root, projectDir, destinationOf }));
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, rewritePaths(item, { root, projectDir, destinationOf })]));
   }
   if (typeof value !== 'string') return value;
-  if (value.startsWith(`${root}/`) && !value.slice(root.length + 1).includes('/')) {
-    const destination = destinationOf(value.slice(root.length + 1));
+  const slashed = toSlashes(value);
+  const slashedRoot = toSlashes(root);
+  if (slashed.startsWith(`${slashedRoot}/`) && !slashed.slice(slashedRoot.length + 1).includes('/')) {
+    const destination = destinationOf(slashed.slice(slashedRoot.length + 1));
     return destination ?? value;
   }
-  if (value.length > 0 && !value.includes('/')) {
+  if (value.length > 0 && !slashed.includes('/')) {
     const destination = destinationOf(value);
-    if (destination && dirname(destination) !== projectDir) return relative(projectDir, destination);
+    if (destination && dirname(destination) !== projectDir) return toSlashes(relative(projectDir, destination));
   }
   return value;
 }
@@ -231,9 +236,10 @@ export async function applyOrganize(root, plan, { now = new Date() } = {}) {
     for (const { projectPath } of rewritten) {
       const document = JSON.parse(await readFile(projectPath, 'utf8'));
       for (const value of collectStrings(document)) {
-        const looksLikeFile = /\.(mp4|mkv|json|jpg|png|webm|mov|wav|log)$/i.test(value) && (value.startsWith(`${root}/`) || (!value.includes('/') && /^rough-cut-/.test(value)) || value.startsWith('../'));
+        const slashed = toSlashes(value);
+        const looksLikeFile = /\.(mp4|mkv|json|jpg|png|webm|mov|wav|log)$/i.test(value) && (slashed.startsWith(`${toSlashes(root)}/`) || (!slashed.includes('/') && /^rough-cut-/.test(value)) || slashed.startsWith('../'));
         if (!looksLikeFile) continue;
-        const absolute = value.startsWith('/') ? value : join(dirname(projectPath), value);
+        const absolute = isAbsolute(value) ? value : join(dirname(projectPath), value);
         // A path that pointed into the folder before and does not exist now is a real break; one that never existed is not ours.
         if (!(await exists(absolute)) && destinations.has(basename(value))) problems.push(`${basename(projectPath)} -> ${value}`);
       }

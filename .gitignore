@@ -36,3 +36,8 @@ applications/
 
 # landing page clips ship with the site
 !docs/site/assets/proof-*.mp4
+
+# Windows bundled tools (fetched and verified by scripts/prepare-windows-tools.mjs)
+build-resources/windows-tools/
+build-resources/.windows-tools-cache/
+release/

@@ -42,17 +42,17 @@ test('recording editor makes the attached audio clip visible', () => {
   assert.match(source, /data-recording-linked-screen-clip-id=\{linkedScreen\?\.id \?\? ''\}/);
   assert.doesNotMatch(source, /model\.lanes\.screen\[index\] \?\? linkedScreenRegionForAudio/);
   assert.doesNotMatch(source, /selectedScreenClipId === model\.lanes\.screen\[index\]\?\.id/);
-  assert.match(styles, /\.audioLane \.presenceRegion\s*\{[\s\S]+background:\s*#1b405c/);
-  assert.match(styles, /\.audioWaveform\s*\{[\s\S]+filter:\s*drop-shadow/);
-  assert.match(styles, /\.audioSilenceGuide\s*\{[\s\S]+border-top:\s*1px dashed/);
-  assert.match(source, /function audioWaveformStyle\(timelineIn\?\: number\)[\s\S]+backgroundSize: `\$\{timelineTrackWidthPx\}px 100%`[\s\S]+backgroundPosition: `\$\{-Math\.round\(startFrame \* pixelsPerFrame\)\}px center`/);
-  assert.match(source, /backgroundImage: `url\("\$\{waveformUrl\}"\)`, \.\.\.audioWaveformStyle\(region\.timelineIn \?\? linkedScreen\?\.timelineIn\)/);
+  assert.match(styles, /\.audioLane \.presenceRegion\s*\{[\s\S]+background:\s*var\(--audio-clip-fill\)/);
+  assert.doesNotMatch(styles.slice(styles.indexOf('.audioWaveform {'), styles.indexOf('.audioSilenceGuide {')), /drop-shadow/);
+  assert.match(styles, /\.audioSilenceGuide\s*\{[\s\S]+border-top:\s*1px solid/);
+  assert.match(source, /function audioWaveformStyle\(sourceIn\?\: number\)[\s\S]+backgroundSize: `\$\{sourceFrameDuration \* pixelsPerFrame\}px 100%`[\s\S]+backgroundPosition: `\$\{-Math\.round\(startFrame \* pixelsPerFrame\)\}px center`/);
+  assert.match(source, /backgroundImage: `url\("\$\{waveformUrl\}"\)`, \.\.\.audioWaveformStyle\(linkedScreen\?\.sourceIn \?\? 0\)/);
   assert.match(styles, /\.linkedAudioRegion\s*\{[\s\S]+box-shadow:/);
   assert.match(source, /selectedScreenClipIds\.includes\(region\.id\)/);
   assert.match(source, /event\.shiftKey \? \(current\.includes\(region\.id\)/);
   assert.match(source, /clipCutBoundary/);
   assert.match(styles, /\.clipCutBoundary\s*\{[\s\S]+box-shadow:/);
-  assert.match(source, /const waveformWidthPx = Math\.max\(1024, Math\.min\(16384/);
+  assert.match(source, /const waveformWidthPx = Math\.max\(1024, Math\.min\(8192/);
 });
 
 test('recording editor derives both lane roots from canonical frame ranges', () => {
@@ -78,7 +78,7 @@ test('dock launcher isolates each packaged renderer build from stale Electron pr
   assert.match(packageLinux, /BUNDLE_ID=.*basename/);
   assert.match(packageLinux, /PROFILE_ROOT=.*rough-cut-mvp\/dock\/\$BUNDLE_ID/);
   assert.match(packageLinux, /--user-data-dir=\$PROFILE_ROOT/);
-  assert.match(interactionHarness, /const dockLaunchPath = join\(artifactRoot, 'dock-launch\.sh'\)/);
+  assert.match(interactionHarness, /const dockLaunchPath = process\.env\.ROUGH_CUT_INTERACTIONS_EXECUTABLE \|\| join\(artifactRoot, 'dock-launch\.sh'\)/);
   assert.match(interactionHarness, /executablePath: dockLaunchPath/);
   assert.match(interactionHarness, /Installed Rough Cut desktop entry is not bound to the current dock launcher/);
   assert.match(interactionHarness, /Exec=env ROUGH_CUT_DOCK_LAUNCH=1/);
@@ -96,7 +96,7 @@ test('recording editor keeps template choices readable in the setup board', () =
 test('recording editor exposes a true 16:9 vertical-camera and horizontal-screen template', () => {
   assert.match(templates, /label: 'Side-by-side · 16:9'[\s\S]+layoutLabel: 'Vertical camera \+ horizontal screen'[\s\S]+aspectRatio: '16:9'/);
   assert.match(templates, /cameraFrame: \{ x: 0\.105, y: 0\.17, w: 0\.245, h: 0\.66 \}[\s\S]+screenFrame: \{ x: 0\.385, y: 0\.30, w: 0\.53, h: 0\.40 \}/);
-  assert.match(source, /const builtIn = applyRecordingTemplatePreset\(background, templateId\)[\s\S]+const applied = builtIn[\s\S]+recordingTemplateOverrides\[templateId\]/);
+  assert.match(source, /const builtIn = applyRecordingTemplatePreset\(background, templateId\)[\s\S]+const applied = recordingTemplateOverrides\[templateId\][\s\S]+: builtIn/);
 });
 
 test('recording editor preserves the pre-template aspect for original restore', () => {
@@ -187,7 +187,8 @@ test('recording editor makes clip selection and ripple deletion unmistakable', (
   assert.match(source, /selectedScreenClipId/);
   assert.match(source, /className=\{`clipBar \$\{selectedScreenClipIds\.includes\(region\.id\) \? 'selectedClip' : ''\}/);
   assert.match(source, /const separated = \(placement: \{ left: number; width: number \}\)/);
-  assert.match(source, /width: `max\(0px, calc\(\$\{placement\.width\}% - 2px\)\)`/);
+  assert.match(source, /const inset = Math\.min\(1, Math\.max\(0, placement\.width \* timelineTrackWidthPx \/ 400\)\)/);
+  assert.match(source, /width: `calc\(\$\{placement\.width\}% - \$\{2 \* inset\}px\)`/);
   assert.doesNotMatch(source, /clipDeleteButton|Delete screen clip/);
   // Delete removes the section where it sits on the timeline (source frames drift after earlier cuts).
   assert.match(source, /function deleteScreenClip\(clipId: string\)[\s\S]+onAddCutBetween\(timelineIn, timelineOut\)/);
@@ -256,4 +257,11 @@ test('the recorder picks a screen from live previews in one row, and records the
   assert.match(source, /if \(displays\.length === 2\) return index === 0 \? 'Left screen' : 'Right screen';/);
   assert.match(source, /: wholeDisplayCaptureRegion\(captureDisplays\.find\(\(display\) => display\.id === selectedCaptureDisplayId\)\);/);
   assert.doesNotMatch(source, /data-source-option="window"/);
+});
+
+ test('waveform zoom upgrades preserve the same source while project switches hide old media', () => {
+  assert.match(source, /waveformVisual\?\.sourceKey === waveformSourceKey \? waveformVisual.url : null/);
+  const effect = source.slice(source.indexOf('const sourcePath = project.recording?.filePath;', source.indexOf('const waveformWidthPx')), source.indexOf('}, [project.path, project.recording?.filePath, sourceFrameDuration'));
+  assert.doesNotMatch(effect.slice(effect.indexOf('let cancelled = false;')), /setWaveformVisual\(null\)/);
+  assert.match(effect, /if \(!cancelled\) setWaveformVisual\(\{ sourceKey: waveformSourceKey, url: visual.url, channels: visual.channels \?\? 1 \}\)/);
 });

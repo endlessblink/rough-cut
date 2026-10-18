@@ -143,5 +143,5 @@ The flow can be called release-candidate solid only when:
 
 - All automated gates pass on the target machine.
 - One packaged-app manual acceptance run passes.
-- Known residual risks are documented in `MASTER_PLAN.md` or a follow-up task.
+- Known residual risks are documented in the issue tracker or a follow-up issue.
 - Any failure is either fixed or explicitly scoped out of the current Linux/X11 MVP.

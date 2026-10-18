@@ -128,6 +128,10 @@ export function startFfmpegCapture({
     proc.stdout?.on('data', (chunk) => detector.observe(chunk.toString(), Date.now()));
   }
 
+  const exitPromise = new Promise((resolve) => {
+    proc.on('exit', (code, signal) => resolve({ code, signal, stderr }));
+  });
+
   proc.on('error', (err) => {
     console.error('[ffmpeg-capture] Process error:', err.message);
   });
@@ -145,6 +149,7 @@ export function startFfmpegCapture({
   return {
     outputPath,
     getPid() { return proc.pid ?? null; },
+    whenExited() { return exitPromise; },
     kill(signal = 'SIGTERM') {
       if (proc.exitCode === null && proc.signalCode === null) {
         try { proc.kill(signal); } catch { /* already gone */ }
@@ -172,6 +177,7 @@ export function startFfmpegCameraCapture({
   devicePath,
   width = 1280,
   height = 720,
+  onFirstFrame = null,
 }) {
   const args = buildFfmpegCameraCaptureArgs({ outputPath, fps, devicePath, width, height });
   console.info('[ffmpeg-camera] Starting:', 'ffmpeg', args.join(' '));
@@ -179,6 +185,13 @@ export function startFfmpegCameraCapture({
   const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
   let stderr = '';
   let exitInfo = null;
+  // The input banner's `start:` is the wall-clock time of the camera's first frame (the input uses wall-clock stamps).
+  // A DirectShow camera takes seconds to open, so this is the only accurate way to know how far ahead of the screen it started.
+  if (typeof onFirstFrame === 'function') {
+    const fireFirstFrame = makeFirstFrameEmitter(onFirstFrame, '[ffmpeg-camera]');
+    const banner = createInputBannerAnchorParser({ onStart: (ms, meta) => fireFirstFrame(ms, { source: 'banner', ...meta }) });
+    proc.stderr?.on('data', (chunk) => banner.observe(chunk.toString()));
+  }
   proc.stdout?.on('data', (chunk) => logProcessOutput('[ffmpeg-camera:stdout]', chunk.toString()));
   proc.stderr?.on('data', (chunk) => {
     const text = chunk.toString();
@@ -402,6 +415,7 @@ export function buildFfmpegCameraCaptureArgs({
   devicePath,
   width = 1280,
   height = 720,
+  platform = process.platform,
 }) {
   if (typeof devicePath !== 'string' || devicePath.trim().length === 0) {
     throw new Error('Camera device path is required.');
@@ -440,8 +454,13 @@ export function buildFfmpegCameraCaptureArgs({
     // YUYV by default and the recorded camera stream is 10 fps regardless
     // of -framerate, making playback look "stuttery". Verified via
     // `v4l2-ctl --list-formats-ext` and a direct ffmpeg run.
-    ...cameraInputArgs({ fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
+    ...cameraInputArgs({ platform, fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
     '-an',
+    // DirectShow cameras deliver an irregular ~7-14 fps in ordinary light. Left as is, the file has gaps of up to
+    // 0.7 s between frames, and the editor's drift correction (which compares the camera element's time with the
+    // timeline) then seeks and changes the playback rate constantly: slow camera, voice out of step, a jittering
+    // playhead. Duplicating frames to a constant rate gives the editor the regular timeline it expects.
+    ...(platform === 'win32' ? ['-fps_mode', 'cfr', '-r', String(frameRate)] : []),
     '-c:v',
     'libx264',
     '-preset',
@@ -466,6 +485,7 @@ export function buildFfmpegCameraPreviewArgs({
   width = 1280,
   height = 720,
   previewWidth = 320,
+  platform = process.platform,
 }) {
   if (typeof devicePath !== 'string' || devicePath.trim().length === 0) {
     throw new Error('Camera device path is required for preview.');
@@ -484,7 +504,7 @@ export function buildFfmpegCameraPreviewArgs({
     'low_delay',
     '-thread_queue_size',
     '1024',
-    ...cameraInputArgs({ fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
+    ...cameraInputArgs({ platform, fps: frameRate, width: captureWidth, height: captureHeight, device: devicePath }),
     '-an',
     '-vf',
     `fps=${frameRate},scale=${outputWidth}:-1`,
@@ -611,6 +631,11 @@ function logProcessOutput(prefix, text) {
   }
 }
 
+// DirectShow microphone audio arrives about this much earlier than the picture it belongs to once ffmpeg has given each
+// input its own zero (measured with a flash-and-beep test: -353, -363, -387, -417 ms, then +47..+103 ms with 370 ms applied; see scripts/windows/
+// smoke-windows-recording.mjs with ROUGH_CUT_WIN_SMOKE_FLASH=1). The microphone is delayed by this much.
+export const WINDOWS_MIC_LEAD_MS = 320;
+
 export function buildFfmpegCaptureArgs({
   outputPath,
   fps,
@@ -621,6 +646,8 @@ export function buildFfmpegCaptureArgs({
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  platform = process.platform,
+  micDelayMs = platform === 'win32' ? WINDOWS_MIC_LEAD_MS : 0,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -644,7 +671,7 @@ export function buildFfmpegCaptureArgs({
     // Input 0: x11grab video
     '-thread_queue_size',
     '512',
-    ...screenInputArgs({ fps: fps, width, height, display }),
+    ...screenInputArgs({ platform, fps: fps, width, height, display }),
   ];
 
   // Input 1 (if present): system audio monitor
@@ -652,7 +679,7 @@ export function buildFfmpegCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(systemAudioSource),
+      ...audioInputArgs(systemAudioSource, { platform }),
     );
   }
 
@@ -661,7 +688,7 @@ export function buildFfmpegCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(micSource),
+      ...audioInputArgs(micSource, { platform }),
     );
   }
 
@@ -672,6 +699,7 @@ export function buildFfmpegCaptureArgs({
     micIndex: hasMic ? (hasSysAudio ? 2 : 1) : null,
     systemAudioGainPercent,
     micGainPercent,
+    micDelayMs,
     videoMaps: ['0:v'],
   });
   // No audio → no -map needed (single input, auto-mapped)
@@ -726,6 +754,7 @@ export function buildFfmpegUnifiedCaptureArgs({
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  platform = process.platform,
 }) {
   if (typeof cameraDevicePath !== 'string' || cameraDevicePath.trim().length === 0) {
     throw new Error('Camera device path is required for unified capture.');
@@ -746,14 +775,14 @@ export function buildFfmpegUnifiedCaptureArgs({
     '0.05',
     '-thread_queue_size',
     '1024',
-    ...screenInputArgs({ fps: frameRate, width, height, display }),
+    ...screenInputArgs({ platform, fps: frameRate, width, height, display }),
     '-use_wallclock_as_timestamps',
     '1',
     '-fflags',
     'nobuffer',
     '-thread_queue_size',
     '1024',
-    ...cameraInputArgs({ fps: frameRate, width: captureCameraWidth, height: captureCameraHeight, device: cameraDevicePath }),
+    ...cameraInputArgs({ platform, fps: frameRate, width: captureCameraWidth, height: captureCameraHeight, device: cameraDevicePath }),
   ];
 
   let nextInputIndex = 2;
@@ -764,14 +793,14 @@ export function buildFfmpegUnifiedCaptureArgs({
     args.push(
       '-thread_queue_size',
       '1024',
-      ...audioInputArgs(systemAudioSource),
+      ...audioInputArgs(systemAudioSource, { platform }),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '1024',
-      ...audioInputArgs(micSource),
+      ...audioInputArgs(micSource, { platform }),
     );
   }
 
@@ -1122,6 +1151,7 @@ export function buildFfmpegAudioCaptureArgs({
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  platform = process.platform,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -1135,14 +1165,14 @@ export function buildFfmpegAudioCaptureArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(systemAudioSource),
+      ...audioInputArgs(systemAudioSource, { platform }),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(micSource),
+      ...audioInputArgs(micSource, { platform }),
     );
   }
 
@@ -1165,6 +1195,7 @@ export function buildFfmpegAudioLevelProbeArgs({
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  platform = process.platform,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -1176,14 +1207,14 @@ export function buildFfmpegAudioLevelProbeArgs({
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(systemAudioSource),
+      ...audioInputArgs(systemAudioSource, { platform }),
     );
   }
   if (hasMic) {
     args.push(
       '-thread_queue_size',
       '512',
-      ...audioInputArgs(micSource),
+      ...audioInputArgs(micSource, { platform }),
     );
   }
 
@@ -1321,6 +1352,7 @@ function appendAudioFilterAndMaps(args, {
   micIndex,
   systemAudioGainPercent = 100,
   micGainPercent = 100,
+  micDelayMs = 0,
   videoMaps = [],
 }) {
   const maps = [...videoMaps];
@@ -1334,7 +1366,7 @@ function appendAudioFilterAndMaps(args, {
     ? audioRef({ inputIndex: systemAudioIndex, name: 'sysa', gainPercent: systemAudioGainPercent, filters })
     : null;
   const micRef = hasMic
-    ? audioRef({ inputIndex: micIndex, name: 'mica', gainPercent: micGainPercent, filters })
+    ? audioRef({ inputIndex: micIndex, name: 'mica', gainPercent: micGainPercent, delayMs: micDelayMs, filters })
     : null;
 
   if (hasSysAudio && hasMic) {
@@ -1350,13 +1382,15 @@ function appendAudioFilterAndMaps(args, {
   for (const map of maps) args.push('-map', map);
 }
 
-function audioRef({ inputIndex, name, gainPercent, filters }) {
+function audioRef({ inputIndex, name, gainPercent, delayMs = 0, filters }) {
   const gain = normalizeAudioGain(gainPercent);
   const filterInput = `[${inputIndex}:a]`;
   const directMap = `${inputIndex}:a`;
-  if (Math.abs(gain - 1) <= 0.001) return { filterPad: filterInput, mapPad: directMap };
+  const delay = Math.max(0, Math.round(Number(delayMs) || 0));
+  if (Math.abs(gain - 1) <= 0.001 && delay === 0) return { filterPad: filterInput, mapPad: directMap };
   const output = `[${name}]`;
-  filters.push(`${filterInput}volume=${gain.toFixed(2)}${output}`);
+  const chain = [delay > 0 ? `adelay=${delay}:all=1` : null, Math.abs(gain - 1) > 0.001 ? `volume=${gain.toFixed(2)}` : null].filter(Boolean).join(',');
+  filters.push(`${filterInput}${chain}${output}`);
   return { filterPad: output, mapPad: output };
 }
 

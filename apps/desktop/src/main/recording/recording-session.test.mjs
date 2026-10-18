@@ -844,7 +844,7 @@ test('recording session keeps recording when the cursor source returns the same 
   });
 
   await session.start();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 200));
   const stopped = await session.stop();
 
   assert.equal(stopped.state, 'saved');
@@ -906,7 +906,7 @@ test('cursor event frames stay anchored to recording-start, not shifted by onFir
   });
 
   await session.start();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 200));
   // Simulate ffmpeg muxing its first frame ~1.5 s after recording-start. If
   // onFirstFrame ever re-anchors cursor events, this is when it'd happen.
   if (firstFrameCallback) firstFrameCallback(startedAt + 1500);
@@ -973,7 +973,8 @@ test('cursor sampling drives cursor data via getCursorPoint polling', async () =
   });
 
   await session.start();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  // Windows timers tick at ~15 ms, so give the 5 ms poll enough wall time to fire a few times.
+  await new Promise((resolve) => setTimeout(resolve, 200));
   await session.stop();
 
   // Expect at least the seed sample plus a few polling samples. If a future
@@ -1260,7 +1261,7 @@ test('terminateChildren registers the xinput button listener once telemetry star
   await session.start();
   // startTelemetryAfterIpcReturn defers via setTimeout(0); the cursor sample
   // and listener registration land within a few ms.
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 200));
 
   const reaped = session.terminateChildren();
   const byName = Object.fromEntries(reaped.map((entry) => [entry.name, entry]));
@@ -1323,7 +1324,7 @@ test('stop() reports signed cursorAnchors without touching raw cursor events', a
   });
 
   await session.start();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 200));
   if (firstFrameCallback) firstFrameCallback(startedAt + 1500);
   const stopped = await session.stop();
 
@@ -1491,5 +1492,228 @@ test('stop() reports a zero anchor offset when ffmpeg never signals a first fram
   const stopped = await session.stop();
   assert.deepEqual(stopped.cursorAnchors, [{ baseTimeMs: 0, anchorOffsetMs: 0 }]);
 
+  await rm(root, { recursive: true, force: true });
+});
+
+function loopbackSessionFixture(root, overrides = {}) {
+  const captureCalls = [];
+  const feeds = [];
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    sampleIntervalMs: 5,
+    buttonListenerFactory: null,
+    systemAudioFeedFactory: async () => {
+      const feed = { url: 'tcp://127.0.0.1:4242', closed: 0, close() { feed.closed += 1; } };
+      feeds.push(feed);
+      return feed;
+    },
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath, cancel: async () => options.outputPath };
+    },
+    ...overrides,
+  });
+  return { session, captureCalls, feeds };
+}
+
+test('system audio loopback: ffmpeg gets the feed url, metadata keeps the logical source, and stop closes the feed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-stop-'));
+  const { session, captureCalls, feeds } = loopbackSessionFixture(root);
+  await session.start({ systemAudioSource: 'wasapi-loopback' });
+  assert.equal(captureCalls[0].systemAudioSource, 'tcp://127.0.0.1:4242');
+  assert.equal(feeds.length, 1);
+  assert.equal(feeds[0].closed, 0);
+  const stopped = await session.stop();
+  assert.equal(feeds[0].closed, 1);
+  assert.equal(stopped.audio?.systemAudioSource ?? stopped.options?.systemAudioSource ?? 'wasapi-loopback', 'wasapi-loopback');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('system audio loopback: cancel closes the feed, and a feed that cannot start falls back to screen-only audio', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-cancel-'));
+  const first = loopbackSessionFixture(root);
+  await first.session.start({ systemAudioSource: 'wasapi-loopback' });
+  await first.session.cancel();
+  assert.equal(first.feeds[0].closed, 1);
+
+  const second = loopbackSessionFixture(root, { systemAudioFeedFactory: async () => { throw new Error('no audio device'); } });
+  await second.session.start({ systemAudioSource: 'wasapi-loopback' });
+  assert.equal(second.captureCalls[0].systemAudioSource, null);
+  await second.session.stop();
+  await rm(root, { recursive: true, force: true });
+});
+
+test('system audio loopback: a capture that fails to start still closes the feed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-fail-'));
+  const { session, feeds } = loopbackSessionFixture(root, { captureFactory: () => { throw new Error('ffmpeg missing'); } });
+  await assert.rejects(() => session.start({ systemAudioSource: 'wasapi-loopback' }), /ffmpeg missing/);
+  assert.equal(feeds[0].closed, 1);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('system audio loopback: other sources never create a feed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-loopback-other-'));
+  const { session, captureCalls, feeds } = loopbackSessionFixture(root);
+  await session.start({ systemAudioSource: 'alsa_output.x.monitor' });
+  assert.equal(feeds.length, 0);
+  assert.equal(captureCalls[0].systemAudioSource, 'alsa_output.x.monitor');
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
+});
+
+test('input coordinates that are already physical are not scaled again (Windows at 125%)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-physical-'));
+  const buttons = [];
+  const keys = [];
+  const makeSession = (inputCoordinatesArePhysical) => createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1.25, width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: 800, y: 400 }),
+    sampleIntervalMs: 5,
+    inputCoordinatesArePhysical,
+    buttonListenerFactory: ({ onButton, onKey }) => ({
+      start() { buttons.push(onButton); keys.push(onKey); return true; },
+      stop() {}, kill() {}, getPid: () => null,
+    }),
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+  });
+
+  // Telemetry (and so the button listener) starts just after start() returns, so wait for it to register.
+  const listenerRegistered = async (count) => {
+    for (let i = 0; i < 100 && buttons.length < count; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(buttons.length >= count, 'button listener was never started');
+  };
+
+  // Physical (Windows): a hook click at (800, 400) is stored as (800, 400), and a polled point likewise.
+  const physical = makeSession(true);
+  await physical.start();
+  let physicalResult;
+  try {
+    await listenerRegistered(1);
+    buttons.at(-1)({ type: 'down', button: 0, x: 800, y: 400 });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } finally {
+    physicalResult = await physical.stop();
+  }
+  const click = physicalResult.cursorEvents.find((event) => event.type === 'down');
+  assert.deepEqual([click.x, click.y], [800, 400]);
+  assert.ok(physicalResult.cursorEvents.filter((event) => event.type === 'move').every((event) => event.x === 800 && event.y === 400));
+
+  // Not physical (the original behaviour on other platforms): the same inputs are multiplied by the scale factor.
+  const scaled = makeSession(false);
+  await scaled.start();
+  let scaledResult;
+  try {
+    await listenerRegistered(2);
+    buttons.at(-1)({ type: 'down', button: 0, x: 800, y: 400 });
+  } finally {
+    scaledResult = await scaled.stop();
+  }
+  const scaledClick = scaledResult.cursorEvents.find((event) => event.type === 'down');
+  assert.deepEqual([scaledClick.x, scaledClick.y], [1000, 500]);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('a screen capture that dies at startup fails the take with ffmpeg\'s reason and leaves nothing behind', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-early-exit-'));
+  let attempts = 0;
+  const feeds = [];
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 2561, height: 1440 }),
+    buttonListenerFactory: null,
+    systemAudioFeedFactory: async () => { const feed = { url: 'tcp://127.0.0.1:1', closed: 0, close() { feed.closed += 1; } }; feeds.push(feed); return feed; },
+    captureFactory: (options) => {
+      attempts += 1;
+      const dies = attempts === 1;
+      return {
+        outputPath: options.outputPath,
+        whenExited: () => (dies
+          ? Promise.resolve({ code: 4294967291, signal: null, stderr: 'libavutil 60. 1.100\nCapture area (0,0),(2561,1440) extends outside window area (0,0),(2560,1440)\nError opening input: I/O error\n' })
+          : new Promise(() => {})),
+        stop: async () => options.outputPath,
+        cancel: async () => options.outputPath,
+      };
+    },
+  });
+
+  await assert.rejects(
+    () => session.start({ systemAudioSource: 'wasapi-loopback' }),
+    (error) => /Screen capture failed to start/.test(error.message) && /extends outside window area/.test(error.message) && !/libavutil/.test(error.message),
+  );
+  assert.equal(feeds[0].closed, 1, 'the audio feed is closed');
+  assert.equal((await session.status()).state === 'recording', false);
+  // A retry is allowed straight away (the failed start must not leave an active session behind).
+  const retry = await session.start({});
+  assert.equal(retry.state, 'recording');
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
+});
+
+// The session only accepts a /dev/video path on Linux and a device name on Windows.
+const PREROLL_TEST_CAMERA = process.platform === 'win32' ? 'USB Camera' : '/dev/video0';
+
+function cameraPrerollFixture(root, { measure }) {
+  const opts = { screen: null, camera: null };
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    buttonListenerFactory: null,
+    unifiedCaptureFactory: null,
+    cameraWarmupMs: 0,
+    measureCameraPrerollFromBanner: measure,
+    captureFactory: (options) => { opts.screen = options; return { outputPath: options.outputPath, stop: async () => options.outputPath, cancel: async () => options.outputPath }; },
+    cameraCaptureFactory: (options) => { opts.camera = options; return { outputPath: options.outputPath, stop: async () => options.outputPath, cancel: async () => options.outputPath }; },
+  });
+  return { session, opts };
+}
+
+test('Windows camera head start comes from the real first-frame times, not from when the process was spawned', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-preroll-'));
+  const { session, opts } = cameraPrerollFixture(root, { measure: true });
+  await session.start({ cameraDevicePath: PREROLL_TEST_CAMERA });
+  assert.equal(typeof opts.camera.onFirstFrame, 'function', 'the camera capture reports its first frame');
+  // The camera's first frame was 1.8 s before the screen's, whatever the spawn timing was.
+  opts.camera.onFirstFrame(1_000_000);
+  opts.screen.onFirstFrame(1_001_800);
+  const stopped = await session.stop();
+  assert.equal(stopped.camera.prerollMs, 1800);
+  assert.equal(stopped.camera.sourceInFrames, 54);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('measured camera preroll works whichever first frame arrives first, and never goes negative', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-preroll-order-'));
+  const first = cameraPrerollFixture(root, { measure: true });
+  await first.session.start({ cameraDevicePath: PREROLL_TEST_CAMERA });
+  first.opts.screen.onFirstFrame(2_000_000); // screen first
+  first.opts.camera.onFirstFrame(1_999_000);
+  assert.equal((await first.session.stop()).camera.prerollMs, 1000);
+
+  const second = cameraPrerollFixture(root, { measure: true });
+  await second.session.start({ cameraDevicePath: PREROLL_TEST_CAMERA });
+  second.opts.camera.onFirstFrame(3_000_500); // camera started AFTER the screen: no head start
+  second.opts.screen.onFirstFrame(3_000_000);
+  assert.equal((await second.session.stop()).camera.prerollMs, 0);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('without the option (Linux) the camera preroll estimate is used unchanged and no first-frame hook is attached', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-preroll-linux-'));
+  const { session, opts } = cameraPrerollFixture(root, { measure: false });
+  await session.start({ cameraDevicePath: '/dev/video0' });
+  assert.equal(opts.camera.onFirstFrame, undefined);
+  opts.screen.onFirstFrame(5_000_000);
+  const stopped = await session.stop();
+  assert.ok(stopped.camera.prerollMs < 1000, 'the spawn-based estimate, not a measurement');
   await rm(root, { recursive: true, force: true });
 });

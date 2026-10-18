@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
+import { assertReadableMp4, probeCameraMediaTiming, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 
 test('rejects invalid mp4 files before project save', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-invalid-mp4-'));
@@ -267,3 +267,11 @@ test('finalization probes never decode the whole file (no -count_frames); they w
   }
   assert.equal(integrity.decodedFrames, 70);
 });
+
+ test('camera availability uses finalized stream headers without packet scanning or shared container duration', async () => {
+  let args;
+  const timing = await probeCameraMediaTiming('/camera.mp4', {runner:async (_cmd,a)=>{args=a;return {code:0,stdout:JSON.stringify({streams:[{start_time:'0.066016',duration:'2.933333',nb_frames:'88'}],format:{duration:'3.333333'}})};}});
+  assert.equal(timing.durationSeconds,2.933333);assert.equal(timing.durationFrames,88);assert.equal(timing.startTimeSeconds,.066016);
+  assert(!args.includes('-count_packets'));assert(!args.includes('-count_frames'));
+  await assert.rejects(()=>probeCameraMediaTiming('/camera.mp4',{runner:async()=>({code:0,stdout:JSON.stringify({streams:[{start_time:'0'}],format:{duration:'1000'}})})}),/unavailable/);
+ });

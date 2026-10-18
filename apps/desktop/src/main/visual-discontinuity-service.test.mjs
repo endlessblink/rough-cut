@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { resolve } from 'node:path';
 import {
   inspectVisualDiscontinuity,
   resolveReferencedVisualSource,
@@ -12,7 +13,7 @@ test('only resolves media paths that the validated project references', () => {
       sourcePath: 'recording.mp4',
       assets: [{ filePath: 'recording.mp4' }],
     }),
-    '/projects/demo/recording.mp4',
+    resolve('/projects/demo/recording.mp4'),
   );
   assert.throws(
     () =>
