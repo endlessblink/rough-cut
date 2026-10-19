@@ -1237,9 +1237,12 @@ footer {
   gap: 0;
 }
 .primary-action {
-  gap: 18px;
+  gap: 14px;
+  justify-content: center;
   min-height: 60px;
-  padding: 8px 8px 8px 28px;
+  min-width: 260px;
+  padding: 8px 22px;
+  border-radius: 16px;
   background: #f6f2ef;
   color: #0c0a12;
   font-size: 16px;
@@ -1261,9 +1264,9 @@ footer {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   background: #0c0a12;
   color: #f6f2ef;
   font-size: 16px;
