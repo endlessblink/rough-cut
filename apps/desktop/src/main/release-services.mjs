@@ -14,12 +14,14 @@ export function installReleaseServices({ app, Menu, dialog, BrowserWindow, isBus
   // No updater is instantiated, and no network work starts, without a release approval.
   let approvedPolicy = null;
   try { approvedPolicy = validateReleasePolicy(releasePolicy); } catch {}
-  if (process.env.APPIMAGE && approvedPolicy) {
-    const { AppImageUpdater } = require('electron-updater');
-    backend = new AppImageUpdater();
+  // Windows updates the installed (packaged) app through its NSIS installer; Linux updates the AppImage in place.
+  const windows = process.platform === 'win32';
+  if (approvedPolicy && (windows ? app.isPackaged : process.env.APPIMAGE)) {
+    const { AppImageUpdater, NsisUpdater } = require('electron-updater');
+    backend = windows ? new NsisUpdater() : new AppImageUpdater();
     backend.updateConfigPath = join(app.getAppPath(), 'app-update.yml');
   }
-  const updates = createUpdateController({ backend, releasePolicy, appImagePath: process.env.APPIMAGE, userDataDir: app.getPath('userData'), version: app.getVersion(), isBusy });
+  const updates = createUpdateController({ backend, releasePolicy, appImagePath: process.env.APPIMAGE, userDataDir: app.getPath('userData'), version: app.getVersion(), isBusy, platform: windows ? 'win32' : 'linux', packaged: app.isPackaged });
   const reports = createCrashReporting({ userDataDir: app.getPath('userData'), runtime: { appVersion: app.getVersion(), electronVersion: process.versions.electron, platform: process.platform, arch: process.arch }, dialogs: dialog });
   const guarded = (fn) => async () => {
     try { await fn(); }
@@ -34,15 +36,16 @@ export function installReleaseServices({ app, Menu, dialog, BrowserWindow, isBus
       { label: 'Restart to install update…', click: guarded(async () => {
         if (isBusy()) return explain({ status: 'busy' });
         if (updates.status().status !== 'downloaded') return explain(updates.status());
-        const answer = await dialog.showMessageBox(window(), { type: 'question', message: 'Save your work, then restart to install the update?', detail: 'The previous AppImage is kept beside this version for rollback. Recording and export must be stopped.', buttons: ['Restart and install', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true });
+        const answer = await dialog.showMessageBox(window(), { type: 'question', message: 'Save your work, then restart to install the update?', detail: windows ? 'Rough Cut closes, installs the update for your user only, and starts again. Your recordings and settings are kept. Recording and export must be stopped.' : 'The previous AppImage is kept beside this version for rollback. Recording and export must be stopped.', buttons: ['Restart and install', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true });
         if (answer.response === 0) { const result = updates.install(); if (result.status !== 'install-requested') await explain(result); }
       }) },
-      { label: 'Restore previous version…', click: guarded(async () => {
+      // Windows keeps no previous-version copy (the installer replaces the app), so there is nothing to restore there.
+      ...(windows ? [] : [{ label: 'Restore previous version…', click: guarded(async () => {
         if (isBusy()) return explain({ status: 'busy' });
         if (!updates.canRollback()) return explain({ reason: 'There is no previous-version backup for this installation.' });
         const answer = await dialog.showMessageBox(window(), { type: 'question', message: 'Save your work, then restore the previous AppImage?', detail: 'Only the application file is restored. Projects and settings are kept. Close and reopen Rough Cut after restoring.', buttons: ['Restore previous version', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true });
         if (answer.response === 0) { updates.rollback(); app.quit(); }
-      }) },
+      }) }]),
       { type: 'separator' },
       { label: 'Crash reports…', click: guarded(() => reports.show(window())) },
     ] },

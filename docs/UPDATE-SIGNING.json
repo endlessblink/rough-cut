@@ -35,5 +35,7 @@
   "evidenceBoundary": "Synthetic signatures made with public test keys prove verifier behavior only. They do not prove signing with the owner key, private-key recoverability or real update acceptance.",
   "manualOnlyReleaseViable": true,
   "manualOnlyConditions": "activated:false causes zero updater backend/network calls. Manual publication still requires exact artifact/source/checksum/license verification and truthful acceptance limits.",
-  "ownerLocalSigningHelper": "bash scripts/sign-owner-release.sh /absolute/final.AppImage /absolute/unsigned-beta.json /absolute/beta-linux.yml; helper prompts locally, verifies the fixed public pin and exact AppImage, and refuses to overwrite the output."
+  "ownerLocalSigningHelper": "bash scripts/sign-owner-release.sh /absolute/final.AppImage /absolute/unsigned-beta.json /absolute/beta-linux.yml; helper prompts locally, verifies the fixed public pin and exact AppImage, and refuses to overwrite the output.",
+  "windowsUpdater": "Built and tested but inactive (activated:false). Windows signs the Setup.exe installer into beta.yml with the same owner key; the platform (win32) is part of the signed payload. See docs/WINDOWS-UPDATER.md.",
+  "ownerLocalSigningHelperWindows": "ROUGH_CUT_SIGN_PLATFORM=win32 bash scripts/sign-owner-release.sh /absolute/Rough-Cut-<version>-Setup.exe /absolute/unsigned-win.json /absolute/beta.yml; same local prompts and pin check, refuses to overwrite the output."
 }

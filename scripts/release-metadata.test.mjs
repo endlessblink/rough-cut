@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { prepareMetadata, signMetadata, verifyMetadata, verifyArtifactMetadata } from './release-metadata.mjs';
+import { publisherSignaturePayload } from '../apps/desktop/src/main/update-controller.mjs';
 const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { parseUpdateInfo } = require('electron-updater/out/providers/Provider');
 const { GitHubProvider } = require('electron-updater/out/providers/GitHubProvider');
@@ -57,4 +58,53 @@ test('artifact verification detects changed bytes/name/size before signing or lo
   assert.throws(()=>signMetadata({metadata:{...metadata,version:'0.1.0'},encryptedKeyPath:f.key,passphrase:'test-only-passphrase'}));
   writeFileSync(f.image,'CHANGED_SYNTHETIC_TEST_BYTES');await assert.rejects(verifyArtifactMetadata({metadata,appImagePath:f.image}));
  }finally{rmSync(f.dir,{recursive:true,force:true});}
+});
+
+// Windows: the installer is signed with the same owner key; the platform is part of what is signed.
+const INSTALLER_NAME = 'Rough-Cut-0.1.0-beta.11-Setup.exe';
+function installerFixture() {
+  const f = fixture();
+  const installer = join(f.dir, INSTALLER_NAME);
+  writeFileSync(installer, 'SYNTHETIC_TEST_BYTES_NOT_AN_INSTALLER');
+  return { ...f, installer };
+}
+test('Windows metadata is prepared from the Setup.exe and only accepts a safe installer name', async () => {
+  const f = installerFixture();
+  try {
+    const metadata = await prepareMetadata({ version: '0.1.0-beta.11', installerPath: f.installer, platform: 'win32' });
+    assert.equal(metadata.files[0].url, INSTALLER_NAME);
+    assert.equal(metadata.files[0].size, 37);
+    assert.equal(metadata.path, INSTALLER_NAME);
+    await verifyArtifactMetadata({ metadata, installerPath: f.installer, platform: 'win32' });
+    const wrong = join(f.dir, 'setup.exe');
+    writeFileSync(wrong, 'x');
+    await assert.rejects(prepareMetadata({ version: '0.1.0-beta.11', installerPath: wrong, platform: 'win32' }));
+    await assert.rejects(prepareMetadata({ version: '0.1.0-beta.11', installerPath: f.image, platform: 'win32' }), undefined, 'an AppImage is not a Windows installer');
+    await assert.rejects(prepareMetadata({ version: '0.1.0-beta.11', appImagePath: f.installer, platform: 'linux' }), undefined, 'a Setup.exe is not an AppImage');
+    await assert.rejects(prepareMetadata({ version: '0.1.0-beta.11', installerPath: f.installer, platform: 'darwin' }));
+    writeFileSync(f.installer, 'CHANGED_SYNTHETIC_TEST_BYTES');
+    await assert.rejects(verifyArtifactMetadata({ metadata, installerPath: f.installer, platform: 'win32' }));
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
+// Signing needs the Linux owner-only key file checks (file modes, process.getuid), so it runs on Linux.
+test('a Windows signature verifies for Windows and for nothing else', { skip: process.platform === 'win32' && 'owner-only key file checks need Linux' }, async () => {
+  const f = installerFixture();
+  try {
+    const metadata = await prepareMetadata({ version: '0.1.0-beta.11', installerPath: f.installer, platform: 'win32' });
+    const signed = signMetadata({ metadata, encryptedKeyPath: f.key, passphrase: 'test-only-passphrase', platform: 'win32' });
+    verifyMetadata({ metadata: signed, publicKeyPath: f.pub, currentVersion: '0.1.0-beta.10', platform: 'win32' });
+    // electron-updater's own parser keeps the signature field, and its Windows provider would read beta.yml.
+    const parsed = parseUpdateInfo(JSON.stringify(signed), 'beta.yml', 'https://github.com/endlessblink/rough-cut/releases/download/v0.1.0-beta.11/beta.yml');
+    assert.equal(parsed.publisherSignature, signed.publisherSignature);
+    // The same metadata is not valid as a Linux release.
+    assert.throws(() => verifyMetadata({ metadata: signed, publicKeyPath: f.pub, currentVersion: '0.1.0-beta.10', platform: 'linux' }));
+    // The tool refuses to sign a Windows installer as a Linux asset...
+    assert.throws(() => signMetadata({ metadata, encryptedKeyPath: f.key, passphrase: 'test-only-passphrase', platform: 'linux' }));
+    // ...and even a Linux-style signature made directly with the same key does not authorise the Windows installer.
+    const forged = { ...metadata, publisherSignature: sign(null, publisherSignaturePayload(metadata, 'linux'), knownTestKey).toString('base64') };
+    assert.notEqual(forged.publisherSignature, signed.publisherSignature);
+    assert.throws(() => verifyMetadata({ metadata: forged, publicKeyPath: f.pub, currentVersion: '0.1.0-beta.10', platform: 'win32' }));
+    assert.throws(() => signMetadata({ metadata, encryptedKeyPath: f.key, passphrase: 'wrong', platform: 'win32' }));
+    assert.throws(() => signMetadata({ metadata, encryptedKeyPath: f.key, passphrase: 'test-only-passphrase', platform: 'darwin' }));
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
 });
