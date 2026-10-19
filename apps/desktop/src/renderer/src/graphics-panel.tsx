@@ -190,7 +190,7 @@ export function GraphicsPanel({
           <button type="button" className="primaryAction compact" data-claude-setup={setupAction.action} disabled={settingUp || checkingConnection} onClick={() => { void runSetup(setupAction.action); }}>{setupAction.label}</button>
         ) : null}
         {connection?.ok ? (
-          <button type="button" className="secondary compact" data-claude-setup="logout" disabled={settingUp || checkingConnection} onClick={() => { void runSetup('logout'); }}>Log out of Claude</button>
+          <button type="button" className="secondary compact" data-claude-setup="logout" disabled={settingUp || checkingConnection} onClick={() => { void runSetup('logout'); }}>Log out of Rough Cut</button>
         ) : null}
         <details>
           <summary>Connect by hand instead</summary>
