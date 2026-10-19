@@ -6941,9 +6941,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   }
 
   // Live layout of a ripple trim drag. It mirrors the committed edit (trimRecordingClipEdge):
-  // shortening keeps the section where it starts and slides the later sections along, and
-  // lengthening fills the empty space before it pushes anything. The preview therefore matches
-  // the result instead of leaving a hole that snaps shut on release.
+  // shortening the end slides the later sections along, and lengthening fills the empty space
+  // before it pushes anything. Shortening the start shows the plain trim while dragging so the
+  // left edge follows the mouse; the gap closes on release.
   // The Hidden start/end pills are lane-level; on a clip too short to hold one they would spill over
   // the neighbouring clip. The edge handle still shows hidden footage with its own marker.
   function edgeClipFitsRestorePill(clip: { width: number } | undefined) {
@@ -6963,7 +6963,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const nextIn = nextClip && Number.isFinite(nextClip.timelineIn) ? Math.round(nextClip.timelineIn ?? end) : Infinity;
     const frame = trimDragPreview.frame;
     if (trimDragPreview.edge === 'head') {
-      if (frame >= start) return { clipId: clip.id, newIn: start, newOut: end - (frame - start), shift: -(frame - start), after: end, waveFrame: frame };
+      // Shortening from the left: the left edge follows the mouse like any trim (as in CapCut's
+      // magnetic main track) and the section snaps back against its neighbour on release.
+      if (frame >= start) return null;
       const frames = start - frame;
       const push = Math.max(0, frames - (start - previousOut));
       return { clipId: clip.id, newIn: start - (frames - push), newOut: end + push, shift: push, after: end, waveFrame: Math.max(0, frame) };
