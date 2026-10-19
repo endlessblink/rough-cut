@@ -20,11 +20,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, '..');
 
-// Windows runs Electron's real exe (no .cmd shim, so no shell) and keeps the Chromium sandbox on: the app refuses
-// to start with --no-sandbox, and the sandbox needs no special setup on Windows. Linux keeps its original launch.
+// Windows runs Electron's real exe (no .cmd shim, so no shell). Both platforms keep the Chromium sandbox on:
+// the app refuses to start with --no-sandbox.
 const ON_WINDOWS = process.platform === 'win32';
 const ELECTRON_BIN = ON_WINDOWS ? createRequire(import.meta.url)('electron') : 'electron';
-const ELECTRON_ARGS = ON_WINDOWS ? ['--force-color-profile=srgb', '.'] : ['--no-sandbox', '--force-color-profile=srgb', '.'];
+const ELECTRON_ARGS = ['--force-color-profile=srgb', '.'];
 
 const WATCH_DIRS = ['src/main', 'src/preload', 'src/shared'].map((rel) => join(desktopRoot, rel));
 
