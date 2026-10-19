@@ -371,6 +371,18 @@ input[type="number"]:focus-visible {
 
 .brandCluster { gap: var(--space-3); min-width: 0; }
 .topActions { gap: var(--space-2); }
+/* Appears only when a checked update is downloaded; quiet accent outline, not a second primary button. */
+.updateReadyButton {
+  background: rgb(37 99 235 / 0.14);
+  border: 1px solid rgb(122 167 255 / 0.45);
+  border-radius: var(--radius-pill);
+  color: var(--accent-hover);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  min-height: 2rem;
+  padding: 0 var(--space-3);
+}
+.updateReadyButton:hover { background: rgb(37 99 235 / 0.24); }
 .windowDots { gap: var(--space-1-5); }
 .windowDots i { border-radius: 50%; display: block; height: 0.72rem; width: 0.72rem; }
 .windowDots i:nth-child(1) { background: #ff5f57; }

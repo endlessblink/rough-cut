@@ -291,6 +291,9 @@ declare global {
       getClipVisual: (payload: Record<string, unknown>) => Promise<{ url: string; kind: 'waveform' | 'filmstrip'; durationSec: number; widthPx?: number; channels?: number; tiles?: number; intervalSec?: number; stripSeconds?: number }>;
       getClaudeConnection: () => Promise<{ ok: boolean; status: string; reason: string; version?: string; subscriptionType?: string }>;
       setupClaudeConnection: (action: 'connect' | 'login' | 'logout' | 'update' | 'install') => Promise<{ ok: boolean; status: string; reason: string; version?: string; subscriptionType?: string }>;
+      getUpdateStatus?: () => Promise<UpdateStatus>;
+      onUpdateStatus?: (callback: (status: UpdateStatus) => void) => () => void;
+      installUpdate?: () => Promise<UpdateStatus>;
       listAiAssets: () => Promise<AiAsset[]>;
       resolveAiAsset: (payload: { id: string }) => Promise<AiAsset | null>;
       tagAiAsset: (payload: { id: string; tags: string[] }) => Promise<AiAsset>;
@@ -1522,6 +1525,7 @@ function App() {
             editorEnabled={project !== null}
           />
           <div className="topActions">
+            <UpdateReadyButton />
             <button type="button" className="iconButton" onClick={undoProjectEdit} disabled={editHistory.undo.length === 0} aria-label="Undo last edit" title="Undo last edit">
               <Icon name="undo" />
             </button>
@@ -1808,6 +1812,34 @@ function AppViewTabStrip({ activeId, onChange, editorEnabled }: { activeId: AppV
         );
       })}
     </nav>
+  );
+}
+
+type UpdateStatus = { status: string; version?: string; reason?: string };
+
+/**
+ * Shown only once a new version has been downloaded and checked. One click asks to restart and install
+ * (the same confirmation as Help > Restart to install update), so nobody has to find the hidden menu.
+ */
+function UpdateReadyButton() {
+  const [status, setStatus] = React.useState<UpdateStatus | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    window.roughCut.getUpdateStatus?.().then((next) => { if (alive) setStatus(next); }).catch(() => {});
+    const off = window.roughCut.onUpdateStatus?.((next) => setStatus(next));
+    return () => { alive = false; off?.(); };
+  }, []);
+  if (status?.status !== 'downloaded') return null;
+  return (
+    <button
+      type="button"
+      className="updateReadyButton"
+      onClick={() => { void window.roughCut.installUpdate?.(); }}
+      title={`Rough Cut ${status.version ?? ''} is ready. Restart to install it; your projects and settings are kept.`}
+      data-update-ready="true"
+    >
+      <Icon name="sparkle" /> Update ready
+    </button>
   );
 }
 

@@ -1866,7 +1866,7 @@ async function resolveDockStartupProject(explicitProjectPath) {
 }
 
 app.whenReady().then(() => {
-  installReleaseServices({ app, Menu, dialog, BrowserWindow, isBusy: () => Boolean(activeRecordingFinalizePromise || activeExportController || ['recording', 'paused', 'starting', 'stopping', 'finishing'].includes(recordingSession.status().state)) });
+  installReleaseServices({ app, Menu, dialog, BrowserWindow, ipcMain, channels: IPC_CHANNELS, isBusy: () => Boolean(activeRecordingFinalizePromise || activeExportController || ['recording', 'paused', 'starting', 'stopping', 'finishing'].includes(recordingSession.status().state)) });
   recordDockProvenance();
   registerMediaProtocol();
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {

@@ -2,6 +2,9 @@
 export const IPC_CHANNELS = {
   CLAUDE_CONNECTION_STATUS: 'claude:connection-status',
   CLAUDE_CONNECTION_SETUP: 'claude:connection-setup',
+  // In-app updates: main pushes the status (and answers a get); install runs the menu's restart flow.
+  UPDATE_STATUS: 'update:status',
+  UPDATE_INSTALL: 'update:install',
   // Project I/O
   PROJECT_OPEN: 'project:open',
   PROJECT_SAVE: 'project:save',

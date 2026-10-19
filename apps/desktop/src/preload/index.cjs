@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 const IPC_CHANNELS = {
   CLAUDE_CONNECTION_STATUS: 'claude:connection-status',
   CLAUDE_CONNECTION_SETUP: 'claude:connection-setup',
+  UPDATE_STATUS: 'update:status',
+  UPDATE_INSTALL: 'update:install',
   APP_GET_VERSION: 'app:get-version',
   APP_GET_RUNTIME_LOG_PATH: 'app:get-runtime-log-path',
   APP_OPEN_EDITOR: 'app:open-editor',
@@ -169,6 +171,13 @@ contextBridge.exposeInMainWorld('roughCut', {
   analyzeProjectWithAi: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_PROJECT, payload),
   getClaudeConnection: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_CONNECTION_STATUS),
   setupClaudeConnection: (action) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_CONNECTION_SETUP, action),
+  getUpdateStatus: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_STATUS),
+  onUpdateStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_STATUS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, listener);
+  },
+  installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
   generateGraphic: (payload) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_GENERATE, payload),
   cancelGraphic: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_CANCEL, requestId),
   onGraphicsProgress: (callback) => {
