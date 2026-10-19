@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {inspectClaudeSubscription,runClaudeSetup,connectClaude,claudeInstallerCommand} from './claude-connection.mjs';
+import {inspectClaudeSubscription,runClaudeSetup,connectClaude,claudeInstallerCommand,configureClaudeDisconnect,setClaudeDisconnected,isClaudeDisconnected} from './claude-connection.mjs';
+import {mkdtempSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';
 import {askClaudeForJson} from './claude-cli.mjs';
 function fakeProbe({version='2.1.288',auth={loggedIn:true,authMethod:'claude.ai',subscriptionType:'max'},code=0}={}){
  const calls=[];const spawnImpl=(_binary,args)=>{calls.push(args);const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();queueMicrotask(()=>{child.stdout.emit('data',Buffer.from(args[0]==='--version'?version:JSON.stringify(auth)));child.emit('close',args[0]==='--version'?0:code);});return child;};return{calls,spawnImpl};
@@ -37,4 +38,14 @@ test('one Connect button installs, updates and signs in only as needed, then rep
  const ready=await run(['ready']);assert.deepEqual(ready.steps,[]);assert.equal(ready.result.status,'ready');
  assert.deepEqual((await run(['missing','missing'])).steps,['install']);
  assert.equal(claudeInstallerCommand('win32').command,'powershell.exe');assert.match(claudeInstallerCommand('linux').args.join(' '),/claude\.ai\/install\.sh/);
+});
+test('logging out of Rough Cut never touches the Claude CLI login; Connect clears it',async()=>{
+ configureClaudeDisconnect(join(mkdtempSync(join(tmpdir(),'rc-logout-')),'flag'));
+ let spawned=0;const spawnImpl=()=>{spawned++;throw new Error('must not run');};
+ setClaudeDisconnected(true);assert.equal(isClaudeDisconnected(),true);
+ const out=await inspectClaudeSubscription({binary:'/fake',spawnImpl});
+ assert.equal(out.status,'not-signed-in');assert.equal(spawned,0);
+ await connectClaude({resolveBinary:()=>'/fake',inspect:async()=>({ok:true,status:'ready'})});
+ assert.equal(isClaudeDisconnected(),false);
+ configureClaudeDisconnect(null);
 });

@@ -1,4 +1,16 @@
 import { spawn } from 'node:child_process';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+
+// Logging out of Rough Cut only. Claude Code's own login (terminal, other tools) is left alone: the app just stops
+// using it until Connect Claude is pressed again. The state is one small marker file in the app's data folder.
+let disconnectMarker = null;
+export function configureClaudeDisconnect(path) { disconnectMarker = path; }
+export const isClaudeDisconnected = () => Boolean(disconnectMarker && existsSync(disconnectMarker));
+export function setClaudeDisconnected(value) {
+  if (!disconnectMarker) return;
+  if (value) writeFileSync(disconnectMarker, 'Rough Cut is disconnected from Claude. Claude Code itself is still signed in.');
+  else rmSync(disconnectMarker, { force: true });
+}
 
 export const CLAUDE_MINIMUM_VERSION = '2.1.248';
 const API_ENVIRONMENT_NAMES = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'];
@@ -53,6 +65,7 @@ export function runClaudeInstaller({ platform = process.platform, spawnImpl = sp
 // One button: install if missing, update if too old, sign in if needed, then report.
 // Each step is injected so tests never touch a real CLI or account.
 export async function connectClaude({ resolveBinary, inspect = inspectClaudeSubscription, install = runClaudeInstaller, setup = runClaudeSetup } = {}) {
+  setClaudeDisconnected(false);
   let result = await inspect({ binary: resolveBinary() });
   if (result.status === 'missing') {
     await install();
@@ -73,6 +86,7 @@ export async function connectClaude({ resolveBinary, inspect = inspectClaudeSubs
 // identity fields (email, organization, tokens) to the renderer or diagnostics.
 export async function inspectClaudeSubscription({ binary, env = process.env, spawnImpl = spawn } = {}) {
   const failure = (status, reason, extra = {}) => ({ ok: false, status, reason, ...extra });
+  if (isClaudeDisconnected()) return failure('not-signed-in', 'Rough Cut is logged out of Claude. Press Connect Claude to use your subscription again.');
   if (!binary) return failure('missing', 'Install Claude Code, then run claude auth login to connect your subscription.');
   if (API_ENVIRONMENT_NAMES.some(name => Boolean(env[name]))) return failure('api-mode', 'This app uses your Claude subscription. API or third-party provider settings are active; launch without those settings and sign in with claude auth login. No AI request was sent.');
   const versionResult = await probe(binary, ['--version'], spawnImpl);

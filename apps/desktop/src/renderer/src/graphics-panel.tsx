@@ -100,7 +100,7 @@ export function GraphicsPanel({
   const [settingUp, setSettingUp] = React.useState(false);
   const setupAction: { action: 'connect'; label: string } | null =
     connection && !connection.ok && ['missing', 'unsupported-version', 'not-signed-in'].includes(connection.status) ? { action: 'connect', label: 'Connect Claude' } : null;
-  const runSetup = React.useCallback(async (action: 'connect') => {
+  const runSetup = React.useCallback(async (action: 'connect' | 'logout') => {
     setSettingUp(true);
     try {
       const next = await window.roughCut.setupClaudeConnection(action);
@@ -188,6 +188,9 @@ export function GraphicsPanel({
         <p role="status">{settingUp ? ('Setting up Claude. If a browser window opens, sign in there…') : checkingConnection ? 'Checking Claude Code…' : setupAction ? 'Graphics are made by Claude, and Claude is not connected yet. One click sets it up with your own subscription.' : connection?.reason}</p>
         {setupAction ? (
           <button type="button" className="primaryAction compact" data-claude-setup={setupAction.action} disabled={settingUp || checkingConnection} onClick={() => { void runSetup(setupAction.action); }}>{setupAction.label}</button>
+        ) : null}
+        {connection?.ok ? (
+          <button type="button" className="secondary compact" data-claude-setup="logout" disabled={settingUp || checkingConnection} onClick={() => { void runSetup('logout'); }}>Log out of Rough Cut</button>
         ) : null}
         <details>
           <summary>Connect by hand instead</summary>
