@@ -185,7 +185,7 @@ export function GraphicsPanel({
 
       <section className="inspectorSection" aria-label="Claude connection" data-claude-connection={connection?.status ?? 'checking'}>
         <div className="inspectorSectionHead"><p className="eyebrow">Your Claude subscription</p></div>
-        <p role="status">{settingUp ? ('Setting up Claude. If a browser window opens, sign in there…') : checkingConnection ? 'Checking Claude Code…' : connection?.reason}</p>
+        <p role="status">{settingUp ? ('Setting up Claude. If a browser window opens, sign in there…') : checkingConnection ? 'Checking Claude Code…' : setupAction ? 'Graphics are made by Claude, and Claude is not connected yet. One click sets it up with your own subscription.' : connection?.reason}</p>
         {setupAction ? (
           <button type="button" className="primaryAction compact" data-claude-setup={setupAction.action} disabled={settingUp || checkingConnection} onClick={() => { void runSetup(setupAction.action); }}>{setupAction.label}</button>
         ) : null}
