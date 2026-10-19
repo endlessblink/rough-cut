@@ -1,4 +1,5 @@
 import React from 'react';
+import { Export, Scissors, VideoCamera } from '@phosphor-icons/react';
 import type { LibraryView, LibraryViewId, ProjectSummary, SizeStep } from './types';
 import { DEFAULT_VIEW_ID, LIBRARY_VIEWS, findView } from './views';
 import { groupSummariesByDate } from './group-by-date.mjs';
@@ -750,29 +751,41 @@ function ContinueEditingCard({ summary, onOpen }: { summary: ProjectSummary; onO
   );
 }
 
+// The three steps are drawn as clips on a small timeline, with a playhead passing over them,
+// so the first screen already looks like the place the user is about to work in.
 const WELCOME_STEPS = [
-  { title: 'Record', body: 'Press Record, top right, to capture your screen. Camera and microphone are optional.' },
-  { title: 'Edit', body: 'Your take opens in Recording edit. Cut, zoom and add captions on one timeline.' },
-  { title: 'Export', body: 'Press Export for a finished MP4, with your background, camera and captions.' },
+  { id: 'record', title: 'Record', Icon: VideoCamera, body: 'Press Record, top right, to capture your screen. Camera and microphone are optional.' },
+  { id: 'edit', title: 'Edit', Icon: Scissors, body: 'Your take opens in Recording edit. Cut, zoom and add captions on one timeline.' },
+  { id: 'export', title: 'Export', Icon: Export, body: 'Press Export for a finished MP4, with your background, camera and captions.' },
 ] as const;
 
-function LibraryWelcome() {
+export function LibraryWelcome({
+  hint = 'Already have a video or a project? Use Import or Open project above.',
+  children,
+  region,
+}: { hint?: string; children?: React.ReactNode; region?: string }) {
   return (
-    <section className="libraryWelcome" aria-labelledby="libraryWelcomeTitle">
-      <p className="eyebrow">Welcome to Rough Cut</p>
-      <h2 id="libraryWelcomeTitle">Make your first video in three steps</h2>
-      <ol className="libraryWelcomeSteps">
-        {WELCOME_STEPS.map((step, index) => (
-          <li key={step.title}>
-            <span className="libraryWelcomeNumber" aria-hidden="true">{index + 1}</span>
-            <div>
+    <section className="libraryWelcome" aria-labelledby="libraryWelcomeTitle" data-ui-region={region}>
+      <p className="libraryWelcomeKicker">Welcome to Rough Cut</p>
+      <h2 id="libraryWelcomeTitle">Your first video is three clips away</h2>
+      <div className="welcomeTimeline">
+        <div className="welcomeRuler" aria-hidden="true" />
+        <ol className="welcomeClips">
+          {WELCOME_STEPS.map((step, index) => (
+            <li key={step.id} className="welcomeStep" data-step={step.id}>
+              <div className="welcomeClip" aria-hidden="true">
+                <step.Icon size={30} weight="duotone" />
+                <span className="welcomeClipNumber">{index + 1}</span>
+              </div>
               <strong>{step.title}</strong>
               <p>{step.body}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
-      <p className="libraryWelcomeHint">Already have a video or a project? Use Import or Open project above.</p>
+            </li>
+          ))}
+        </ol>
+        <span className="welcomePlayhead" aria-hidden="true" />
+      </div>
+      {children ? <div className="libraryWelcomeActions">{children}</div> : null}
+      <p className="libraryWelcomeHint">{hint}</p>
     </section>
   );
 }

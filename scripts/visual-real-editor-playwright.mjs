@@ -152,7 +152,7 @@ function findAppWindow(rootPid) {
     for (const child of children) walk(Number(child));
   };
   walk(rootPid);
-  const titled = spawnSync('xdotool', ['search', '--name', '^Rough Cut MVP$'], { encoding: 'utf8' })
+  const titled = spawnSync('xdotool', ['search', '--name', '^Rough Cut$'], { encoding: 'utf8' })
     .stdout.trim().split('\n').filter(Boolean);
   for (const id of titled) {
     const pid = Number(spawnSync('xdotool', ['getwindowpid', id], { encoding: 'utf8' }).stdout.trim());

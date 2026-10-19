@@ -5,7 +5,7 @@ import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -200,7 +200,11 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const defaultRecordingsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'recordings');
+// New installs use "Documents/Rough Cut"; anyone who already has the old "Rough Cut MVP" folder keeps it,
+// so no project goes missing.
+const legacyDocumentsDir = join(app.getPath('documents'), 'Rough Cut MVP');
+const documentsDir = existsSync(legacyDocumentsDir) ? legacyDocumentsDir : join(app.getPath('documents'), 'Rough Cut');
+const defaultRecordingsDir = join(documentsDir, 'recordings');
 const appSettingsStore = createAppSettingsStore({
   filePath: defaultAppSettingsPath(app.getPath('userData')),
   onLog: (msg) => console.warn(msg),
@@ -208,7 +212,7 @@ const appSettingsStore = createAppSettingsStore({
 // Where projects live. Chosen in the Projects view and applied on the next start, because
 // the recorder and the path checks are created once at launch.
 const recordingsDir = appSettingsStore.getProjectsDir() ?? defaultRecordingsDir;
-const defaultExportsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'exports');
+const defaultExportsDir = join(documentsDir, 'exports');
 // The export folder can change at any time (Export panel > Save to), so read it when it is needed.
 const currentExportsDir = () => appSettingsStore.getExportsDir() ?? defaultExportsDir;
 
@@ -359,7 +363,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
     resizable: !isRecorder,
     maximizable: !isRecorder,
     autoHideMenuBar: true,
-    title: 'Rough Cut MVP',
+    title: app.isPackaged ? 'Rough Cut' : 'Rough Cut dev',
     backgroundColor: '#16120f',
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
@@ -378,6 +382,9 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
       if (!studioWindowBoundsById.has(window.id)) maximizeStudioWindow(window);
     });
   }
+
+  // A dev run gets its own name, so it can record the installed release side by side without mixing up the windows.
+  if (!app.isPackaged) window.on('page-title-updated', (event) => event.preventDefault());
 
   window.webContents.on('console-message', (event, level, message, line, sourceId) => {
     const details = event && typeof event === 'object' && 'level' in event ? event : null;
@@ -2410,7 +2417,7 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
       }, 'maximized studio window after leaving recording');
       const hasEditorEmptyState = Boolean(await waitFor(() => document.querySelector('[data-ui-region="editor-empty"]'), 'empty editor state'));
       if (options.startupOpenProjects) {
-        const openProjectsButton = await waitFor(() => document.querySelector('[data-ui-region="editor-empty"] button'), 'open projects button');
+        const openProjectsButton = await waitFor(() => document.querySelector('[data-ui-region="editor-empty"] [data-empty-action="open-projects"]'), 'open projects button');
         openProjectsButton.click();
         await waitFor(() => !document.querySelector('[data-ui-region="recording-workspace"]'), 'recording workspace stays closed after opening projects');
         const hasProjectsView = Boolean(await waitFor(() => document.querySelector('[data-ui-region="project-library"]'), 'project library'));

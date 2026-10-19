@@ -4696,58 +4696,144 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 }
 .libraryEmptyError { color: rgb(248 113 113 / 0.92); }
 
+/* First-run welcome: the three steps are clips on a little timeline that a playhead
+ * sweeps across, lighting each clip as it passes. One authored motion, nothing else moves. */
 .libraryWelcome {
-  align-items: stretch;
+  --welcome-sweep: 9s;
+  align-items: flex-start;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
   margin: auto;
-  max-width: 460px;
+  max-width: 760px;
   padding: var(--space-12) var(--space-4);
+  width: 100%;
+}
+.libraryWelcomeKicker {
+  color: var(--accent-hover);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  margin: 0 0 var(--space-2);
 }
 .libraryWelcome h2 {
   color: var(--text);
-  font-size: var(--text-2xl);
+  font-size: var(--text-3xl);
   font-weight: var(--weight-semibold);
-  margin: 0 0 var(--space-3);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 0 0 var(--space-8);
+  text-wrap: balance;
 }
-.libraryWelcomeSteps {
-  display: flex;
-  flex-direction: column;
+.welcomeTimeline {
+  position: relative;
+  width: 100%;
+}
+.welcomeRuler {
+  background:
+    repeating-linear-gradient(90deg, rgb(226 232 240 / 0.28) 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(90deg, rgb(226 232 240 / 0.12) 0 1px, transparent 1px 16px);
+  background-position: 0 0, 0 4px;
+  background-repeat: repeat-x;
+  background-size: auto 10px, auto 6px;
+  border-bottom: 1px solid var(--line);
+  height: 14px;
+  margin-bottom: var(--space-3);
+}
+.welcomeClips {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.libraryWelcomeSteps li {
-  border-top: 1px solid rgb(226 232 240 / 0.1);
+.welcomeStep { --hue: var(--accent-hover); min-width: 0; }
+.welcomeStep[data-step='record'] { --hue: var(--record); }
+.welcomeStep[data-step='export'] { --hue: #34d399; }
+.welcomeClip {
+  align-items: center;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hue) 26%, transparent), color-mix(in srgb, var(--hue) 12%, transparent));
+  border: 1px solid color-mix(in srgb, var(--hue) 45%, transparent);
+  border-radius: 8px;
+  color: var(--hue);
   display: flex;
-  gap: var(--space-4);
-  padding: var(--space-4) 0;
+  height: 64px;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+  position: relative;
+  transition: background-color 200ms ease, border-color 200ms ease;
+  animation: welcomeClipLive var(--welcome-sweep) linear infinite;
 }
-.libraryWelcomeNumber {
-  color: rgb(226 232 240 / 0.45);
-  font-size: var(--text-lg);
+.welcomeStep[data-step='edit'] .welcomeClip { animation-delay: calc(var(--welcome-sweep) * -0.72); }
+.welcomeStep[data-step='export'] .welcomeClip { animation-delay: calc(var(--welcome-sweep) * -0.44); }
+.welcomeClipNumber {
+  color: color-mix(in srgb, var(--hue) 70%, var(--text));
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-semibold);
-  min-width: var(--space-4);
+  left: 8px;
+  position: absolute;
+  top: 6px;
 }
-.libraryWelcomeSteps strong {
+.welcomeStep strong {
   color: var(--text);
+  display: block;
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
 }
-.libraryWelcomeSteps p {
-  color: rgb(226 232 240 / 0.7);
+.welcomeStep p {
+  color: rgb(226 232 240 / 0.68);
   font-size: var(--text-md);
   line-height: 1.5;
-  margin: var(--space-1) 0 0;
+  margin: var(--space-1) var(--space-4) 0 0;
 }
+.welcomePlayhead {
+  animation: welcomeSweep var(--welcome-sweep) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  background: var(--text);
+  height: 92px;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  width: 2px;
+}
+.welcomePlayhead::before {
+  background: var(--text);
+  border-radius: 2px 2px 4px 4px;
+  content: '';
+  height: 10px;
+  left: -4px;
+  position: absolute;
+  top: 0;
+  width: 10px;
+}
+/* Sweep runs over the first 84% of the cycle, then the playhead rests at the end. */
+@keyframes welcomeSweep {
+  0% { left: 0; opacity: 0; }
+  4% { opacity: 1; }
+  84% { left: calc(100% - 2px); opacity: 1; }
+  96% { left: calc(100% - 2px); opacity: 0; }
+  100% { left: 0; opacity: 0; }
+}
+/* Lit while the playhead crosses the clip (first third of the sweep for Record; the other
+ * clips reuse it with a negative delay). */
+@keyframes welcomeClipLive {
+  0%, 30% { border-color: color-mix(in srgb, var(--hue) 45%, transparent); filter: brightness(1); }
+  6%, 24% { border-color: var(--hue); filter: brightness(1.45); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcomePlayhead { animation: none; left: 0; }
+  .welcomeClip { animation: none; }
+}
+@media (max-width: 720px) {
+  .welcomeClips { grid-template-columns: 1fr; gap: var(--space-4); }
+  .welcomePlayhead, .welcomeRuler { display: none; }
+}
+.libraryWelcomeActions { display: flex; gap: var(--space-2); margin-top: var(--space-8); }
 .libraryWelcomeHint {
-  border-top: 1px solid rgb(226 232 240 / 0.1);
   color: rgb(226 232 240 / 0.55);
   font-size: var(--text-sm);
-  margin: 0;
-  padding-top: var(--space-4);
+  margin: var(--space-4) 0 0;
 }
 
 .libraryGroup { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -5297,17 +5383,11 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 /* Editor view when no project is loaded — small empty state with a CTA back
  * to the Projects view. */
 .editorEmptyState {
-  align-items: center;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  justify-content: center;
-  padding: var(--space-16) var(--space-6);
-  text-align: center;
+  flex: 1;
+  min-height: 100%;
+  padding: var(--space-6);
 }
-.editorEmptyState h2 { font-size: var(--text-xl); font-weight: var(--weight-semibold); margin: 0; }
-.editorEmptyState p { color: rgb(226 232 240 / 0.6); margin: 0; max-width: 28rem; }
-.editorEmptyState .primaryAction { margin-top: var(--space-3); }
 
 /* AI view — Claude-powered editing suggestions panel.
  * Self-contained vertical column. Sits inside the editor section flex

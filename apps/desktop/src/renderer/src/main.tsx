@@ -78,7 +78,7 @@ const hostBundleSignature = Array.from(document.querySelectorAll<HTMLScriptEleme
   .sort()
   .join('|');
 document.documentElement.dataset.hostBundleSignature = hostBundleSignature;
-import { LibraryShell } from './library/library-shell';
+import { LibraryShell, LibraryWelcome } from './library/library-shell';
 import { formatProjectName } from './library/project-name.mjs';
 import { AiShell } from './ai/ai-shell';
 import { GraphicsOverlay } from './graphics-overlay';
@@ -1779,7 +1779,7 @@ function App() {
               }}
             />
           ) : (
-            <EditorEmptyState onGoToProjects={() => setActiveAppView('projects')} />
+            <EditorEmptyState onGoToProjects={() => setActiveAppView('projects')} onRecord={() => { void handlePrimaryRecordAction(); }} />
           )}
         </div>
       </section>
@@ -1811,16 +1811,19 @@ function AppViewTabStrip({ activeId, onChange, editorEnabled }: { activeId: AppV
   );
 }
 
-function EditorEmptyState({ onGoToProjects }: { onGoToProjects: () => void }) {
+function EditorEmptyState({ onGoToProjects, onRecord }: { onGoToProjects: () => void; onRecord: () => void }) {
   return (
-    <section className="editorEmptyState" data-ui-region="editor-empty">
-      <p className="eyebrow">Editor</p>
-      <h2>No project loaded</h2>
-      <p>Pick a project from the Projects view, or record a new take.</p>
-      <button type="button" className="primaryAction" onClick={onGoToProjects}>
-        <Icon name="folder" /> Open Projects
-      </button>
-    </section>
+    // A first-time user lands here, so this explains what to do, the same as the empty Projects page.
+    <div className="editorEmptyState">
+      <LibraryWelcome region="editor-empty" hint="Already have a project? Open it from Projects or with Open project above.">
+        <button type="button" className="primaryAction" onClick={onRecord}>
+          <Icon name="record" /> Start recording
+        </button>
+        <button type="button" className="secondary" onClick={onGoToProjects} data-empty-action="open-projects">
+          <Icon name="folder" /> Open Projects
+        </button>
+      </LibraryWelcome>
+    </div>
   );
 }
 

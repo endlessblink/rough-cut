@@ -33,7 +33,7 @@ cat > "$DESKTOP_ENTRY" <<EOF
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Rough Cut MVP
+Name=Rough Cut
 Comment=Launch the Rough Cut editor
 Path=$APP_ROOT
 Exec=env ROUGH_CUT_DOCK_LAUNCH=1 $APP_ROOT/dock-launch.sh
