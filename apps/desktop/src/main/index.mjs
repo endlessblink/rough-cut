@@ -213,6 +213,9 @@ const appSettingsStore = createAppSettingsStore({
 // the recorder and the path checks are created once at launch.
 const recordingsDir = appSettingsStore.getProjectsDir() ?? defaultRecordingsDir;
 const defaultExportsDir = join(documentsDir, 'exports');
+// The Linux release runs Electron on an unpacked folder, so app.isPackaged is false there too;
+// it loads the built renderer, while a dev run loads from Vite.
+const isDevRun = !app.isPackaged && process.env.ROUGH_CUT_LOAD_BUILT_RENDERER !== '1';
 // The export folder can change at any time (Export panel > Save to), so read it when it is needed.
 const currentExportsDir = () => appSettingsStore.getExportsDir() ?? defaultExportsDir;
 
@@ -363,7 +366,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
     resizable: !isRecorder,
     maximizable: !isRecorder,
     autoHideMenuBar: true,
-    title: app.isPackaged ? 'Rough Cut' : 'Rough Cut dev',
+    title: isDevRun ? 'Rough Cut dev' : 'Rough Cut',
     backgroundColor: '#16120f',
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
@@ -384,7 +387,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   }
 
   // A dev run gets its own name, so it can record the installed release side by side without mixing up the windows.
-  if (!app.isPackaged) window.on('page-title-updated', (event) => event.preventDefault());
+  if (isDevRun) window.on('page-title-updated', (event) => event.preventDefault());
 
   window.webContents.on('console-message', (event, level, message, line, sourceId) => {
     const details = event && typeof event === 'object' && 'level' in event ? event : null;
