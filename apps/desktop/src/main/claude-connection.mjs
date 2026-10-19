@@ -31,6 +31,44 @@ export function runClaudeSetup({ binary, action, spawnImpl = spawn, timeoutMs = 
   });
 }
 
+// Anthropic's own installer (the same command their setup page shows). It is only
+// run when the user clicks Connect and Claude Code is not on the computer yet.
+export function claudeInstallerCommand(platform = process.platform) {
+  return platform === 'win32'
+    ? { command: 'powershell.exe', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex'] }
+    : { command: 'bash', args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'] };
+}
+
+export function runClaudeInstaller({ platform = process.platform, spawnImpl = spawn, timeoutMs = 600000 } = {}) {
+  return new Promise(resolve => {
+    const { command, args } = claudeInstallerCommand(platform);
+    let settled = false;
+    const done = result => { if (!settled) { settled = true; resolve(result); } };
+    const child = spawnImpl(command, args, { stdio: ['ignore', 'ignore', 'ignore'], timeout: timeoutMs });
+    child.on('error', () => done({ ok: false, code: -1 }));
+    child.on('close', code => done({ ok: code === 0, code }));
+  });
+}
+
+// One button: install if missing, update if too old, sign in if needed, then report.
+// Each step is injected so tests never touch a real CLI or account.
+export async function connectClaude({ resolveBinary, inspect = inspectClaudeSubscription, install = runClaudeInstaller, setup = runClaudeSetup } = {}) {
+  let result = await inspect({ binary: resolveBinary() });
+  if (result.status === 'missing') {
+    await install();
+    result = await inspect({ binary: resolveBinary() });
+  }
+  if (result.status === 'unsupported-version') {
+    await setup({ binary: resolveBinary(), action: 'update' });
+    result = await inspect({ binary: resolveBinary() });
+  }
+  if (result.status === 'not-signed-in') {
+    await setup({ binary: resolveBinary(), action: 'login' });
+    result = await inspect({ binary: resolveBinary() });
+  }
+  return result;
+}
+
 // Read-only CLI metadata, never credentials or a model request. Do not forward
 // identity fields (email, organization, tokens) to the renderer or diagnostics.
 export async function inspectClaudeSubscription({ binary, env = process.env, spawnImpl = spawn } = {}) {

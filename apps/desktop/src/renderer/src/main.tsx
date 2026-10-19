@@ -290,7 +290,7 @@ declare global {
       saveRecordingTemplateOverride: (payload: RecordingTemplateOverrideInput) => Promise<RecordingTemplateOverride>;
       getClipVisual: (payload: Record<string, unknown>) => Promise<{ url: string; kind: 'waveform' | 'filmstrip'; durationSec: number; widthPx?: number; channels?: number; tiles?: number; intervalSec?: number; stripSeconds?: number }>;
       getClaudeConnection: () => Promise<{ ok: boolean; status: string; reason: string; version?: string; subscriptionType?: string }>;
-      setupClaudeConnection: (action: 'login' | 'update' | 'install') => Promise<{ ok: boolean; status: string; reason: string; version?: string; subscriptionType?: string }>;
+      setupClaudeConnection: (action: 'connect' | 'login' | 'update' | 'install') => Promise<{ ok: boolean; status: string; reason: string; version?: string; subscriptionType?: string }>;
       listAiAssets: () => Promise<AiAsset[]>;
       resolveAiAsset: (payload: { id: string }) => Promise<AiAsset | null>;
       tagAiAsset: (payload: { id: string; tags: string[] }) => Promise<AiAsset>;

@@ -52,7 +52,7 @@ import { createStabilizationService } from './stabilization-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
 import { generateGraphic } from './claude-graphics-service.mjs';
 import { typicalClaudeAnswerMs, resolveClaudeBinary } from './claude-cli.mjs';
-import { CLAUDE_INSTALL_URL, inspectClaudeSubscription, runClaudeSetup } from './claude-connection.mjs';
+import { CLAUDE_INSTALL_URL, connectClaude, inspectClaudeSubscription, runClaudeSetup } from './claude-connection.mjs';
 import { detectSilences, silencesToCutRanges } from './silence-detect.mjs';
 
 /** Silent stretches of the open recording as cut ranges (frames); [] if none or unreadable. */
@@ -1378,6 +1378,7 @@ registerAiAssetIpcHandlers(ipcMain, { store: aiAssetsStore });
 ipcMain.handle(IPC_CHANNELS.AI_GET_STATUS, () => getAiStatus());
 ipcMain.handle(IPC_CHANNELS.CLAUDE_CONNECTION_STATUS, () => inspectClaudeSubscription({ binary: resolveClaudeBinary() }));
 ipcMain.handle(IPC_CHANNELS.CLAUDE_CONNECTION_SETUP, async (_event, action) => {
+  if (action === 'connect') return connectClaude({ resolveBinary: resolveClaudeBinary });
   if (action === 'install') { await shell.openExternal(CLAUDE_INSTALL_URL); return inspectClaudeSubscription({ binary: resolveClaudeBinary() }); }
   if (action !== 'login' && action !== 'update') return inspectClaudeSubscription({ binary: resolveClaudeBinary() });
   await runClaudeSetup({ binary: resolveClaudeBinary(), action });

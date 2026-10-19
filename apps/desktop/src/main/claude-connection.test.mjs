@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {inspectClaudeSubscription,runClaudeSetup} from './claude-connection.mjs';
+import {inspectClaudeSubscription,runClaudeSetup,connectClaude,claudeInstallerCommand} from './claude-connection.mjs';
 import {askClaudeForJson} from './claude-cli.mjs';
 function fakeProbe({version='2.1.288',auth={loggedIn:true,authMethod:'claude.ai',subscriptionType:'max'},code=0}={}){
  const calls=[];const spawnImpl=(_binary,args)=>{calls.push(args);const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();queueMicrotask(()=>{child.stdout.emit('data',Buffer.from(args[0]==='--version'?version:JSON.stringify(auth)));child.emit('close',args[0]==='--version'?0:code);});return child;};return{calls,spawnImpl};
@@ -26,4 +26,15 @@ test('one-click setup runs only the official login or update command and never r
  assert.equal((await runClaudeSetup({binary:'/fake',action:'update',spawnImpl:make(1)})).ok,false);assert.deepEqual(seen[1].args,['update']);
  assert.equal((await runClaudeSetup({binary:'/fake',action:'rm -rf',spawnImpl:make(0)})).ok,false);assert.equal(seen.length,2);
  assert.equal((await runClaudeSetup({binary:null,action:'login'})).ok,false);
+});
+test('one Connect button installs, updates and signs in only as needed, then reports',async()=>{
+ const run=async(statuses)=>{const steps=[];const queue=[...statuses];
+  const result=await connectClaude({resolveBinary:()=>'/fake',inspect:async()=>({status:queue.shift()}),install:async()=>steps.push('install'),setup:async({action})=>steps.push(action)});
+  return{steps,result};};
+ assert.deepEqual((await run(['missing','not-signed-in','ready'])).steps,['install','login']);
+ assert.deepEqual((await run(['unsupported-version','not-signed-in','ready'])).steps,['update','login']);
+ assert.deepEqual((await run(['not-signed-in','ready'])).steps,['login']);
+ const ready=await run(['ready']);assert.deepEqual(ready.steps,[]);assert.equal(ready.result.status,'ready');
+ assert.deepEqual((await run(['missing','missing'])).steps,['install']);
+ assert.equal(claudeInstallerCommand('win32').command,'powershell.exe');assert.match(claudeInstallerCommand('linux').args.join(' '),/claude\.ai\/install\.sh/);
 });

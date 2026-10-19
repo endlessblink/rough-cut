@@ -98,12 +98,9 @@ export function GraphicsPanel({
   }, []);
   React.useEffect(() => { void checkConnection(); return () => { connectionRequestRef.current++; }; }, [checkConnection]);
   const [settingUp, setSettingUp] = React.useState(false);
-  const setupAction: { action: 'login' | 'update' | 'install'; label: string } | null =
-    connection?.status === 'not-signed-in' ? { action: 'login', label: 'Sign in with Claude' }
-    : connection?.status === 'unsupported-version' ? { action: 'update', label: 'Update Claude Code' }
-    : connection?.status === 'missing' ? { action: 'install', label: 'Get Claude Code' }
-    : null;
-  const runSetup = React.useCallback(async (action: 'login' | 'update' | 'install') => {
+  const setupAction: { action: 'connect'; label: string } | null =
+    connection && !connection.ok && ['missing', 'unsupported-version', 'not-signed-in'].includes(connection.status) ? { action: 'connect', label: 'Connect Claude' } : null;
+  const runSetup = React.useCallback(async (action: 'connect') => {
     setSettingUp(true);
     try {
       const next = await window.roughCut.setupClaudeConnection(action);
@@ -188,7 +185,7 @@ export function GraphicsPanel({
 
       <section className="inspectorSection" aria-label="Claude connection" data-claude-connection={connection?.status ?? 'checking'}>
         <div className="inspectorSectionHead"><p className="eyebrow">Your Claude subscription</p></div>
-        <p role="status">{settingUp ? (setupAction?.action === 'login' ? 'Finish signing in in your browser…' : 'Working…') : checkingConnection ? 'Checking Claude Code…' : connection?.reason}</p>
+        <p role="status">{settingUp ? ('Setting up Claude. If a browser window opens, sign in there…') : checkingConnection ? 'Checking Claude Code…' : connection?.reason}</p>
         {setupAction ? (
           <button type="button" className="primaryAction compact" data-claude-setup={setupAction.action} disabled={settingUp || checkingConnection} onClick={() => { void runSetup(setupAction.action); }}>{setupAction.label}</button>
         ) : null}
