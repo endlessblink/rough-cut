@@ -97,6 +97,23 @@ export function GraphicsPanel({
     }
   }, []);
   React.useEffect(() => { void checkConnection(); return () => { connectionRequestRef.current++; }; }, [checkConnection]);
+  const [settingUp, setSettingUp] = React.useState(false);
+  const setupAction: { action: 'login' | 'update' | 'install'; label: string } | null =
+    connection?.status === 'not-signed-in' ? { action: 'login', label: 'Sign in with Claude' }
+    : connection?.status === 'unsupported-version' ? { action: 'update', label: 'Update Claude Code' }
+    : connection?.status === 'missing' ? { action: 'install', label: 'Get Claude Code' }
+    : null;
+  const runSetup = React.useCallback(async (action: 'login' | 'update' | 'install') => {
+    setSettingUp(true);
+    try {
+      const next = await window.roughCut.setupClaudeConnection(action);
+      setConnection(next);
+    } catch {
+      /* the status line keeps its last reason; Check connection retries */
+    } finally {
+      setSettingUp(false);
+    }
+  }, []);
   const [changeRequest, setChangeRequest] = React.useState('');
   // The generation lives outside this panel so switching tabs keeps it going.
   const { job, problem } = useGraphicJob();
@@ -171,9 +188,12 @@ export function GraphicsPanel({
 
       <section className="inspectorSection" aria-label="Claude connection" data-claude-connection={connection?.status ?? 'checking'}>
         <div className="inspectorSectionHead"><p className="eyebrow">Your Claude subscription</p></div>
-        <p role="status">{checkingConnection ? 'Checking Claude Code…' : connection?.reason}</p>
-        <details open={connection?.ok === false}>
-          <summary>Connect through Claude Code</summary>
+        <p role="status">{settingUp ? (setupAction?.action === 'login' ? 'Finish signing in in your browser…' : 'Working…') : checkingConnection ? 'Checking Claude Code…' : connection?.reason}</p>
+        {setupAction ? (
+          <button type="button" className="primaryAction compact" data-claude-setup={setupAction.action} disabled={settingUp || checkingConnection} onClick={() => { void runSetup(setupAction.action); }}>{setupAction.label}</button>
+        ) : null}
+        <details>
+          <summary>Connect by hand instead</summary>
           <ol>
             <li>Install the official Claude Code CLI, version 2.1.248 or later.</li>
             <li>Run <code>claude auth login</code> in your terminal and sign in through Anthropic’s browser flow with your own subscription.</li>

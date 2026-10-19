@@ -3274,10 +3274,6 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 24%, transparent);
 }
 
-.clipBar:not(.selectedClip) .trimHandle {
-  pointer-events: none;
-}
-
 .trimHandleStart { left: 0; }
 .trimHandleEnd { right: 0; }
 .trimHandleStart::before { left: 5px; }

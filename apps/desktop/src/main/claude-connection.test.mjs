@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {inspectClaudeSubscription} from './claude-connection.mjs';
+import {inspectClaudeSubscription,runClaudeSetup} from './claude-connection.mjs';
 import {askClaudeForJson} from './claude-cli.mjs';
 function fakeProbe({version='2.1.288',auth={loggedIn:true,authMethod:'claude.ai',subscriptionType:'max'},code=0}={}){
  const calls=[];const spawnImpl=(_binary,args)=>{calls.push(args);const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();queueMicrotask(()=>{child.stdout.emit('data',Buffer.from(args[0]==='--version'?version:JSON.stringify(auth)));child.emit('close',args[0]==='--version'?0:code);});return child;};return{calls,spawnImpl};
@@ -18,4 +18,12 @@ test('API environment stops before any CLI or model call and never exposes key v
 test('auth metadata is sanitized and API billing is rejected even without environment override',async()=>{
  const ready=fakeProbe({auth:{loggedIn:true,authMethod:'claude.ai',subscriptionType:'max',email:'private@example.invalid',organizationId:'private-org'}});const result=await inspectClaudeSubscription({binary:'/fake',env:{},spawnImpl:ready.spawnImpl});assert.equal(result.ok,true);assert.equal(result.subscriptionType,'max');assert.ok(!JSON.stringify(result).includes('private'));assert.deepEqual(ready.calls,[['--version'],['auth','status']]);
  const api=fakeProbe({auth:{loggedIn:true,authMethod:'api_key',subscriptionType:null}});assert.equal((await inspectClaudeSubscription({binary:'/fake',env:{},spawnImpl:api.spawnImpl})).status,'api-mode');
+});
+test('one-click setup runs only the official login or update command and never reads output',async()=>{
+ const seen=[];const make=code=>(binary,args,options)=>{seen.push({binary,args,stdio:options.stdio});const child=new EventEmitter();queueMicrotask(()=>child.emit('close',code));return child;};
+ assert.deepEqual(await runClaudeSetup({binary:'/fake',action:'login',spawnImpl:make(0)}),{ok:true,code:0});
+ assert.deepEqual(seen[0].args,['auth','login']);assert.deepEqual(seen[0].stdio,['ignore','ignore','ignore']);
+ assert.equal((await runClaudeSetup({binary:'/fake',action:'update',spawnImpl:make(1)})).ok,false);assert.deepEqual(seen[1].args,['update']);
+ assert.equal((await runClaudeSetup({binary:'/fake',action:'rm -rf',spawnImpl:make(0)})).ok,false);assert.equal(seen.length,2);
+ assert.equal((await runClaudeSetup({binary:null,action:'login'})).ok,false);
 });

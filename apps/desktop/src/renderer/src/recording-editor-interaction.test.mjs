@@ -129,17 +129,18 @@ test('recording editor cancels clip moves without committing them', () => {
   assert.match(source, /function beginClipTrimDrag[\s\S]+window\.addEventListener\('pointercancel', cancel/);
 });
 
-test('recording editor exposes trim handles only on the selected clip', () => {
-  assert.match(source, /selectedScreenClipId === region\.id \? <button type="button" role="slider" className=\{`trimHandle trimHandleStart/);
-  assert.match(source, /selectedScreenClipId === region\.id \? <button type="button" role="slider" className=\{`trimHandle trimHandleEnd/);
+test('recording editor exposes trim handles on every clip, video and audio, without selecting first', () => {
+  assert.match(source, /\{<button type="button" role="slider" className=\{`trimHandle trimHandleStart/);
+  assert.match(source, /\{<button type="button" role="slider" className=\{`trimHandle trimHandleEnd/);
+  assert.match(source, /data-recording-audio-trim-edge=\{edge\}/);
   // Edges with trimmed-away footage say so (2026-09-27).
   assert.match(source, /hasHiddenFootage/);
   assert.match(styles, /\.trimHandleStart\.hasHiddenFootage::after/);
-  assert.match(styles, /\.clipBar:not\(\.selectedClip\) \.trimHandle\s*\{[\s\S]+pointer-events:\s*none/);
+  assert.doesNotMatch(styles, /\.clipBar:not\(\.selectedClip\) \.trimHandle/);
 });
 
 test('recording editor keeps trim guidance local to the selected clip', () => {
-  assert.match(source, /selectedScreenClipId === region\.id && trimDragPreview\?\.clipId === region\.id \? <span className="trimAvailabilityGuide"/);
+  assert.match(source, /trimDragPreview\?\.clipId === region\.id \? <span className="trimAvailabilityGuide"/);
   assert.match(styles, /\.trimAvailabilityGuide\s*\{[\s\S]+pointer-events:\s*none[\s\S]+position:\s*absolute/);
   assert.match(interactionHarness, /Adjacent layer changed after trim commit/);
 });

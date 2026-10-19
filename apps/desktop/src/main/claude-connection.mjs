@@ -13,6 +13,24 @@ function probe(binary, args, spawnImpl) {
   });
 }
 
+const SETUP_ACTIONS = { login: ['auth', 'login'], update: ['update'] };
+export const CLAUDE_INSTALL_URL = 'https://docs.claude.com/en/docs/claude-code/setup';
+
+// Runs the official CLI on the user's click so they never need a terminal.
+// `login` opens Anthropic's browser sign-in and returns when it ends. This app
+// never sees the password or tokens; it only waits for the CLI to finish.
+export function runClaudeSetup({ binary, action, spawnImpl = spawn, timeoutMs = 300000 } = {}) {
+  return new Promise(resolve => {
+    const args = SETUP_ACTIONS[action];
+    if (!binary || !args) { resolve({ ok: false, code: -1 }); return; }
+    let settled = false;
+    const done = result => { if (!settled) { settled = true; resolve(result); } };
+    const child = spawnImpl(binary, args, { stdio: ['ignore', 'ignore', 'ignore'], timeout: timeoutMs });
+    child.on('error', () => done({ ok: false, code: -1 }));
+    child.on('close', code => done({ ok: code === 0, code }));
+  });
+}
+
 // Read-only CLI metadata, never credentials or a model request. Do not forward
 // identity fields (email, organization, tokens) to the renderer or diagnostics.
 export async function inspectClaudeSubscription({ binary, env = process.env, spawnImpl = spawn } = {}) {

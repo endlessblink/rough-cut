@@ -290,6 +290,7 @@ declare global {
       saveRecordingTemplateOverride: (payload: RecordingTemplateOverrideInput) => Promise<RecordingTemplateOverride>;
       getClipVisual: (payload: Record<string, unknown>) => Promise<{ url: string; kind: 'waveform' | 'filmstrip'; durationSec: number; widthPx?: number; channels?: number; tiles?: number; intervalSec?: number; stripSeconds?: number }>;
       getClaudeConnection: () => Promise<{ ok: boolean; status: string; reason: string; version?: string; subscriptionType?: string }>;
+      setupClaudeConnection: (action: 'login' | 'update' | 'install') => Promise<{ ok: boolean; status: string; reason: string; version?: string; subscriptionType?: string }>;
       listAiAssets: () => Promise<AiAsset[]>;
       resolveAiAsset: (payload: { id: string }) => Promise<AiAsset | null>;
       tagAiAsset: (payload: { id: string; tags: string[] }) => Promise<AiAsset>;
@@ -5637,7 +5638,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   // An empty stretch between sections, selected so Delete can close it.
   const [selectedGap, setSelectedGap] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [rippleTrim, setRippleTrim] = React.useState(() => {
-    try { return window.localStorage.getItem('roughCut.rippleTrim') !== 'off'; } catch { return true; }
+    // Plain trim by default, like Resolve and Premiere: the edge you drag follows the mouse and a
+    // gap stays. Closing gaps (ripple) is opt-in; a saved choice is kept.
+    try { return window.localStorage.getItem('roughCut.rippleTrim') === 'on'; } catch { return false; }
   });
   function toggleRippleTrim() {
     setRippleTrim((current) => {
@@ -6511,7 +6514,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     };
   }
 
-  function beginClipTrimDrag(region: { id: string; timelineIn?: number; timelineOut?: number }, index: number, edge: 'head' | 'tail', event: React.PointerEvent<HTMLButtonElement>) {
+  function beginClipTrimDrag(region: { id: string; timelineIn?: number; timelineOut?: number }, index: number, edge: 'head' | 'tail', event: React.PointerEvent<HTMLElement>) {
     if (!region.id || cutModeActive) return;
     const bounds = clipTrimBounds(index, edge);
     if (!bounds) return;
@@ -7196,7 +7199,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
           {model.lanes.screen.map((region, index) => (
               <div key={region.id} className={`clipBar ${selectedScreenClipIds.includes(region.id) ? 'selectedClip' : ''} ${clipDragPreview?.clipId === region.id || trimDragPreview?.clipId === region.id ? 'dragging' : ''}`} style={screenRegionStyle(region)} data-recording-clip-id={region.id} data-recording-timeline-in={Math.round(region.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? 0)} aria-label={`${selectedScreenClipIds.includes(region.id) ? 'Selected ' : ''}Screen section ${index + 1}`}>
                 {index > 0 ? <span className="clipCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? 0)} aria-hidden="true" /> : null}
-              {selectedScreenClipId === region.id && trimDragPreview?.clipId === region.id ? <span className="trimAvailabilityGuide" aria-hidden="true" /> : null}
+              {trimDragPreview?.clipId === region.id ? <span className="trimAvailabilityGuide" aria-hidden="true" /> : null}
               {trimDragPreview?.clipId === region.id ? (() => {
                 // Signed length change, like FCP/Premiere: + means footage is being brought back.
                 const lengthChange = trimDragPreview.edge === 'head' ? -trimDragPreview.deltaFrames : trimDragPreview.deltaFrames;
@@ -7209,9 +7212,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                   </span>
                 );
               })() : null}
-              {selectedScreenClipId === region.id ? <button type="button" role="slider" className={`trimHandle trimHandleStart${(region.sourceIn ?? 0) > 0 ? ' hasHiddenFootage' : ''}`} title={(region.sourceIn ?? 0) > 0 ? `${formatClock((region.sourceIn ?? 0) / fps)} of earlier footage is hidden. Drag left to bring it back.` : 'Drag right to trim the start'} data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} /> : null}
+              {<button type="button" role="slider" className={`trimHandle trimHandleStart${(region.sourceIn ?? 0) > 0 ? ' hasHiddenFootage' : ''}`} title={(region.sourceIn ?? 0) > 0 ? `${formatClock((region.sourceIn ?? 0) / fps)} of earlier footage is hidden. Drag left to bring it back.` : 'Drag right to trim the start'} data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} />}
               <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}>Screen <span className="clipDuration">{Math.max(0, ((region.timelineOut ?? 0) - (region.timelineIn ?? 0)) / fps).toFixed(1)}s</span></button>
-              {selectedScreenClipId === region.id ? <button type="button" role="slider" className={`trimHandle trimHandleEnd${(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? ' hasHiddenFootage' : ''}`} title={(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? `${formatClock((sourceFrameDuration - (region.sourceOut ?? sourceFrameDuration)) / fps)} of later footage is hidden. Drag right to bring it back.` : 'Drag left to trim the end'} data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} /> : null}
+              {<button type="button" role="slider" className={`trimHandle trimHandleEnd${(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? ' hasHiddenFootage' : ''}`} title={(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? `${formatClock((sourceFrameDuration - (region.sourceOut ?? sourceFrameDuration)) / fps)} of later footage is hidden. Drag right to bring it back.` : 'Drag left to trim the end'} data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} />}
               </div>
           ))}
           {cutDragPreview ? (() => {
@@ -7232,6 +7235,10 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
            {model.lanes.audio.length > 0
              ? model.lanes.audio.map((region, index) => { const linkedScreen = linkedScreenRegionForAudio(region); const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} data-recording-linked-screen-clip-id={linkedScreen?.id ?? ''} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={audioRegionStyle(region)} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
                   {index > 0 ? <span className="clipCutBoundary audioCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} aria-hidden="true" /> : null}
+                  {linkedScreen ? (['head', 'tail'] as const).map((edge) => {
+                    const screenIndex = model.lanes.screen.findIndex((clip) => clip.id === linkedScreen.id);
+                    return <span key={edge} role="presentation" className={`trimHandle ${edge === 'head' ? 'trimHandleStart' : 'trimHandleEnd'}`} data-recording-audio-trim-edge={edge} title={edge === 'head' ? 'Drag to trim the start' : 'Drag to trim the end'} onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginClipTrimDrag(linkedScreen, screenIndex, edge, event)} />;
+                  }) : null}
                  {waveformUrl ? <span className="audioWaveform" aria-hidden="true" style={{ backgroundImage: `url("${waveformUrl}")`, ...audioWaveformStyle(linkedScreen?.sourceIn ?? 0) }} /> : null}
                  {waveformTilePlan.filter(tile => tile.clipId === linkedScreen?.id).map(tile => {
                    const url = waveformTileCache.current.get(tileCacheKey(tile.key));
