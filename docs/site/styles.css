@@ -1692,3 +1692,8 @@ footer {
 .windows-howto { margin: 18px auto 0; max-width: 680px; padding: 16px 18px; border-radius: 14px; background: rgb(13 7 22 / 0.72); text-align: start; }
 .windows-howto > p { margin: 0 0 4px; font-weight: 600; }
 .windows-howto .smartscreen { margin: 10px 0 0; }
+
+.install-video { margin: 0 0 20px; max-width: 640px; }
+.install-video video { display: block; width: 100%; height: auto; border-radius: 8px; background: #000; }
+.install-video figcaption { margin-top: 8px; font-size: 0.9em; opacity: 0.8; }
+.windows-howto .install-video { margin: 16px 0 0; max-width: none; }

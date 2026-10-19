@@ -78,6 +78,8 @@
       const steps = document.querySelector("#windows-status .smartscreen");
       if (!howto || !steps) return;
       if (!howto.querySelector(".smartscreen")) howto.append(steps.cloneNode(true));
+      const clip = document.querySelector("#windows-status .install-video");
+      if (clip && !howto.querySelector(".install-video")) howto.append(clip.cloneNode(true));
       howto.hidden = false;
       if (windowsHint) windowsHint.hidden = true;
     });
