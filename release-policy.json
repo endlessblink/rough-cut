@@ -1,6 +1,6 @@
 {
   "approved": true,
-  "activated": false,
+  "activated": true,
   "provider": "github",
   "owner": "endlessblink",
   "repo": "rough-cut",

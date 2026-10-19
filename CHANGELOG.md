@@ -2,6 +2,7 @@
 
 ## 0.1.0-beta.11 — not yet published
 
+- New: in-app updates on Windows (Help, Check for updates), checked against the owner's signature before anything installs; the updater is now switched on for Linux and Windows. Windows users on beta.10 or earlier update once by running the new installer.
 - New: a welcome screen on the empty Projects page, with three first steps (record, edit, export).
 - New: one-click Claude connection in the Graphics panel (Sign in with Claude, Update Claude Code, Get Claude Code) instead of typing commands in a terminal.
 - Timeline: trim handles on every clip, video and audio, with no need to select the clip first; plain trim is the default (the edge you drag follows the mouse and leaves a gap), and closing gaps stays available as an option.

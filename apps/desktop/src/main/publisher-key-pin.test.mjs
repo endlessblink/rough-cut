@@ -20,8 +20,13 @@ test('release source pins the exact owner-supplied Ed25519 SPKI and public docum
   assert.equal(validateReleasePolicy({ ...policy, activated: true }).publisherPublicKey, policy.publisherPublicKey);
 });
 
+test('the shipped release policy is activated (owner decision 2026-10-19, beta.11)', () => {
+  assert.equal(policy.activated, true);
+  assert.equal(validateReleasePolicy(policy).publisherPublicKey, policy.publisherPublicKey);
+});
+
 test('pinned but inactive release policy makes no updater request or installation', async () => {
-  assert.equal(policy.activated, false);
+  const policy = { ...JSON.parse(readFileSync(new URL('../../../../release-policy.json', import.meta.url), 'utf8')), activated: false };
   assert.equal(validateReleasePolicy(policy), null);
   const backend = new EventEmitter();
   let calls = 0;
