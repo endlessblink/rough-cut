@@ -1643,3 +1643,46 @@ footer {
 .lang-switch:hover {
   background: rgba(255, 255, 255, 0.08);
 }
+
+.smartscreen {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0 20px;
+  max-width: 640px;
+}
+.smartscreen figure { margin: 0; }
+.smartscreen p { grid-column: 1 / -1; margin: 0; font-size: 0.95em; opacity: 0.85; }
+.ss-dialog {
+  display: grid;
+  gap: 8px;
+  min-height: 132px;
+  padding: 14px;
+  border-radius: 4px;
+  background: #1f5fa8;
+  color: #fff;
+  font: 12px/1.35 "Segoe UI", Arial, sans-serif;
+}
+.ss-dialog strong { font-size: 14px; font-weight: 600; }
+.ss-dialog u { justify-self: start; }
+.ss-buttons { display: flex; gap: 8px; align-self: end; justify-content: flex-end; }
+.ss-buttons i {
+  font-style: normal;
+  padding: 5px 12px;
+  background: #fff;
+  color: #111;
+}
+.ss-hit { outline: 3px solid #ffd447; outline-offset: 3px; }
+.ss-buttons i:not(.ss-hit) { opacity: 0.55; }
+.smartscreen figcaption { margin-top: 10px; display: flex; gap: 6px; align-items: center; justify-content: flex-start; }
+.smartscreen figcaption b {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffd447;
+  color: #1a1a1a;
+  font-size: 13px;
+}
+@media (max-width: 560px) { .smartscreen { grid-template-columns: 1fr; } }

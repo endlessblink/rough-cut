@@ -28,10 +28,13 @@ let playwright;
 try { playwright = createRequire(import.meta.url)('playwright'); } catch { playwright = loadSharedPlaywright(); }
 
 const app = await playwright._electron.launch({
-  executablePath: electronPath,
-  args: ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${mkdtempSync(join(tmpdir(), 'rc-demo-gif-'))}`, appPath],
+  executablePath: join(packaged, 'dock-launch.sh'),
+  chromiumSandbox: true,
+  args: ['--enable-sandbox', '--force-color-profile=srgb', `--user-data-dir=${mkdtempSync(join(tmpdir(), 'rc-demo-gif-'))}`, appPath],
   env: {
     ...process.env,
+    APPIMAGE_EXTRACT_AND_RUN: '1',
+    ROUGH_CUT_DOCK_LAUNCH: '1',
     ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: resolve(projectArg),
@@ -45,6 +48,11 @@ try {
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('canvas.styledPreviewCanvas', { timeout: 90000 });
   await page.waitForFunction(() => document.querySelector('video')?.readyState >= 1, null, { timeout: 90000 });
+  const panel = process.env.ROUGH_CUT_GIF_PANEL;
+  if (panel) {
+    await page.getByRole('button', { name: panel, exact: true }).first().click();
+    await new Promise((r) => setTimeout(r, 600));
+  }
   let index = 0;
   for (let t = from; t <= to + 1e-6; t += step) {
     await page.evaluate((sec) => window.__roughCutSetPreviewTimeSec(sec), t);
