@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.1.0-beta.10 — not yet published
+## 0.1.0-beta.11 — not yet published
+
+- New: a welcome screen on the empty Projects page, with three first steps (record, edit, export).
+- New: one-click Claude connection in the Graphics panel (Sign in with Claude, Update Claude Code, Get Claude Code) instead of typing commands in a terminal.
+- Timeline: trim handles on every clip, video and audio, with no need to select the clip first; plain trim is the default (the edge you drag follows the mouse and leaves a gap), and closing gaps stays available as an option.
+
+## 0.1.0-beta.10 — 2026-10-18
 
 - Captions: their own timeline lane, speech-to-text (local engine), inline editing, language switching (translation through Claude, on request) and burned into styled exports, Hebrew right to left.
 - Timeline: zoom keeps the playhead in place; trims show a live length readout; End jumps to the end; generated zooms only land on footage still in the edit; AI zooms apply in one undoable step.
