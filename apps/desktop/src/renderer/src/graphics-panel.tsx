@@ -6,6 +6,7 @@ import {
 } from '@phosphor-icons/react';
 
 import { DEFAULT_GRAPHIC_LAYOUT, type GraphicEntrance, type GraphicField, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
+import { previewGraphicMotion } from './graphics-overlay';
 import { cancelGraphicJob, graphicJobProgress, graphicJobSecondsLeft, startGraphicJob, useGraphicJob, type GraphicJob } from './graphics-job';
 import { CREATIVITY_LEVELS, DEFAULT_CREATIVITY, DEFAULT_GRAPHICS_STYLE_ID, GRAPHIC_STYLES, normalizeCreativity, resolveGraphicStyle } from '../../shared/graphics-styles.mjs';
 
@@ -390,7 +391,11 @@ export function GraphicsPanel({
                   role="switch"
                   checked={selected ? selected.animate : true}
                   disabled={disabled || !selected || busy !== null}
-                  onChange={(event) => { if (selected) onAnimateChange(selected.id, event.currentTarget.checked); }}
+                  onChange={(event) => {
+                    if (!selected) return;
+                    onAnimateChange(selected.id, event.currentTarget.checked);
+                    previewGraphicMotion(selected.id);
+                  }}
                   data-graphics-animate="true"
                 />
               </label>
@@ -407,7 +412,11 @@ export function GraphicsPanel({
                   key={selected.id}
                   layout={selected.layout}
                   disabled={disabled || busy !== null}
-                  onChange={(patch, commit) => onLayoutChange(selected.id, patch, commit)}
+                  onChange={(patch, commit) => {
+                    onLayoutChange(selected.id, patch, commit);
+                    // Show the new entrance right away, wherever the playhead is.
+                    if (commit) previewGraphicMotion(selected.id);
+                  }}
                 />
               ) : <p className="graphicsEmpty">Select a graphic to set its motion.</p>}
             </div>

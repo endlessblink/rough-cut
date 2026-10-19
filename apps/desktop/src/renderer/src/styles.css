@@ -4754,7 +4754,7 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--hue) 26%, transparent), color-mix(in srgb, var(--hue) 12%, transparent));
   border: 1px solid color-mix(in srgb, var(--hue) 45%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--hue);
   display: flex;
   height: 64px;

@@ -4,6 +4,17 @@ import { buildGraphicDocument, graphicHoldSec, resizeGraphicLayout, type Graphic
 
 type CanvasRect = { x: number; y: number; w: number; h: number };
 
+const MOTION_PREVIEW_EVENT = 'rough-cut:graphic-motion-preview';
+
+/**
+ * Replays a graphic's entrance once in the viewer, without moving the playhead or saving anything.
+ * The entrance only exists in the first moments of a graphic, so with the playhead anywhere else a
+ * change to Entrance, its length or Animate would otherwise look like it did nothing.
+ */
+export function previewGraphicMotion(id: string) {
+  window.dispatchEvent(new CustomEvent(MOTION_PREVIEW_EVENT, { detail: { id } }));
+}
+
 /**
  * Claude-made graphics drawn live over the whole composite.
  *
@@ -135,8 +146,44 @@ function GraphicFrame({ graphic, active, selected, localSec, width, height, scal
     ref.current?.contentWindow?.postMessage(message, '*');
   }, []);
 
+  // A motion preview drives the page's clock by itself for a moment; moving the playhead ends it.
+  const [previewing, setPreviewing] = React.useState(false);
+  const previewFrameRef = React.useRef<number | null>(null);
+  const stopPreview = React.useCallback(() => {
+    if (previewFrameRef.current !== null) cancelAnimationFrame(previewFrameRef.current);
+    previewFrameRef.current = null;
+    setPreviewing(false);
+  }, []);
+  const entranceSec = graphic.layout?.entranceSec ?? 0.5;
   React.useEffect(() => {
+    const onPreview = (event: Event) => {
+      if ((event as CustomEvent<{ id: string }>).detail?.id !== graphic.id) return;
+      stopPreview();
+      const span = Math.min(durationSec, Math.max(1.5, entranceSec + 0.8));
+      const startedAt = performance.now();
+      setPreviewing(true);
+      const step = () => {
+        const t = (performance.now() - startedAt) / 1000;
+        if (t >= span) {
+          post({ type: 'rc-seek', t: localSecRef.current });
+          previewFrameRef.current = null;
+          setPreviewing(false);
+          return;
+        }
+        post({ type: 'rc-seek', t });
+        previewFrameRef.current = requestAnimationFrame(step);
+      };
+      previewFrameRef.current = requestAnimationFrame(step);
+    };
+    window.addEventListener(MOTION_PREVIEW_EVENT, onPreview);
+    return () => window.removeEventListener(MOTION_PREVIEW_EVENT, onPreview);
+  }, [graphic.id, durationSec, entranceSec, post, stopPreview]);
+  React.useEffect(() => () => stopPreview(), [stopPreview]);
+
+  React.useEffect(() => {
+    if (previewFrameRef.current !== null) stopPreview();
     post({ type: 'rc-seek', t: localSec });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a playhead move ends a preview
   }, [post, localSec]);
 
   React.useEffect(() => {
@@ -172,7 +219,7 @@ function GraphicFrame({ graphic, active, selected, localSec, width, height, scal
       style={{
         width: Math.round(width * scale),
         height: Math.round(height * scale),
-        visibility: active ? 'visible' : 'hidden',
+        visibility: active || previewing ? 'visible' : 'hidden',
       }}
       onLoad={() => {
         post({ type: 'rc-viewport', scale });
