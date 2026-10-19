@@ -4700,6 +4700,60 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 }
 .libraryEmptyError { color: rgb(248 113 113 / 0.92); }
 
+.libraryWelcome {
+  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: auto;
+  max-width: 460px;
+  padding: var(--space-12) var(--space-4);
+}
+.libraryWelcome h2 {
+  color: var(--text);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  margin: 0 0 var(--space-3);
+}
+.libraryWelcomeSteps {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.libraryWelcomeSteps li {
+  border-top: 1px solid rgb(226 232 240 / 0.1);
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+}
+.libraryWelcomeNumber {
+  color: rgb(226 232 240 / 0.45);
+  font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  min-width: var(--space-4);
+}
+.libraryWelcomeSteps strong {
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.libraryWelcomeSteps p {
+  color: rgb(226 232 240 / 0.7);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  margin: var(--space-1) 0 0;
+}
+.libraryWelcomeHint {
+  border-top: 1px solid rgb(226 232 240 / 0.1);
+  color: rgb(226 232 240 / 0.55);
+  font-size: var(--text-sm);
+  margin: 0;
+  padding-top: var(--space-4);
+}
+
 .libraryGroup { display: flex; flex-direction: column; gap: var(--space-3); }
 .libraryGroupHeader {
   align-items: baseline;

@@ -535,7 +535,7 @@ export function LibraryShell({
         {state.status === 'loading' ? <LibraryEmptyState eyebrow="Loading" body="Scanning your projects..." /> : null}
         {state.status === 'error' ? <LibraryEmptyState eyebrow="Couldn’t load projects" body={state.message} tone="error" /> : null}
         {state.status === 'ready' && state.summaries.length === 0 ? (
-          <LibraryEmptyState eyebrow="No projects yet" body="Create an empty project, open a .roughcut file, import media, or record a take." />
+          <LibraryWelcome />
         ) : null}
         {state.status === 'ready' && state.summaries.length > 0 ? (
           <LibraryViewport view={activeView} summaries={filterSummariesByQuery(state.summaries, query)} viewProps={viewProps} onGroupSelectAll={handleGroupSelectAll} />
@@ -746,6 +746,33 @@ function ContinueEditingCard({ summary, onOpen }: { summary: ProjectSummary; onO
         </div>
         <button type="button" className="libraryHeroOpen" onClick={() => onOpen(summary.path)}>Open in editor</button>
       </div>
+    </section>
+  );
+}
+
+const WELCOME_STEPS = [
+  { title: 'Record', body: 'Press Record, top right, to capture your screen. Camera and microphone are optional.' },
+  { title: 'Edit', body: 'Your take opens in Recording edit. Cut, zoom and add captions on one timeline.' },
+  { title: 'Export', body: 'Press Export for a finished MP4, with your background, camera and captions.' },
+] as const;
+
+function LibraryWelcome() {
+  return (
+    <section className="libraryWelcome" aria-labelledby="libraryWelcomeTitle">
+      <p className="eyebrow">Welcome to Rough Cut</p>
+      <h2 id="libraryWelcomeTitle">Make your first video in three steps</h2>
+      <ol className="libraryWelcomeSteps">
+        {WELCOME_STEPS.map((step, index) => (
+          <li key={step.title}>
+            <span className="libraryWelcomeNumber" aria-hidden="true">{index + 1}</span>
+            <div>
+              <strong>{step.title}</strong>
+              <p>{step.body}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <p className="libraryWelcomeHint">Already have a video or a project? Use Import or Open project above.</p>
     </section>
   );
 }
