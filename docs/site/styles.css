@@ -1157,16 +1157,16 @@ footer {
 }
 .compare table {
   width: 100%;
-  min-width: 1320px;
+  min-width: 940px;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.4;
 }
 .compare th,
 .compare td {
-  padding: 16px 18px;
-  text-align: left;
+  padding: 14px 12px;
+  text-align: start;
   vertical-align: top;
   border-bottom: 1px solid var(--panel-line);
 }
@@ -1176,14 +1176,24 @@ footer {
 }
 .compare thead th {
   font-weight: 560;
-  white-space: nowrap;
 }
 .compare tbody th {
   position: sticky;
-  left: 0;
+  inset-inline-start: 0;
+  z-index: 1;
   background: var(--panel);
   font-weight: 500;
-  min-width: 200px;
+  min-width: 140px;
+}
+/* Only shown when the table is wider than the window. */
+.compare-hint {
+  display: none;
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--muted, #b9b2c2);
+}
+@media (max-width: 1060px) {
+  .compare-hint { display: block; }
 }
 .compare .us {
   background: rgba(255, 181, 155, 0.08);
@@ -1314,7 +1324,7 @@ footer {
 }
 .roadmap-list {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: clamp(16px, 2vw, 28px);
   margin: 0;
   padding: 0;
@@ -1370,36 +1380,19 @@ footer {
   }
 }
 
-/* hero button: sheen sweep + arrow dot that turns on hover */
-.primary-action {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-}
-.primary-action::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: linear-gradient(105deg, transparent 30%, rgba(255, 181, 155, 0.55) 50%, transparent 70%);
-  transform: translateX(-120%);
-}
+/* hero button: on hover the arrow badge turns warm and the arrow dips, like a download starting */
 .arrow-dot {
-  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.2s ease;
+  transition: background 0.2s ease;
+}
+.arrow-dot svg {
+  transition: transform 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.primary-action:hover .arrow-dot {
+  background: #e5603a;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .primary-action:hover::after {
-    transform: translateX(120%);
-    transition: transform 0.7s ease;
-  }
-  .primary-action:hover .arrow-dot {
-    transform: rotate(45deg) scale(1.06);
-    background: #e5603a;
-  }
-}
-@media (hover: none) {
-  .primary-action:hover::after {
-    transform: translateX(-120%);
+  .primary-action:hover .arrow-dot svg {
+    transform: translateY(2px);
   }
 }
 
