@@ -13,7 +13,7 @@ function probe(binary, args, spawnImpl) {
   });
 }
 
-const SETUP_ACTIONS = { login: ['auth', 'login'], update: ['update'] };
+const SETUP_ACTIONS = { login: ['auth', 'login'], logout: ['auth', 'logout'], update: ['update'] };
 export const CLAUDE_INSTALL_URL = 'https://docs.claude.com/en/docs/claude-code/setup';
 
 // Runs the official CLI on the user's click so they never need a terminal.

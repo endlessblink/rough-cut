@@ -24,7 +24,8 @@ test('one-click setup runs only the official login or update command and never r
  assert.deepEqual(await runClaudeSetup({binary:'/fake',action:'login',spawnImpl:make(0)}),{ok:true,code:0});
  assert.deepEqual(seen[0].args,['auth','login']);assert.deepEqual(seen[0].stdio,['ignore','ignore','ignore']);
  assert.equal((await runClaudeSetup({binary:'/fake',action:'update',spawnImpl:make(1)})).ok,false);assert.deepEqual(seen[1].args,['update']);
- assert.equal((await runClaudeSetup({binary:'/fake',action:'rm -rf',spawnImpl:make(0)})).ok,false);assert.equal(seen.length,2);
+ assert.deepEqual((await runClaudeSetup({binary:'/fake',action:'logout',spawnImpl:make(0)})).ok,true);assert.deepEqual(seen[2].args,['auth','logout']);
+ assert.equal((await runClaudeSetup({binary:'/fake',action:'rm -rf',spawnImpl:make(0)})).ok,false);assert.equal(seen.length,3);
  assert.equal((await runClaudeSetup({binary:null,action:'login'})).ok,false);
 });
 test('one Connect button installs, updates and signs in only as needed, then reports',async()=>{

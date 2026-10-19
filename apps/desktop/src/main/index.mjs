@@ -1380,7 +1380,7 @@ ipcMain.handle(IPC_CHANNELS.CLAUDE_CONNECTION_STATUS, () => inspectClaudeSubscri
 ipcMain.handle(IPC_CHANNELS.CLAUDE_CONNECTION_SETUP, async (_event, action) => {
   if (action === 'connect') return connectClaude({ resolveBinary: resolveClaudeBinary });
   if (action === 'install') { await shell.openExternal(CLAUDE_INSTALL_URL); return inspectClaudeSubscription({ binary: resolveClaudeBinary() }); }
-  if (action !== 'login' && action !== 'update') return inspectClaudeSubscription({ binary: resolveClaudeBinary() });
+  if (action !== 'login' && action !== 'logout' && action !== 'update') return inspectClaudeSubscription({ binary: resolveClaudeBinary() });
   await runClaudeSetup({ binary: resolveClaudeBinary(), action });
   return inspectClaudeSubscription({ binary: resolveClaudeBinary() });
 });
