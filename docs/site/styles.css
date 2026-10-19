@@ -1686,3 +1686,9 @@ footer {
   font-size: 13px;
 }
 @media (max-width: 560px) { .smartscreen { grid-template-columns: 1fr; } }
+
+.windows-hint { margin: 12px 0 0; font-size: 0.95em; opacity: 0.85; }
+.windows-hint a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.windows-howto { margin: 18px auto 0; max-width: 680px; padding: 16px 18px; border-radius: 14px; background: rgb(13 7 22 / 0.72); text-align: start; }
+.windows-howto > p { margin: 0 0 4px; font-weight: 600; }
+.windows-howto .smartscreen { margin: 10px 0 0; }

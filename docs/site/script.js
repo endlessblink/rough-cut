@@ -67,6 +67,20 @@
     cta.href = windowsAsset;
     cta.hidden = false;
     document.querySelector("[data-windows-status]").hidden = false;
+    const windowsHint = document.querySelector("[data-windows-hint]");
+    if (windowsHint) {
+      windowsHint.hidden = false;
+      windowsHint.querySelector("a")?.addEventListener("click", () => { document.querySelector("#windows-status").open = true; });
+    }
+    // After a Windows download starts, show the two clicks for the SmartScreen warning right under the button.
+    cta.addEventListener("click", () => {
+      const howto = document.querySelector("[data-windows-howto]");
+      const steps = document.querySelector("#windows-status .smartscreen");
+      if (!howto || !steps) return;
+      if (!howto.querySelector(".smartscreen")) howto.append(steps.cloneNode(true));
+      howto.hidden = false;
+      if (windowsHint) windowsHint.hidden = true;
+    });
     document.querySelector("[data-release-status]").textContent =
       t("Free and open source · Linux and Windows beta", "חינמי וקוד פתוח · גרסת בטא ל-Linux ול-Windows");
     document.querySelector(".lead").textContent =
