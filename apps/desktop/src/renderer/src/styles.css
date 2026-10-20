@@ -7146,6 +7146,27 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .graphicsTabs .segmentedOption.active .graphicsTabCount { color: var(--muted); }
 .graphicsTabPanel { display: grid; gap: var(--space-6); }
 .graphicsPane .graphicsTabPanel > .inspectorSection { border-top: 0; padding-top: 0; }
+
+/* Fit the pane's width, never widen it (2026-10-20: with a graphic selected, the
+ * "Selected graphic · To front · To back · Delete" row made the pane's auto grid column
+ * 401px inside a 357px pane, pushing every row past the right edge). Every grid here
+ * gets a column that can shrink, and rows that cannot shrink wrap instead. */
+.graphicsPane,
+.graphicsPane .graphicsTabPanel,
+.graphicsPane .inspectorSection,
+.graphicsPane .graphicsFields,
+.graphicsPane .graphicsList { grid-template-columns: minmax(0, 1fr); }
+.graphicsPane .graphicsList > li { min-width: 0; }
+.graphicsPane .graphicsListTime { flex: none; }
+.graphicsPane > *,
+.graphicsPane .graphicsTabPanel > *,
+.graphicsPane .inspectorSection > * { min-width: 0; }
+.graphicsPane .inspectorSectionHead { flex-wrap: wrap; row-gap: var(--space-1); }
+.graphicsPane .inspectorSectionAction { flex-wrap: wrap; justify-content: flex-end; row-gap: var(--space-1); }
+.studioPane .graphicsTabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.studioPane .graphicsTabs .segmentedOption { min-width: 0; overflow: hidden; padding-inline: var(--space-1); text-overflow: ellipsis; white-space: nowrap; }
+.graphicsPane .paneTitle > * { min-width: 0; }
+.graphicsPane p { overflow-wrap: anywhere; }
 .graphicsLookSummary {
   align-items: center;
   background: var(--panel-alt);
