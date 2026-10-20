@@ -216,6 +216,38 @@ test('the style is only a light hint by default, and followed closely when locke
   assert.doesNotMatch(locked, /LIGHT INFLUENCE ONLY/);
 });
 
+// Bug 2026-10-20: with Paper Cut locked, a long prompt with its own style, colours and timing
+// made Claude ignore the template. The lock and the chosen length must beat the request.
+test('a locked style and chosen length win over look and timing words in a long request', async () => {
+  const { buildGraphicsSystemPrompt, buildGraphicsUserPrompt, generateGraphic } = await import('./claude-graphics-service.mjs');
+  const longRequest = 'Create a 5-second motion graphics layer for the opening. Style: torn paper, neon pink and teal, huge 200px type. Motion: ease-out slide, 3 seconds hold.';
+  const locked = buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: { styleId: 'papercut', styleLock: true } });
+  assert.match(locked, /Paper Cut/);
+  assert.match(locked, /The lock beats the request/);
+  assert.doesNotMatch(locked, /loose inspiration/, 'no line telling Claude the style is optional');
+
+  const user = buildGraphicsUserPrompt({ request: longRequest, lengthSec: 8, styleLocked: true });
+  assert.match(user, /Make this graphic: Create a 5-second/);
+  assert.match(user, /style is LOCKED: any look, colour, font, texture, size, easing or motion words in the request are ignored/);
+  assert.match(user, /exactly 8 seconds[\s\S]*overrides any length or timing the request mentions/);
+
+  // Unlocked, the request keeps its say over the look.
+  const loose = buildGraphicsUserPrompt({ request: longRequest, styleLocked: false });
+  assert.doesNotMatch(loose, /LOCKED/);
+  assert.match(buildGraphicsSystemPrompt({ width: 1920, height: 1080, fps: 30, style: { styleId: 'papercut' } }), /loose inspiration/);
+
+  // The real call path passes the lock from the style the app sends (a boolean).
+  let sentPrompt = '';
+  const runOnce = async ({ prompt, input }) => {
+    sentPrompt = String(prompt ?? input ?? '');
+    return { ok: true, stdout: JSON.stringify({ type: 'result', subtype: 'success', structured_output: { title: 't', durationSec: 5, html: '<div>x</div>', fields: [] } }) };
+  };
+  const result = await generateGraphic({ request: longRequest, lengthSec: 8, style: { styleId: 'papercut', styleLock: true }, binary: '/bin/true', runOnce, connectionCheck: readyConnection });
+  assert.equal(result.ok, true);
+  assert.equal(result.graphic.durationSec, 8, 'the chosen length wins over the 5 seconds in the request');
+  assert.match(sentPrompt, /style is LOCKED/, 'the lock reaches the prompt Claude actually gets');
+});
+
 test('a chosen length goes to Claude, long ones ask for beats, and the result keeps that length', async () => {
   const { buildGraphicsUserPrompt, generateGraphic } = await import('./claude-graphics-service.mjs');
   assert.match(buildGraphicsUserPrompt({ request: 'x', lengthSec: 30 }), /exactly 30 seconds[\s\S]*multi-beat scene/);

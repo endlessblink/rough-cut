@@ -586,7 +586,7 @@ export function runStyledExport(job, { appDir = APP_DIR, timeoutMs = 3 * 60 * 60
   const electron = join(appDir, 'node_modules/.bin/electron');
   if (!existsSync(electron)) throw new Error('The Rough Cut app is not installed next to this tool (no electron).');
   const display = process.env.DISPLAY && !process.env.ROUGH_CUT_MCP_FORCE_XVFB ? [] : ['xvfb-run', '-a'];
-  const command = [...display, electron, '--enable-sandbox', '--mute-audio', `--user-data-dir=${join(work, 'profile')}`, '.'];
+  const command = [...display, electron, '--enable-sandbox', '--mute-audio', '--disable-gpu', `--user-data-dir=${join(work, 'profile')}`, '.'];
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command[0], command.slice(1), {
       cwd: appDir,
