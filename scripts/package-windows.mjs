@@ -126,7 +126,8 @@ for (const name of ['THIRD_PARTY_NOTICES.md', 'README.md', 'INSTALL.md', 'RELEAS
   await cp(join(root, name), join(artifactRoot, name)).catch(() => undefined);
 }
 const iconPath = join(root, 'build-resources', 'windows-tools', 'rough-cut.ico');
-makeIcon(join(root, 'apps/desktop/assets/rough-cut-mvp-icon.png'), iconPath);
+// Use the bundled, integrity-checked ffmpeg.exe: build machines (GitHub's Windows runner) have no ffmpeg on PATH.
+makeIcon(join(root, 'apps/desktop/assets/rough-cut-mvp-icon.png'), iconPath, { ffmpeg: join(toolsRoot, 'bin', 'ffmpeg.exe') });
 const { rcedit } = await import('rcedit');
 await rcedit(join(artifactRoot, `${productName}.exe`), {
   icon: iconPath,
