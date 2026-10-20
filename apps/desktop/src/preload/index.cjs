@@ -5,6 +5,8 @@ const IPC_CHANNELS = {
   CLAUDE_CONNECTION_SETUP: 'claude:connection-setup',
   UPDATE_STATUS: 'update:status',
   UPDATE_INSTALL: 'update:install',
+  UPDATE_CHECK: 'update:check',
+  ABOUT_OPEN: 'about:open',
   APP_GET_VERSION: 'app:get-version',
   APP_GET_RUNTIME_LOG_PATH: 'app:get-runtime-log-path',
   APP_OPEN_EDITOR: 'app:open-editor',
@@ -178,6 +180,12 @@ contextBridge.exposeInMainWorld('roughCut', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, listener);
   },
   installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
+  checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
+  onAboutOpen: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.ABOUT_OPEN, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ABOUT_OPEN, listener);
+  },
   generateGraphic: (payload) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_GENERATE, payload),
   cancelGraphic: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_CANCEL, requestId),
   onGraphicsProgress: (callback) => {

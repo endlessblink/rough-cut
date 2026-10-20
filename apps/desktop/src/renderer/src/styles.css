@@ -383,6 +383,69 @@ input[type="number"]:focus-visible {
   padding: 0 var(--space-3);
 }
 .updateReadyButton:hover { background: rgb(37 99 235 / 0.24); }
+.updateReadyButton:disabled { cursor: progress; opacity: 1; }
+
+/* About Rough Cut: version and the one-click update. Same modal language as the delete confirmation. */
+.aboutBackdrop {
+  align-items: center;
+  background: rgb(0 0 0 / 0.55);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 50;
+}
+.aboutDialog {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--strong-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-5) var(--space-4);
+  text-align: center;
+  width: min(92vw, 24rem);
+}
+.aboutMark {
+  align-items: center;
+  background: rgb(37 99 235 / 0.16);
+  border: 1px solid rgb(122 167 255 / 0.4);
+  border-radius: var(--radius-lg);
+  color: var(--accent-hover);
+  display: flex;
+  font-size: var(--text-2xl);
+  height: 3.25rem;
+  justify-content: center;
+  margin-bottom: var(--space-1);
+  width: 3.25rem;
+}
+.aboutHeading { font-size: var(--text-lg); font-weight: var(--weight-semibold); margin: 0; }
+.aboutVersion { color: var(--subtle); font-size: var(--text-sm); font-variant-numeric: tabular-nums; margin: 0; }
+.aboutBody { color: rgb(226 232 240 / 0.7); font-size: var(--text-md); line-height: 1.45; margin: var(--space-1) 0 0; }
+.aboutStatus {
+  background: rgb(255 255 255 / 0.04);
+  border-radius: var(--radius-md);
+  color: rgb(226 232 240 / 0.85);
+  font-size: var(--text-sm);
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  width: 100%;
+}
+.aboutStatusError { color: rgb(248 113 113); }
+.aboutPrimary {
+  align-items: center;
+  background: var(--accent);
+  border: 1px solid transparent;
+  color: #fff;
+  display: inline-flex;
+  font-weight: var(--weight-semibold);
+  gap: var(--space-1-5);
+}
+.aboutPrimary:hover:not(:disabled) { background: var(--accent-hover); }
+.aboutPrimary:disabled { cursor: progress; opacity: 0.85; }
+.aboutActions { display: flex; gap: var(--space-2); justify-content: center; margin-top: var(--space-2); width: 100%; }
 .windowDots { gap: var(--space-1-5); }
 .windowDots i { border-radius: 50%; display: block; height: 0.72rem; width: 0.72rem; }
 .windowDots i:nth-child(1) { background: #ff5f57; }

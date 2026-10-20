@@ -150,3 +150,26 @@ test('a backend error leaves the installed version in place and explains it', as
   assert.equal(status.status, 'error');
   assert.match(status.reason, /current version was not replaced/i);
 });
+
+test('one click on Update downloads, then closes and reopens on the new version; never while busy', async () => {
+  let busy = true;
+  const backend = fakeBackend();
+  const controller = windowsController({ backend, isBusy: () => busy });
+  assert.equal((await controller.updateNow()).status, 'busy');
+  assert.deepEqual(backend.calls, []);
+  busy = false;
+  assert.equal((await controller.updateNow()).status, 'install-requested');
+  assert.deepEqual(backend.calls, ['check', 'download', 'install:true:true']);
+});
+
+test('Update reports download progress, and nothing installs when there is no newer version', async () => {
+  const backend = fakeBackend();
+  const seen = [];
+  backend.downloadUpdate = async () => { backend.emit('download-progress', { percent: 41.6 }); };
+  const controller = windowsController({ backend, onStatus: (s) => seen.push(s) });
+  await controller.check();
+  assert.ok(seen.some((s) => s.status === 'downloading' && s.percent === 42));
+  const current = fakeBackend({ info: null });
+  assert.equal((await windowsController({ backend: current }).updateNow()).status, 'current');
+  assert.ok(!current.calls.some((call) => call.startsWith('install')));
+});

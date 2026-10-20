@@ -294,6 +294,8 @@ declare global {
       getUpdateStatus?: () => Promise<UpdateStatus>;
       onUpdateStatus?: (callback: (status: UpdateStatus) => void) => () => void;
       installUpdate?: () => Promise<UpdateStatus>;
+      checkForUpdates?: () => Promise<UpdateStatus>;
+      onAboutOpen?: (callback: () => void) => () => void;
       listAiAssets: () => Promise<AiAsset[]>;
       resolveAiAsset: (payload: { id: string }) => Promise<AiAsset | null>;
       tagAiAsset: (payload: { id: string; tags: string[] }) => Promise<AiAsset>;
@@ -1526,6 +1528,7 @@ function App() {
           />
           <div className="topActions">
             <UpdateReadyButton />
+            <AboutButton />
             <button type="button" className="iconButton" onClick={undoProjectEdit} disabled={editHistory.undo.length === 0} aria-label="Undo last edit" title="Undo last edit">
               <Icon name="undo" />
             </button>
@@ -1815,13 +1818,10 @@ function AppViewTabStrip({ activeId, onChange, editorEnabled }: { activeId: AppV
   );
 }
 
-type UpdateStatus = { status: string; version?: string; reason?: string };
+type UpdateStatus = { status: string; version?: string; reason?: string; percent?: number };
 
-/**
- * Shown only once a new version has been downloaded and checked. One click asks to restart and install
- * (the same confirmation as Help > Restart to install update), so nobody has to find the hidden menu.
- */
-function UpdateReadyButton() {
+/** Live update status from the main process (checked at start and every few hours). */
+function useUpdateStatus() {
   const [status, setStatus] = React.useState<UpdateStatus | null>(null);
   React.useEffect(() => {
     let alive = true;
@@ -1829,17 +1829,94 @@ function UpdateReadyButton() {
     const off = window.roughCut.onUpdateStatus?.((next) => setStatus(next));
     return () => { alive = false; off?.(); };
   }, []);
-  if (status?.status !== 'downloaded') return null;
+  return status;
+}
+
+/** One click: download (if not already), close, and reopen on the new version. */
+function startUpdate(setPending: (pending: boolean) => void) {
+  setPending(true);
+  void window.roughCut.installUpdate?.().then((next) => { if (next?.status !== 'install-requested') setPending(false); }).catch(() => setPending(false));
+}
+
+function updatingLabel(status: UpdateStatus | null) {
+  return status?.status === 'downloading' && typeof status.percent === 'number' ? `Updating… ${status.percent}%` : 'Updating…';
+}
+
+/** Appears once a newer version is found. Like any desktop app: click it and Rough Cut updates and restarts. */
+function UpdateReadyButton() {
+  const status = useUpdateStatus();
+  const [pending, setPending] = React.useState(false);
+  if (!pending && status?.status !== 'downloaded' && status?.status !== 'downloading') return null;
   return (
     <button
       type="button"
       className="updateReadyButton"
-      onClick={() => { void window.roughCut.installUpdate?.(); }}
-      title={`Rough Cut ${status.version ?? ''} is ready. Restart to install it; your projects and settings are kept.`}
+      onClick={() => startUpdate(setPending)}
+      disabled={pending}
+      title={`Update to Rough Cut ${status?.version ?? ''}. It closes, updates and opens again; your projects and settings are kept.`}
       data-update-ready="true"
     >
-      <Icon name="sparkle" /> Update ready
+      <Icon name="sparkle" /> {pending ? updatingLabel(status) : 'Update'}
     </button>
+  );
+}
+
+function AboutButton() {
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => window.roughCut.onAboutOpen?.(() => setOpen(true)), []);
+  return (
+    <>
+      <button type="button" className="iconButton" onClick={() => setOpen(true)} aria-label="About Rough Cut" title="About Rough Cut" data-about-open="true">
+        <Icon name="info" />
+      </button>
+      {open ? <AboutDialog onClose={() => setOpen(false)} /> : null}
+    </>
+  );
+}
+
+function AboutDialog({ onClose }: { onClose: () => void }) {
+  const status = useUpdateStatus();
+  const [version, setVersion] = React.useState('');
+  const [pending, setPending] = React.useState(false);
+  const [checking, setChecking] = React.useState(false);
+  React.useEffect(() => { window.roughCut.getVersion().then(setVersion).catch(() => setVersion('')); }, []);
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !pending) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, pending]);
+  const state = status?.status;
+  const ready = state === 'downloaded' || state === 'downloading';
+  const line = pending ? `${updatingLabel(status)} Rough Cut closes and opens again on the new version.`
+    : ready ? `Rough Cut ${status?.version ?? ''} is available.`
+    : state === 'checking' || checking ? 'Checking for updates…'
+    : state === 'current' ? 'You have the latest version.'
+    : state === 'error' ? (status?.reason ?? 'The update check failed. Try again later.')
+    : state === 'idle' ? 'Rough Cut checks for updates when it opens and every few hours.'
+    : 'This copy updates when you install a newer version from the Rough Cut website.';
+  const canCheck = state === 'idle' || state === 'current' || state === 'error';
+  return (
+    <div className="aboutBackdrop" role="dialog" aria-modal="true" aria-labelledby="aboutHeading" onClick={pending ? undefined : onClose}>
+      <div className="aboutDialog" onClick={(event) => event.stopPropagation()} data-about-dialog="true">
+        <div className="aboutMark" aria-hidden="true"><Icon name="record" /></div>
+        <h2 id="aboutHeading" className="aboutHeading">Rough Cut</h2>
+        <p className="aboutVersion" data-about-version="true">{version ? `Version ${version}` : ' '}</p>
+        <p className="aboutBody">Record your screen and camera, edit on one timeline, and export. Free and open source.</p>
+        <p className={state === 'error' ? 'aboutStatus aboutStatusError' : 'aboutStatus'} aria-live="polite" data-about-status={state ?? 'unknown'}>{line}</p>
+        <div className="aboutActions">
+          <button type="button" onClick={onClose} disabled={pending}>Close</button>
+          {ready || pending ? (
+            <button type="button" className="aboutPrimary" onClick={() => startUpdate(setPending)} disabled={pending} data-about-update="true">
+              <Icon name="sparkle" /> {pending ? updatingLabel(status) : `Update to ${status?.version ?? 'the new version'}`}
+            </button>
+          ) : canCheck ? (
+            <button type="button" className="aboutPrimary" disabled={checking} onClick={() => { setChecking(true); void window.roughCut.checkForUpdates?.().finally(() => setChecking(false)); }}>
+              Check for updates
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2769,7 +2846,7 @@ function getFocusableElements(root: HTMLElement) {
   ].join(','))).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
 }
 
-type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom' | 'censor';
+type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom' | 'censor' | 'info';
 type FrameAlignmentMode = 'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
 type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'captions' | 'censor' | 'graphics';
 
@@ -2795,6 +2872,7 @@ const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
   pause: PhosphorPause,
   zoom: PhosphorMagnifyingGlassPlus,
   censor: PhosphorEyeSlash,
+  info: PhosphorInfo,
 };
 
 function Icon({ name }: { name: IconName }) {
