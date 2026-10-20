@@ -15,6 +15,8 @@ export const IPC_CHANNELS = {
   DEV_TAKE_CHUNK: 'dev:take-chunk',
   DEV_TAKE_FINISH: 'dev:take-finish',
   DEV_TAKE_CANCEL: 'dev:take-cancel',
+  DEV_AGENT_EDITS_GET: 'dev:agent-edits-get',
+  DEV_AGENT_EDITS_RESOLVE: 'dev:agent-edits-resolve',
   UPDATE_CHECK: 'update:check',
   ABOUT_OPEN: 'about:open',
   // Project I/O

@@ -15,6 +15,8 @@ const IPC_CHANNELS = {
   DEV_TAKE_CHUNK: 'dev:take-chunk',
   DEV_TAKE_FINISH: 'dev:take-finish',
   DEV_TAKE_CANCEL: 'dev:take-cancel',
+  DEV_AGENT_EDITS_GET: 'dev:agent-edits-get',
+  DEV_AGENT_EDITS_RESOLVE: 'dev:agent-edits-resolve',
   UPDATE_CHECK: 'update:check',
   ABOUT_OPEN: 'about:open',
   APP_GET_VERSION: 'app:get-version',
@@ -205,6 +207,8 @@ contextBridge.exposeInMainWorld('roughCut', {
   devTakeChunk: (id, chunk) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_CHUNK, id, chunk),
   devTakeFinish: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_FINISH, payload),
   devTakeCancel: (id) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_CANCEL, id),
+  devGetAgentEdits: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_AGENT_EDITS_GET, payload),
+  devResolveAgentEdits: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_AGENT_EDITS_RESOLVE, payload),
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
   onAboutOpen: (callback) => {
     const listener = () => callback();

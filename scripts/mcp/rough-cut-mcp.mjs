@@ -192,6 +192,20 @@ function cachedTranscript(args, file) {
   return null;
 }
 
+/**
+ * The list of edits made on a copy, which Rough Cut offers Noam to take into his own
+ * project one by one (Dev menu, Agent edits). Beside the copy: <copy>.edits.json.
+ */
+function journalPath(copy) { return `${copy}.edits.json`; }
+function readJournal(copy) {
+  try {
+    const journal = JSON.parse(readFileSync(journalPath(copy), 'utf8'));
+    if (Array.isArray(journal.entries)) return journal;
+  } catch { /* no list yet */ }
+  return { version: 1, projectPath: copy.replace(/\.claude-edit\.roughcut$/, '.roughcut'), entries: [] };
+}
+function writeJournal(copy, journal) { writeFileSync(journalPath(copy), `${JSON.stringify(journal, null, 2)}\n`); }
+
 function editCopyPath(projectPath) {
   return projectPath.endsWith('.claude-edit.roughcut')
     ? projectPath
@@ -398,6 +412,8 @@ const TOOLS = {
         // The copy is its own project: same edits, its own id.
         const doc = JSON.parse(readFileSync(src, 'utf8'));
         writeFileSync(copy, JSON.stringify({ ...doc, id: randomUUID() }));
+        // A fresh copy starts a fresh list of edits for Noam to take in.
+        writeJournal(copy, { version: 1, projectPath: src, entries: [] });
       }
       return text({ editCopy: copy, summary: summarise(copy) });
     },
@@ -409,7 +425,7 @@ const TOOLS = {
       + 'add_voice_over {file, atSec, mode: replace|over, inSec?, outSec?} puts a sound file on the Voice lane (replace mutes the recording\'s voice under it, over plays both); '
       + 'set_voice_over_mode {clipId, mode}; move_clip {clipId, atSec} and trim_clip {clipId, edge: head|tail, sec} for added clips and voice-overs; '
       + 'set_layout {captions?: boolean, camera?: boolean} turns burned-in captions and the camera bubble on or off. '
-      + 'Saves a one-step undo file next to the copy. The original project is never changed.',
+      + 'Saves a one-step undo file next to the copy and adds the edit to the list Noam sees in Rough Cut (Dev menu, Agent edits), where he takes each one into his own project or skips it. The original project is never changed.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -435,29 +451,27 @@ const TOOLS = {
       const fps = doc.settings?.frameRate ?? 30;
       const before = readFileSync(copy, 'utf8');
       const frame = (s) => Math.round(s * fps);
-      const splitAt = (f) => {
-        for (const track of doc.timeline.tracks) {
-          const c = track.clips.find((x) => x.timelineIn < f && f < x.timelineOut);
-          if (c) { doc = M.splitClip(doc, { clipId: c.id, frame: f }).document; return; }
-        }
+      // Build one edit that names things the same way in the copy and in Noam's project,
+      // apply it with the same code the app uses, and log it so the app can offer it to him.
+      const addedAsset = (clipId) => {
+        const clip = M.listInsertedClips(doc).find((item) => item.clipId === clipId);
+        if (!clip) throw new Error(`${clipId} is not an added clip or voice-over`);
+        return clip.assetId;
       };
+      let edit;
       if (a.op === 'cut_range') {
         const s = frame(a.startSec), e = frame(a.endSec);
         if (!(e > s)) throw new Error('endSec must be after startSec');
-        // Splitting one clip also splits its linked partners; repeat until nothing spans a boundary.
-        for (const f of [s, e]) for (let i = 0; i < 20; i += 1) {
-          const spans = doc.timeline.tracks.some((t) => t.clips.some((x) => x.timelineIn < f && f < x.timelineOut));
-          if (!spans) break;
-          splitAt(f);
-        }
-        doc = M.rippleDeleteRange(doc, { startFrame: s, endFrame: e }).document;
+        edit = { op: 'cut_range', startFrame: s, endFrame: e };
       } else if (a.op === 'split') {
-        doc = M.splitClip(doc, { clipId: a.clipId, frame: frame(a.sec) }).document;
+        const track = doc.timeline.tracks.find((item) => item.clips.some((clip) => clip.id === a.clipId));
+        if (!track) throw new Error(`No clip ${a.clipId}`);
+        edit = { op: 'split', frame: frame(a.sec), trackId: track.id };
       } else if (a.op === 'delete_clip') {
-        const added = M.listInsertedClips(doc).some((clip) => clip.clipId === a.clipId);
-        doc = added
-          ? M.removeInsertedClip(doc, { clipId: a.clipId, ripple: a.ripple !== false })
-          : M.deleteClip(doc, { clipId: a.clipId, mode: a.ripple ? 'ripple' : 'leave-gap' }).document;
+        const added = M.listInsertedClips(doc).find((clip) => clip.clipId === a.clipId);
+        edit = added
+          ? { op: 'delete_added', assetId: added.assetId, ripple: a.ripple !== false }
+          : { op: 'delete_clip', clipId: a.clipId, ripple: Boolean(a.ripple) };
       } else if (a.op === 'insert_clip' || a.op === 'add_voice_over') {
         const file = resolve(String(a.file ?? ''));
         if (!existsSync(file)) throw new Error(`No file at ${file}`);
@@ -470,28 +484,27 @@ const TOOLS = {
         if (a.op === 'insert_clip') {
           if (!info.width) throw new Error('insert_clip needs a video file; use add_voice_over for sound');
           const asset = M.createInsertedMediaAsset({ id: `clip-${randomUUID()}`, filePath: file, durationFrames, kind: 'clip', name, hasAudio: info.hasAudio, width: info.width, height: info.height, fps });
-          doc = M.insertMediaClip(doc, { asset, frame: frame(a.atSec ?? 0), mode: a.mode === 'overwrite' ? 'overwrite' : 'insert', placement: 'screen', sourceIn, sourceOut });
+          edit = { op: 'insert_clip', asset, frame: frame(a.atSec ?? 0), mode: a.mode === 'overwrite' ? 'overwrite' : 'insert', sourceIn, sourceOut };
         } else {
           if (!info.hasAudio) throw new Error('add_voice_over needs a file with sound');
           const asset = M.createInsertedMediaAsset({ id: `voice-${randomUUID()}`, filePath: file, durationFrames, kind: 'voice', name, voiceMode: a.mode === 'over' ? 'over' : 'replace' });
-          doc = M.placeVoiceTake(doc, { asset, frame: frame(a.atSec ?? 0), sourceIn, sourceOut });
+          edit = { op: 'add_voice_over', asset, frame: frame(a.atSec ?? 0), sourceIn, sourceOut };
         }
       } else if (a.op === 'set_voice_over_mode') {
-        doc = M.setVoiceOverMode(doc, { clipId: a.clipId, mode: a.mode === 'over' ? 'over' : 'replace' });
+        edit = { op: 'set_voice_over_mode', assetId: addedAsset(a.clipId), mode: a.mode === 'over' ? 'over' : 'replace' };
       } else if (a.op === 'move_clip') {
-        doc = M.moveInsertedClip(doc, { clipId: a.clipId, timelineIn: frame(a.atSec ?? 0) });
+        edit = { op: 'move_added', assetId: addedAsset(a.clipId), frame: frame(a.atSec ?? 0) };
       } else if (a.op === 'trim_clip') {
-        doc = M.trimInsertedClip(doc, { clipId: a.clipId, edge: a.edge === 'head' ? 'head' : 'tail', frame: frame(a.sec ?? 0) });
+        edit = { op: 'trim_added', assetId: addedAsset(a.clipId), edge: a.edge === 'head' ? 'head' : 'tail', frame: frame(a.sec ?? 0) };
       } else if (a.op === 'set_layout') {
-        if (typeof a.captions === 'boolean') doc = { ...doc, captions: { ...(doc.captions ?? {}), enabled: a.captions } };
-        if (typeof a.camera === 'boolean') {
-          doc = { ...doc, assets: doc.assets.map((asset) => (asset.type === 'recording'
-            ? { ...asset, presentation: { ...(asset.presentation ?? {}), camera: { ...(asset.presentation?.camera ?? {}), visible: a.camera } } }
-            : asset)) };
-        }
+        edit = { op: 'set_layout', ...(typeof a.captions === 'boolean' ? { captions: a.captions } : {}), ...(typeof a.camera === 'boolean' ? { camera: a.camera } : {}) };
       } else throw new Error(`Unknown op ${a.op}`);
+      doc = M.applyAgentEdit(doc, edit);
       writeFileSync(`${copy}.undo`, before);
       writeFileSync(copy, JSON.stringify(doc));
+      const journal = readJournal(copy);
+      journal.entries.push({ id: randomUUID(), at: new Date().toISOString(), edit, label: M.describeAgentEdit(edit, fps) });
+      writeJournal(copy, journal);
       return text({ ok: true, summary: summarise(copy) });
     },
   },
@@ -503,6 +516,9 @@ const TOOLS = {
       if (!existsSync(`${copy}.undo`)) throw new Error('Nothing to undo');
       copyFileSync(`${copy}.undo`, copy);
       rmSync(`${copy}.undo`);
+      const journal = readJournal(copy);
+      journal.entries.pop();
+      writeJournal(copy, journal);
       return text({ ok: true, summary: summarise(copy) });
     },
   },

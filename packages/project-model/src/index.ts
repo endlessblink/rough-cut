@@ -29,3 +29,4 @@ export * from './natural-join.js';
 export * from './interaction-primitives.js';
 export * from './cleanup-review.js';
 export * from './inserted-media.js';
+export * from './agent-edits.js';

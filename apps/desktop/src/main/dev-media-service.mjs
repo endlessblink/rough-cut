@@ -9,7 +9,7 @@
 // next to the current project. ffmpeg runs only through the capped, low-priority
 // wrapper the export uses.
 import { existsSync } from 'node:fs';
-import { mkdir, open, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -139,6 +139,42 @@ export function createTakeWriter({ now = () => new Date(), uuid = randomUUID } =
     },
     activeCount: () => sessions.size,
   };
+}
+
+/** Where the agent's list of edits for a project lives (written by the rough-cut MCP). */
+export function agentEditJournalPath(projectPath) {
+  if (projectPath.endsWith('.claude-edit.roughcut')) return null;
+  return projectPath.replace(/\.roughcut$/, '.claude-edit.roughcut.edits.json');
+}
+
+/** The agent's edits for this project that Noam has not taken in or skipped yet. */
+export async function readAgentEditJournal(projectPath, { read = readFile } = {}) {
+  const path = agentEditJournalPath(projectPath);
+  if (!path) return { entries: [] };
+  try {
+    const journal = JSON.parse(await read(path, 'utf8'));
+    const entries = Array.isArray(journal?.entries) ? journal.entries : [];
+    return { entries: entries.filter((entry) => entry && entry.edit && !entry.resolved) };
+  } catch {
+    return { entries: [] };
+  }
+}
+
+/** Mark edits as taken in or skipped so they leave the list. Only the list file is written. */
+export async function resolveAgentEditEntries(projectPath, ids, resolution, { read = readFile, write = writeFile } = {}) {
+  const path = agentEditJournalPath(projectPath);
+  if (!path || !Array.isArray(ids) || ids.length === 0) return { updated: 0 };
+  const mark = resolution === 'skipped' ? 'skipped' : 'accepted';
+  const journal = JSON.parse(await read(path, 'utf8'));
+  const wanted = new Set(ids.map(String));
+  let updated = 0;
+  journal.entries = (journal.entries ?? []).map((entry) => {
+    if (!wanted.has(String(entry?.id)) || entry.resolved) return entry;
+    updated += 1;
+    return { ...entry, resolved: mark, resolvedAt: new Date().toISOString() };
+  });
+  await write(path, `${JSON.stringify(journal, null, 2)}\n`);
+  return { updated };
 }
 
 /** Stream copy into a fresh WebM so it gains a duration and cues. No re-encode, two threads. */

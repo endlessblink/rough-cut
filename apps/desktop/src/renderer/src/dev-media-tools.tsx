@@ -1,6 +1,8 @@
 // Dev-only tools for Noam's own dock copy: add a clip from outside the recording
 // at the playhead, record a camera take while a marked range plays, and record a
-// voice-over (mic only) from the playhead or over a marked range.
+// voice-over (mic only) from the playhead or over a marked range, and take in the
+// edits an agent made on its copy of this project, one by one (like Resolve's
+// compare timelines + Accept change).
 // Agreed spec: docs/SPEC-dev-insert-and-camera-takes-2026-10-20.md.
 // Nothing here renders unless main reports the local dev switch is on.
 import React from 'react';
@@ -11,6 +13,9 @@ import {
   listCameraTakes,
   pickupLanding,
   placeVoiceTake,
+  agentEditFrame,
+  applyAgentEdit,
+  type AgentEdit,
   type VoiceOverMode,
   useCameraTake as switchCameraTake,
   type InsertEditMode,
@@ -26,7 +31,11 @@ type DevBridge = {
   devTakeChunk?: (id: string, chunk: ArrayBuffer) => Promise<number>;
   devTakeFinish?: (payload: { id: string; projectFps: number; kind?: 'camera' | 'voice' }) => Promise<PreparedMedia>;
   devTakeCancel?: (id: string) => Promise<boolean>;
+  devGetAgentEdits?: (payload: { projectPath: string }) => Promise<{ entries: AgentEditEntryView[] }>;
+  devResolveAgentEdits?: (payload: { projectPath: string; ids: string[]; resolution: 'accepted' | 'skipped' }) => Promise<{ updated: number }>;
 };
+
+type AgentEditEntryView = { id: string; at: string; label?: string; edit: AgentEdit };
 
 type PreparedMedia = {
   filePath: string;
@@ -116,7 +125,19 @@ export function DevMediaMenu({
   onTakePlayback: (state: { playing: boolean; muted: boolean } | null) => void;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [panel, setPanel] = React.useState<'none' | 'insert-choice' | 'take' | 'voice'>('none');
+  const [panel, setPanel] = React.useState<'none' | 'insert-choice' | 'take' | 'voice' | 'agent'>('none');
+  const [agentEdits, setAgentEdits] = React.useState<AgentEditEntryView[]>([]);
+  const [agentSelected, setAgentSelected] = React.useState<Set<string>>(() => new Set());
+  const [agentNote, setAgentNote] = React.useState<string | null>(null);
+  const loadAgentEdits = React.useCallback(async () => {
+    if (!projectPath) { setAgentEdits([]); return; }
+    const result = await bridge().devGetAgentEdits?.({ projectPath }).catch(() => null);
+    const entries = result?.entries ?? [];
+    setAgentEdits(entries);
+    setAgentSelected(new Set(entries.map((entry) => entry.id)));
+  }, [projectPath]);
+  // The list is read whenever the menu opens, so new agent edits show up without a restart.
+  React.useEffect(() => { if (open || panel === 'agent') void loadAgentEdits(); }, [open, panel, loadAgentEdits]);
   const [voiceMode, setVoiceMode] = React.useState<VoiceOverMode>(() => (readStored('roughCut.dev.voiceMode') === 'over' ? 'over' : 'replace'));
   const [micLevel, setMicLevel] = React.useState(0);
   const [picked, setPicked] = React.useState<{ filePath: string; kind: 'video' | 'project'; name: string } | null>(null);
@@ -169,7 +190,7 @@ export function DevMediaMenu({
       const target = event.target as Node;
       if (menuRef.current && !menuRef.current.contains(target) && !layerRef.current?.contains(target) && !takeActive) {
         setOpen(false);
-        if (panel !== 'take' && panel !== 'voice') setPanel('none');
+        if (panel !== 'take' && panel !== 'voice' && panel !== 'agent') setPanel('none');
       }
     };
     const onKey = (event: KeyboardEvent) => {
@@ -434,6 +455,41 @@ export function DevMediaMenu({
 
   const markLabel = (frame: number | null) => (frame === null ? '—' : formatTimecode(frame, fps));
 
+  /** Take the ticked agent edits into this project, in the order the agent made them, as one undoable step. */
+  async function takeInAgentEdits() {
+    if (!projectPath) return;
+    const chosen = agentEdits.filter((entry) => agentSelected.has(entry.id));
+    if (chosen.length === 0) return;
+    let document = getDocument();
+    const taken: string[] = [];
+    const failed: string[] = [];
+    for (const entry of chosen) {
+      try {
+        document = applyAgentEdit(document, entry.edit);
+        taken.push(entry.id);
+      } catch {
+        failed.push(entry.label ?? entry.edit.op);
+      }
+    }
+    if (taken.length > 0) {
+      await onApply(document);
+      await bridge().devResolveAgentEdits?.({ projectPath, ids: taken, resolution: 'accepted' });
+    }
+    setAgentNote(failed.length > 0
+      ? `Took in ${taken.length}. ${failed.length} no longer fit your project and stayed in the list: ${failed.join('; ')}.`
+      : `Took in ${taken.length} edit${taken.length === 1 ? '' : 's'}. Undo takes them all back.`);
+    await loadAgentEdits();
+  }
+
+  async function skipAgentEdits() {
+    if (!projectPath) return;
+    const ids = agentEdits.filter((entry) => agentSelected.has(entry.id)).map((entry) => entry.id);
+    if (ids.length === 0) return;
+    await bridge().devResolveAgentEdits?.({ projectPath, ids, resolution: 'skipped' });
+    setAgentNote(`Skipped ${ids.length}.`);
+    await loadAgentEdits();
+  }
+
   return (
     // Pointer events from the menu (and its floating layer, which React bubbles through
     // here) must not reach the timeline, or a click starts a playhead drag.
@@ -466,6 +522,10 @@ export function DevMediaMenu({
           <button type="button" role="menuitem" className="devMenuItem" disabled={!rangeReady || takeActive} title={rangeReady ? undefined : 'Mark a start and an end first'} onClick={() => { setPanel('take'); setOpen(false); setTakeState({ phase: 'idle' }); }}>
             Record camera take…
           </button>
+          <button type="button" role="menuitem" className="devMenuItem" data-agent-edits-open="true" disabled={takeActive} onClick={() => { setPanel('agent'); setOpen(false); setAgentNote(null); }}>
+            Agent edits…<span className="devMenuHint">{agentEdits.length > 0 ? `${agentEdits.length} new` : 'none'}</span>
+          </button>
+          <div className="devMenuSeparator" role="separator" />
           <button type="button" role="menuitem" className="devMenuItem" disabled={takeActive} onClick={() => { setPanel('voice'); setOpen(false); setTakeState({ phase: 'idle' }); }}>
             Record voice-over…<span className="devMenuHint">{rangeReady ? `${markLabel(takeRange.startFrame)}–${markLabel(takeRange.endFrame)}` : `from ${formatTimecode(playheadFrame, fps)}`}</span>
           </button>
@@ -531,6 +591,42 @@ export function DevMediaMenu({
               ? <button type="button" className="devPrimaryButton devStopButton" onClick={() => void stopTake()}>Stop</button>
               : <button type="button" className="devPrimaryButton" disabled={!rangeReady || takeActive} onClick={() => void startTake('camera')}>Record</button>}
             <button type="button" className="devTextButton" disabled={takeState.phase === 'saving'} onClick={() => { if (takeActive) void cancelTake(); else setPanel('none'); }}>{takeActive ? 'Cancel take' : 'Close'}</button>
+          </div>
+        </div>
+      ) : null}
+      {panel === 'agent' ? (
+        <div className="devMenuPopover devTakePanel devAgentPanel" role="dialog" aria-label="Agent edits">
+          <p className="devPanelTitle">Agent edits</p>
+          <p className="devPanelNote">Changes an agent made on its copy of this project. Tick the ones you want; they are added to your project in order, as one step you can undo.</p>
+          {agentEdits.length === 0 ? <p className="devPanelNote">Nothing new from the agent.</p> : (
+            <ul className="devAgentList">
+              {agentEdits.map((entry) => {
+                const frame = agentEditFrame(entry.edit);
+                return (
+                  <li key={entry.id} className="devAgentItem" data-agent-edit-id={entry.id}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={agentSelected.has(entry.id)}
+                        onChange={(event) => setAgentSelected((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(entry.id); else next.delete(entry.id);
+                          return next;
+                        })}
+                      />
+                      <span>{entry.label ?? entry.edit.op}</span>
+                    </label>
+                    {frame !== null ? <button type="button" className="devTextButton devAgentGo" title="Go there on the timeline" onClick={() => onSeekFrame(frame)}>{formatTimecode(frame, fps)}</button> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {agentNote ? <p className="devPanelNote" role="status">{agentNote}</p> : null}
+          <div className="devChoiceRow devTakeActions">
+            <button type="button" className="devAgentApply" data-agent-edits-apply="true" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void takeInAgentEdits()}>Take in selected</button>
+            <button type="button" className="devTextButton" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void skipAgentEdits()}>Skip</button>
+            <button type="button" className="devTextButton" onClick={() => setPanel('none')}>Close</button>
           </div>
         </div>
       ) : null}

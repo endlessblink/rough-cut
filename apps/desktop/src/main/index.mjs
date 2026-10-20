@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
 import { exportProjectToMp4, runCappedFfmpeg } from './export-service.mjs';
-import { buildTakeRemuxArgs, classifyInsertPick, createTakeWriter, describeInsertableVideo, devFeaturesEnabled, exportProjectForInsert, INSERTABLE_VIDEO_EXTENSIONS } from './dev-media-service.mjs';
+import { buildTakeRemuxArgs, classifyInsertPick, createTakeWriter, describeInsertableVideo, devFeaturesEnabled, exportProjectForInsert, INSERTABLE_VIDEO_EXTENSIONS, readAgentEditJournal, resolveAgentEditEntries } from './dev-media-service.mjs';
 import { verifyExportedFile } from './export-verify.mjs';
 import { createAppSettingsStore, defaultAppSettingsPath } from './app-settings-store.mjs';
 import { pickDirectory, pickSavePath } from './file-picker.mjs';
@@ -1316,6 +1316,16 @@ function registerDevMediaHandlers() {
     return describeInsertableVideo(finalPath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia, kind: payload?.kind === 'voice' ? 'audio' : 'video' });
   });
   ipcMain.handle(IPC_CHANNELS.DEV_TAKE_CANCEL, (_event, id) => takes.cancel(id));
+  // Edits an agent made on its copy of the open project (rough-cut MCP), for Noam to
+  // take in one by one. Read from, and marked in, <project>.claude-edit.roughcut.edits.json.
+  ipcMain.handle(IPC_CHANNELS.DEV_AGENT_EDITS_GET, async (_event, payload) => {
+    const projectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
+    return readAgentEditJournal(projectPath);
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_AGENT_EDITS_RESOLVE, async (_event, payload) => {
+    const projectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
+    return resolveAgentEditEntries(projectPath, payload?.ids, payload?.resolution);
+  });
 }
 
 // Serialize concurrent saves per project path. The renderer can fire two
