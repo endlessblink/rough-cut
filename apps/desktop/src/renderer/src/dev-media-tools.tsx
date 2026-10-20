@@ -24,7 +24,7 @@ import {
 
 type DevBridge = {
   getDevFeatures?: () => Promise<{ enabled?: boolean } | null>;
-  devPickInsert?: () => Promise<{ filePath: string; kind: 'video' | 'project'; name: string } | null>;
+  devPickInsert?: () => Promise<{ filePath: string; kind: 'video' | 'audio' | 'project'; name: string } | null>;
   devPrepareInsert?: (payload: { filePath: string; projectPath: string; projectFps: number }) => Promise<PreparedMedia | null>;
   onDevInsertProgress?: (callback: (progress: { progress?: number }) => void) => () => void;
   devTakeBegin?: (payload: { projectPath: string; kind?: 'camera' | 'voice' }) => Promise<{ id: string; path: string }>;
@@ -140,7 +140,7 @@ export function DevMediaMenu({
   React.useEffect(() => { if (open || panel === 'agent') void loadAgentEdits(); }, [open, panel, loadAgentEdits]);
   const [voiceMode, setVoiceMode] = React.useState<VoiceOverMode>(() => (readStored('roughCut.dev.voiceMode') === 'over' ? 'over' : 'replace'));
   const [micLevel, setMicLevel] = React.useState(0);
-  const [picked, setPicked] = React.useState<{ filePath: string; kind: 'video' | 'project'; name: string } | null>(null);
+  const [picked, setPicked] = React.useState<{ filePath: string; kind: 'video' | 'audio' | 'project'; name: string } | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [takeState, setTakeState] = React.useState<TakeState>({ phase: 'idle' });
@@ -290,6 +290,35 @@ export function DevMediaMenu({
       setPanel('insert-choice');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not open that file.');
+    }
+  }
+
+  // A sound file has no picture: it goes on the Voice lane at the playhead, like a
+  // voice-over, and either replaces the recording's sound there or plays over it.
+  async function addPickedSound(soundMode: VoiceOverMode) {
+    if (!picked || !projectPath) return;
+    const frame = playheadFrame;
+    setBusy(`Adding ${picked.name}…`);
+    try {
+      const media = await bridge().devPrepareInsert?.({ filePath: picked.filePath, projectPath, projectFps: fps });
+      if (!media) return;
+      const asset = createInsertedMediaAsset({
+        id: newId('sound'),
+        filePath: media.filePath,
+        durationFrames: media.durationFrames,
+        kind: 'voice',
+        name: media.name,
+        voiceMode: soundMode,
+        extraMetadata: { soundFile: true },
+      });
+      await onApply(placeVoiceTake(getDocument(), { asset, frame }));
+      setNotice(`Added ${picked.name} at ${formatTimecode(frame, fps)} (${soundMode === 'replace' ? 'replaces the sound there' : 'plays over the sound'}).`);
+      setPanel('none');
+      setPicked(null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The sound file could not be added.');
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -546,14 +575,25 @@ export function DevMediaMenu({
         <div className="devMenuPopover devInsertChoice" role="dialog" aria-label="Insert or overwrite">
           <p className="devPanelTitle">Add <strong>{picked.name}</strong> at {formatTimecode(playheadFrame, fps)}</p>
           {picked.kind === 'project' ? <p className="devPanelNote">The project is exported with its finished look first.</p> : null}
-          <div className="devChoiceRow">
-            <button type="button" className="devChoiceButton" disabled={Boolean(busy)} onClick={() => void addPicked('insert')}>
-              <strong>Insert</strong><span>Everything after moves later</span>
-            </button>
-            <button type="button" className="devChoiceButton" disabled={Boolean(busy)} onClick={() => void addPicked('overwrite')}>
-              <strong>Overwrite</strong><span>Replaces what is under it</span>
-            </button>
-          </div>
+          {picked.kind === 'audio' ? (
+            <div className="devChoiceRow" data-sound-choice="true">
+              <button type="button" className="devChoiceButton" disabled={Boolean(busy)} onClick={() => void addPickedSound('replace')}>
+                <strong>Replace</strong><span>Mutes the recording's sound under it</span>
+              </button>
+              <button type="button" className="devChoiceButton" disabled={Boolean(busy)} onClick={() => void addPickedSound('over')}>
+                <strong>Play over</strong><span>Both are heard</span>
+              </button>
+            </div>
+          ) : (
+            <div className="devChoiceRow">
+              <button type="button" className="devChoiceButton" disabled={Boolean(busy)} onClick={() => void addPicked('insert')}>
+                <strong>Insert</strong><span>Everything after moves later</span>
+              </button>
+              <button type="button" className="devChoiceButton" disabled={Boolean(busy)} onClick={() => void addPicked('overwrite')}>
+                <strong>Overwrite</strong><span>Replaces what is under it</span>
+              </button>
+            </div>
+          )}
           {busy ? <p className="devPanelNote" role="status">{busy}</p> : null}
           <button type="button" className="devTextButton" disabled={Boolean(busy)} onClick={() => { setPanel('none'); setPicked(null); }}>Cancel</button>
         </div>

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
 import { exportProjectToMp4, runCappedFfmpeg } from './export-service.mjs';
-import { buildTakeRemuxArgs, classifyInsertPick, createTakeWriter, describeInsertableVideo, devFeaturesEnabled, exportProjectForInsert, INSERTABLE_VIDEO_EXTENSIONS, readAgentEditJournal, resolveAgentEditEntries } from './dev-media-service.mjs';
+import { buildTakeRemuxArgs, classifyInsertPick, createTakeWriter, describeInsertableVideo, devFeaturesEnabled, exportProjectForInsert, INSERTABLE_AUDIO_EXTENSIONS, INSERTABLE_VIDEO_EXTENSIONS, readAgentEditJournal, resolveAgentEditEntries } from './dev-media-service.mjs';
 import { verifyExportedFile } from './export-verify.mjs';
 import { createAppSettingsStore, defaultAppSettingsPath } from './app-settings-store.mjs';
 import { pickDirectory, pickSavePath } from './file-picker.mjs';
@@ -1273,20 +1273,21 @@ function registerDevMediaHandlers() {
       title: 'Add clip at playhead',
       properties: ['openFile'],
       filters: [
-        { name: 'Video or Rough Cut project', extensions: [...INSERTABLE_VIDEO_EXTENSIONS, 'roughcut'] },
+        { name: 'Video, sound or Rough Cut project', extensions: [...INSERTABLE_VIDEO_EXTENSIONS, ...INSERTABLE_AUDIO_EXTENSIONS, 'roughcut'] },
         { name: 'All files', extensions: ['*'] },
       ],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     const filePath = result.filePaths[0];
     const kind = classifyInsertPick(filePath);
-    if (!kind) throw new Error('Pick a video file or a Rough Cut project.');
+    if (!kind) throw new Error('Pick a video, a sound file or a Rough Cut project.');
     return { filePath, kind, name: basename(filePath) };
   });
   ipcMain.handle(IPC_CHANNELS.DEV_INSERT_PREPARE, async (event, payload) => {
     const filePath = payload?.filePath;
     const kind = classifyInsertPick(filePath);
-    if (!kind) throw new Error('Pick a video file or a Rough Cut project.');
+    if (!kind) throw new Error('Pick a video, a sound file or a Rough Cut project.');
+    if (kind === 'audio') return describeInsertableVideo(filePath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia, kind: 'audio' });
     let videoPath = filePath;
     if (kind === 'project') {
       const targetProjectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });

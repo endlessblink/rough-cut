@@ -12,6 +12,8 @@ import {
   getRecordingSourceSize,
 } from './cursor-data.mjs';
 
+import { clipZoomOwner, clipZooms, listClipZooms, withClipZooms } from '../../shared/clip-overlays.mjs';
+
 const DEFAULT_MARKER_SPAN_FRAMES = 60;
 const DEFAULT_MIN_SPAN_FRAMES = 15;
 const DEFAULT_AUTO_ZOOM_INTENSITY = 0.5;
@@ -135,11 +137,65 @@ export function addManualMarkerAtFrame(document, atFrame, fps, options = {}) {
   }, asset.id, nextMarkers);
 }
 
+/**
+ * Zooms on an added clip live with that clip, in its own frames. The marker tools below
+ * work on them through a stand-in project whose "recording" is the added clip, so the
+ * same rules (no overlap, minimum length, strength, focal point) apply unchanged.
+ */
+function clipZoomView(document, assetId) {
+  const asset = document.assets.find((item) => item.id === assetId);
+  const base = withDefaultPresentation(getPrimaryRecordingAsset(document)?.presentation);
+  return {
+    assets: [{ id: assetId, type: 'recording', duration: asset?.duration ?? 0, presentation: { ...base, zoom: { ...base.zoom, markers: clipZooms(document, assetId) } } }],
+  };
+}
+
+function inClipZoomScope(document, assetId, edit) {
+  const view = clipZoomView(document, assetId);
+  const next = edit(view);
+  if (next === view) return document;
+  return withClipZooms(document, assetId, next.assets[0].presentation.zoom.markers);
+}
+
+/** Add a zoom on an added clip at a frame of that clip's file. */
+export function addClipZoomAtFrame(document, assetId, atFrame, fps, options = {}) {
+  return inClipZoomScope(document, assetId, (view) => {
+    const next = addManualMarkerAtFrame(view, atFrame, fps, options);
+    if (next === view) return view;
+    // An added clip has no cursor to follow: its zooms stay on their focal point.
+    const markers = next.assets[0].presentation.zoom.markers.map((marker) => ({ ...marker, followCursor: false }));
+    return { assets: [{ ...next.assets[0], presentation: { ...next.assets[0].presentation, zoom: { ...next.assets[0].presentation.zoom, markers } } }] };
+  });
+}
+
+/** A zoom by id, whether it is the recording's or an added clip's: { marker, assetId|null }. */
+export function findZoomMarker(document, markerId) {
+  const own = listMarkers(document).find((marker) => marker.id === markerId);
+  if (own) return { marker: own, assetId: null };
+  const onClip = listClipZooms(document).find((item) => item.marker.id === markerId);
+  return onClip ? { marker: onClip.marker, assetId: onClip.assetId } : null;
+}
+
 export function removeMarker(document, markerId) {
   return removeMarkers(document, [markerId]);
 }
 
 export function removeMarkers(document, markerIds) {
+  const ids = Array.isArray(markerIds) ? markerIds.filter(Boolean) : [];
+  const byClip = new Map();
+  for (const id of ids) {
+    const owner = clipZoomOwner(document, id);
+    if (owner) byClip.set(owner, [...(byClip.get(owner) ?? []), id]);
+  }
+  if (byClip.size > 0) {
+    let next = removeRecordingMarkers(document, ids.filter((id) => !clipZoomOwner(document, id)));
+    for (const [assetId, clipIds] of byClip) next = inClipZoomScope(next, assetId, (view) => removeRecordingMarkers(view, clipIds));
+    return next;
+  }
+  return removeRecordingMarkers(document, ids);
+}
+
+function removeRecordingMarkers(document, markerIds) {
   const asset = getPrimaryRecordingAsset(document);
   if (!asset || !asset.presentation) return document;
 
@@ -166,6 +222,8 @@ export function removeMarkers(document, markerIds) {
 }
 
 export function updateMarkerRange(document, markerId, startFrame, endFrame, options = {}) {
+  const owner = clipZoomOwner(document, markerId);
+  if (owner) return inClipZoomScope(document, owner, (view) => updateMarkerRange(view, markerId, startFrame, endFrame, options));
   const asset = getPrimaryRecordingAsset(document);
   if (!asset || !asset.presentation) return document;
 
@@ -198,6 +256,8 @@ export function updateMarkerRange(document, markerId, startFrame, endFrame, opti
 }
 
 export function updateMarkerStrength(document, markerId, strength) {
+  const owner = clipZoomOwner(document, markerId);
+  if (owner) return inClipZoomScope(document, owner, (view) => updateMarkerStrength(view, markerId, strength));
   const asset = getPrimaryRecordingAsset(document);
   if (!asset || !asset.presentation) return document;
 
@@ -225,6 +285,8 @@ export function updateMarkerStrength(document, markerId, strength) {
 }
 
 export function updateMarkerFocalPoint(document, markerId, x, y) {
+  const owner = clipZoomOwner(document, markerId);
+  if (owner) return inClipZoomScope(document, owner, (view) => updateMarkerFocalPoint(view, markerId, x, y));
   const asset = getPrimaryRecordingAsset(document);
   if (!asset || !asset.presentation) return document;
 

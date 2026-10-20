@@ -28,6 +28,18 @@ export function addManualMarkerAtFrame(
   options?: { defaultSpan?: number; minSpan?: number },
 ): ProjectDocument;
 
+/** Add a zoom on an added clip at a frame of that clip's own file. */
+export function addClipZoomAtFrame(
+  document: ProjectDocument,
+  assetId: string,
+  atFrame: number,
+  fps: number,
+  options?: { defaultSpan?: number; minSpan?: number },
+): ProjectDocument;
+
+/** A zoom by id, the recording's (assetId null) or an added clip's. */
+export function findZoomMarker(document: ProjectDocument, markerId: string): { marker: ZoomMarker; assetId: string | null } | null;
+
 export function removeMarker(document: ProjectDocument, markerId: string): ProjectDocument;
 
 export function removeMarkers(document: ProjectDocument, markerIds: readonly string[]): ProjectDocument;

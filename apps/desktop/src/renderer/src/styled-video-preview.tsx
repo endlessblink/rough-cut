@@ -1,5 +1,7 @@
 import React from 'react';
 import { CAPTION_EDGE_MARGIN, captionAtSourceFrame, getCaptions, type CaptionSettings } from '../../shared/captions.mjs';
+import { clipCaptions, clipZoomCropAt, clipZooms, type ClipCaptionCue } from '../../shared/clip-overlays.mjs';
+import type { ZoomMarker } from '@rough-cut/project-model';
 import {
   AlignBottom as PhosphorAlignBottom,
   AlignCenterHorizontal as PhosphorAlignCenterHorizontal,
@@ -617,6 +619,11 @@ export function StyledVideoPreview({
   const screenDragRef = React.useRef<NormalizedRect | null>(null);
   const captionsRef = React.useRef(getCaptions(project.document));
   captionsRef.current = React.useMemo(() => getCaptions(project.document), [project.document]);
+  // Zooms and captions placed on added clips, by the clip's asset id (in that file's frames).
+  const clipOverlaysRef = React.useRef(new Map<string, { zooms: ZoomMarker[]; captions: ClipCaptionCue[] }>());
+  clipOverlaysRef.current = React.useMemo(() => new Map(
+    (project.document.assets ?? []).map((asset) => [String(asset.id), { zooms: clipZooms(project.document, String(asset.id)), captions: clipCaptions(project.document, String(asset.id)) }]),
+  ), [project.document]);
   const screenRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const screenRadiusRef = React.useRef(22);
   const screenDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
@@ -2383,7 +2390,10 @@ export function StyledVideoPreview({
           image: backgroundImageRef.current,
         });
         if (editablePreview && alignmentGridVisibleRef.current && !parityCapture) drawAlignmentGuides(ctx, canvasWidth, canvasHeight);
-        drawInsertedScreenClip(ctx, insertedVideo, canvasWidth, canvasHeight);
+        const insertedSourceFrame = insertedScreen.sourceIn + (currentFrame - insertedScreen.timelineIn);
+        const insertedOverlays = clipOverlaysRef.current.get(insertedScreen.assetId);
+        const insertedCrop = clipZoomCropAt(insertedOverlays?.zooms ?? [], insertedSourceFrame, insertedVideo.videoWidth, insertedVideo.videoHeight);
+        drawInsertedScreenClip(ctx, insertedVideo, canvasWidth, canvasHeight, insertedCrop);
         // A camera take recorded over the added clip is its bubble.
         const takeOverClip = insertedClipAt(currentFrame, 'camera');
         const takeVideo = takeOverClip ? insertedVideosRef.current.get(takeOverClip.assetId) ?? null : null;
@@ -2414,11 +2424,18 @@ export function StyledVideoPreview({
             // Draw the bubble on the next decoded frame.
           }
         }
+        // The clip's own captions, with the project's caption look.
+        const captionLook = captionsRef.current.settings;
+        const clipLine = captionLook.enabled ? captionAtSourceFrame(insertedOverlays?.captions ?? [], insertedSourceFrame) : null;
+        if (clipLine) drawCaptionLine(ctx, clipLine.text, canvasWidth, canvasHeight, captionLook);
         (window as unknown as Record<string, unknown>).__roughCutInsertedMediaDebug = {
           clipId: insertedScreen.clipId,
           lane: 'screen',
           videoTime: insertedVideo.currentTime,
-          expectedTime: (insertedScreen.sourceIn + (currentFrame - insertedScreen.timelineIn)) / fps,
+          expectedTime: insertedSourceFrame / fps,
+          caption: clipLine?.text ?? null,
+          zoomWindow: insertedCrop,
+          videoWidth: insertedVideo.videoWidth,
         };
         cameraRectRef.current = null;
         publishResolvedLayout(resolvedScreenFrame, null, canvasWidth, canvasHeight);
@@ -3533,7 +3550,8 @@ export function StyledVideoPreview({
             setIsDraggingCamera(false);
             event.currentTarget.style.cursor = '';
             try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-            if (drag) onCameraFrameChange?.(drag);
+            // A click that moved nothing is not an edit (it would add an empty undo step).
+            if (drag && dragMoved(drag, origin, event.currentTarget)) onCameraFrameChange?.(drag);
             return;
           }
           const screenOrigin = screenDragOriginRef.current;
@@ -3544,7 +3562,7 @@ export function StyledVideoPreview({
           setIsDraggingScreen(false);
           event.currentTarget.style.cursor = '';
           try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-          if (screenDrag) onScreenFrameChange?.(screenDrag);
+          if (screenDrag && dragMoved(screenDrag, screenOrigin, event.currentTarget)) onScreenFrameChange?.(screenDrag);
         }}
         onPointerCancel={(event) => {
           if (timeMode === 'timeline' && isPlaying) {
@@ -3666,13 +3684,32 @@ export function StyledVideoPreview({
  * to another shot, fitted whole with the project background (already painted)
  * showing on the empty sides. Same geometry as the export.
  */
-function drawInsertedScreenClip(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, canvasWidth: number, canvasHeight: number) {
+function drawInsertedScreenClip(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  canvasWidth: number,
+  canvasHeight: number,
+  // The part of the clip shown (a zoom on the clip), in its pixels; the whole picture by default.
+  crop: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: video.videoWidth, h: video.videoHeight },
+) {
   const rect = fitInsertedClipRect(video.videoWidth, video.videoHeight, canvasWidth, canvasHeight);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
   ctx.filter = 'none';
-  ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h);
+  ctx.drawImage(video, crop.x, crop.y, crop.w, crop.h, rect.x, rect.y, rect.w, rect.h);
+}
+
+/** Whether a screen/camera drag ended anywhere other than where it started (in canvas pixels). */
+export function dragMoved(
+  drag: { x: number; y: number; w: number; h: number },
+  origin: { startX: number; startY: number; width: number; height: number },
+  canvas: { width: number; height: number },
+) {
+  return Math.abs(drag.x * canvas.width - origin.startX) >= 0.5
+    || Math.abs(drag.y * canvas.height - origin.startY) >= 0.5
+    || Math.abs(drag.w * canvas.width - origin.width) >= 0.5
+    || Math.abs(drag.h * canvas.height - origin.height) >= 0.5;
 }
 
 export function fitInsertedClipRect(clipWidth: number, clipHeight: number, canvasWidth: number, canvasHeight: number) {

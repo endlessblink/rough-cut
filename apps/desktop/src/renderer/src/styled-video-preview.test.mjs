@@ -866,6 +866,14 @@ test('preview holds the last decodable frame instead of seeking to the exact tri
   assert.doesNotMatch(source, /video\.currentTime = effectiveTrimEndSec;/);
 });
 
+// Regression 2026-10-21: a plain click on the preview committed the unchanged screen frame,
+// adding an empty undo step, so the next undo (e.g. of taken-in agent edits) seemed to do nothing.
+test('a click on the preview that moves nothing commits no screen or camera change', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  assert.match(source, /if \(drag && dragMoved\(drag, origin, event\.currentTarget\)\) onCameraFrameChange\?\.\(drag\)/);
+  assert.match(source, /if \(screenDrag && dragMoved\(screenDrag, screenOrigin, event\.currentTarget\)\) onScreenFrameChange\?\.\(screenDrag\)/);
+});
+
 test('parked timeline playhead past a trimmed end holds the last visible frame, not a blank gap', () => {
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
   assert.match(source, /Math\.max\(0, Math\.round\(timelineDuration \* fps\) - 1\)/);

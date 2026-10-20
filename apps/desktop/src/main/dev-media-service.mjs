@@ -21,6 +21,8 @@ export const DEV_MEDIA_FOLDER = 'added-media';
 export const MAX_TAKE_BYTES = 4 * 1024 * 1024 * 1024;
 
 export const INSERTABLE_VIDEO_EXTENSIONS = Object.freeze(['mp4', 'mov', 'mkv', 'webm', 'm4v']);
+/** Sound-only files: they land on the Voice lane like a voice-over take. */
+export const INSERTABLE_AUDIO_EXTENSIONS = Object.freeze(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus']);
 
 /** The switch: an environment variable from the dock launcher, or a file in the app config folder. */
 export function devFeaturesEnabled({ env = process.env, userDataDir = null, exists = existsSync } = {}) {
@@ -34,6 +36,7 @@ export function classifyInsertPick(filePath) {
   const extension = extname(String(filePath ?? '')).slice(1).toLowerCase();
   if (extension === 'roughcut') return 'project';
   if (INSERTABLE_VIDEO_EXTENSIONS.includes(extension)) return 'video';
+  if (INSERTABLE_AUDIO_EXTENSIONS.includes(extension)) return 'audio';
   return null;
 }
 
@@ -48,7 +51,7 @@ export function devMediaDir(projectPath) {
 export async function describeInsertableVideo(filePath, { projectFps = 30, probe, kind = 'video' } = {}) {
   const info = await probe(filePath, { kind });
   const seconds = Number(info?.durationSeconds);
-  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Could not read how long this video is.');
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(kind === 'audio' ? 'Could not read how long this sound file is.' : 'Could not read how long this video is.');
   const fps = Number.isFinite(projectFps) && projectFps > 0 ? projectFps : 30;
   return {
     filePath,

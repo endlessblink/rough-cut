@@ -1,4 +1,5 @@
 import { listMarkers } from './zoom-markers.mjs';
+import { clipRangeOnTimeline, clipScreenSections, listClipZooms } from '../../shared/clip-overlays.mjs';
 import { listCensorRegions } from './censor-markers.mjs';
 import { listFramingRanges } from './framing-ranges.mjs';
 import { selectRecordingEditModel } from './recording-timeline.mjs';
@@ -146,7 +147,16 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
         left,
         width: Math.max(0, right - left),
       }];
-    }));
+    })).concat(assignZoomLayers(listClipZooms(document).flatMap(({ assetId, marker }) => {
+      // Zooms on an added clip are in that clip's own frames: place them through its
+      // sections. Layers are worked out in timeline frames, then its own frames restored.
+      const pieces = clipRangeOnTimeline(clipScreenSections(document, assetId), marker.startFrame, marker.endFrame);
+      if (pieces.length === 0) return [];
+      const startFrame = Math.min(...pieces.map((piece) => piece.startFrame));
+      const endFrame = Math.max(...pieces.map((piece) => piece.endFrame));
+      const placement = frameRangeToPlacement(startFrame, endFrame, fps, durationSec);
+      return [{ id: marker.id, kind: marker.kind, startFrame, endFrame, ownStart: marker.startFrame, ownEnd: marker.endFrame, strength: marker.strength, label: 'Clip zoom', clipAssetId: assetId, left: placement.left, width: placement.width }];
+    })).map(({ ownStart, ownEnd, ...region }) => ({ ...region, startFrame: ownStart, endFrame: ownEnd })));
 
   // Censor regions are placed the same way zoom markers are — source range mapped
   // through the screen clips — so a censor keeps covering the same content after a

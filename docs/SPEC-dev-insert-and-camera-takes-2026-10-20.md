@@ -115,7 +115,31 @@ a new clip on its own audio lane at the exact spot.
   over mixes, in the exported file); `scripts/e2e-dev-voice-over-playwright.mjs <project>`
   (real app, fake mic: from playhead, from a range, switch, drag, undo, switch off).
 
-Not done yet:
-- Zooms and captions placed on an added clip (graphics and camera takes work there).
-  Both are stored in recording frames today, so an added clip has no frames for them.
-- Audio-only files (mp3/wav) as added clips.
+## 4. Zooms and captions on an added clip, sound files (added 2026-10-21)
+
+- **Zoom on an added clip:** click the Zoom lane over the clip. The zoom belongs to the
+  clip (stored on its asset as `metadata.clipZooms`, in the clip file's own frames), so
+  it moves, trims and ripples with the clip. It is a normal zoom on the lane: drag,
+  resize, strength, focal point, delete, undo. No cursor follow (a clip has no cursor).
+- **Caption on an added clip:** click the Captions lane over the clip and type, or select
+  the clip and press "Add captions to this clip" (listens to the clip's own sound). Lines
+  are stored on the clip (`metadata.clipCaptions`) and edited with the normal caption
+  tools (move, trim, split, retype, delete); the look (size, colour, position, on/off) is
+  the project's.
+- Preview and export use one zoom window (`clipZoomCropAt` in
+  `apps/desktop/src/shared/clip-overlays.mjs`). In the export, a clip with zooms is first
+  rendered zoomed on its own (its span only, capped ffmpeg), then used as is; its captions
+  are burned in with the recording's.
+- **Sound files:** "Add clip at playhead" also takes mp3, wav, m4a, aac, ogg, flac and
+  opus. A sound file lands on the Voice lane at the playhead with a Replace / Play over
+  choice, like a voice-over take (drag, trim, switch, undo; export mixes it the same way).
+- Tests: `apps/desktop/src/shared/clip-overlays.test.mjs`,
+  `apps/desktop/src/main/clip-zoom-export.test.mjs`, `scripts/e2e-clip-overlays-export.mjs`
+  (real export: zoom window, burned caption, mp3 heard), and
+  `scripts/e2e-dev-clip-overlays-playwright.mjs <project>` (real app: zoom, undo/redo,
+  caption, mp3 on the Voice lane, with screenshots).
+
+Not done yet: nothing from this spec.
+
+Known limit (outside the spec): an added clip's captions are one set in the language it
+was spoken or typed in; a translated caption set of the project does not translate them.

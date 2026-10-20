@@ -99,8 +99,10 @@ import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from '
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
+  addClipZoomAtFrame,
   addManualMarkerAtFrame,
   addAutoZoomMarkersFromTelemetry,
+  findZoomMarker,
   getZoomPresentation,
   listMarkers,
   patchZoomPresentation,
@@ -112,6 +114,7 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { resolveCensorSoftness } from '../../shared/censor-regions.mjs';
+import { addedClipAtFrame, clipCaptionView, clipCaptions, clipScreenSections, commitClipCaptionView } from '../../shared/clip-overlays.mjs';
 import { CAPTION_LANGUAGES, CAPTION_POSITIONS, addCaption, addCaptionCuesToTrack, addCaptionTrack, buildCaptionCues, captionTextDirection, getCaptions, getOriginalCaptionCues, setActiveCaptionTrack, withCaptionEdit, withCaptionSettings, withTranscribedSpeech } from '../../shared/captions.mjs';
 import { CaptionSelectionContext, CaptionsLane, sourceFrameAtTimeline } from './captions-lane';
 import {
@@ -4486,7 +4489,7 @@ function ProjectPreview({
   const cutRanges = recordingAsset?.id && effectiveRecording ? listCutRanges(project.document as unknown as ProjectDocument, recordingAsset.id, effectiveRecording.duration) as CutRange[] : [];
   const activeCutRanges = clipCutRangesToTrim(cutRanges, trimInfo);
   const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
-  const selectedZoomMarker = inspectorSelection.markerId ? listMarkers(project.document as unknown as ProjectDocument).find((marker) => marker.id === inspectorSelection.markerId) ?? null : null;
+  const selectedZoomMarker = inspectorSelection.markerId ? findZoomMarker(project.document as unknown as ProjectDocument, inspectorSelection.markerId)?.marker ?? null : null;
   const hasCamera = Boolean(recordingAsset?.cameraAssetId && project.cameraMediaUrl);
   const cameraPresentation: CameraPresentation = {
     ...DEFAULT_CAMERA_PRESENTATION,
@@ -5943,6 +5946,28 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       setSectionCaptionJob(null);
     }
   }
+  // Captions for an added clip: listen to that clip's own file and add its lines to the clip.
+  async function addCaptionsToAddedClip(clip: { assetId: string; filePath: string; sourceIn: number; sourceOut: number }) {
+    if (!onCaptionsChange || sectionCaptionJob) return;
+    const spoken = (project.document as { captions?: { speechLanguage?: string | null } }).captions?.speechLanguage;
+    const requestId = `captions-clip-${Date.now()}`;
+    setSectionCaptionJob('Listening to this clip…');
+    try {
+      const heard = await window.roughCut.transcribeCaptionSpeech({ requestId, sourcePath: clip.filePath, sections: [{ sourceIn: clip.sourceIn, sourceOut: clip.sourceOut }], fps, language: spoken ?? 'auto' });
+      if ('error' in heard) { setCaptionNotice(heard.error.message); return; }
+      const stamp = Date.now();
+      const fresh = buildCaptionCues(heard.words, { fps }).map((cue, index) => ({ ...cue, id: `cap_s${stamp}_${index}` }));
+      const latest = latestTimelineProjectRef.current.document as unknown as ProjectDocument;
+      const view = clipCaptionView(latest, clip.assetId);
+      const added = addCaptionCuesToTrack(view, 'original', fresh);
+      if (added.added > 0) onCaptionsChange(commitClipCaptionView(latest, clip.assetId, added.document));
+      setCaptionNotice(added.added > 0 ? `Added ${added.added} caption${added.added === 1 ? '' : 's'} to this clip.` : 'Nothing new to add: no speech heard where this clip has no captions.');
+    } catch (err) {
+      setCaptionNotice(err instanceof Error ? err.message : 'Could not add captions to this clip.');
+    } finally {
+      setSectionCaptionJob(null);
+    }
+  }
   const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [graphicDragPreview, setGraphicDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
@@ -6500,6 +6525,16 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     // Skip if the press landed on an existing region (don't add inside markers).
     if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
     const track = event.currentTarget;
+    // Over an added clip the zoom goes on that clip (in its own frames), not on the recording.
+    const clickedTimelineFrame = timelineFrameFromClient(track, event.clientX);
+    const addedHere = clickedTimelineFrame === null ? null : addedClipAtFrame(project.document, clickedTimelineFrame);
+    if (addedHere) {
+      event.preventDefault();
+      // Same rule as on the recording: a click while a zoom is selected only clears the selection.
+      if (selectedZoomMarkerCount > 0 || selectedZoomMarkerId) return;
+      onEditInsertedMedia?.((document) => addClipZoomAtFrame(document, addedHere.assetId, addedHere.sourceFrame, fps) as ProjectDocument);
+      return;
+    }
     const downFrame = sourceFrameFromClient(track, event.clientX);
     if (downFrame === null) return;
     event.preventDefault();
@@ -6982,7 +7017,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     nudgeClipTrimHandle(region, index, edge, event.key === 'ArrowRight' ? 1 : -1, event.shiftKey);
   }
 
-  function beginZoomDrag(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
+  function beginZoomDrag(region: { id: string; startFrame?: number; endFrame?: number; clipAssetId?: string }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
     if (mode === 'move' && (event.shiftKey || event.ctrlKey || event.metaKey)) return;
     if (!Number.isFinite(region.startFrame) || !Number.isFinite(region.endFrame)) return;
     event.preventDefault();
@@ -7006,7 +7041,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       }
       const frame = timelineFrameFromClient(handle, clientX);
       if (frame === null) return;
-      const next = dragSourceRangeOnTimeline(laneClipsForMapping, initialRange, { mode, deltaFrames: frame - initialTimelineFrame, pointerFrame: frame, minSpan: 15 });
+      // A zoom on an added clip is in that clip's frames, so it maps through that clip.
+      const mapping = region.clipAssetId ? clipScreenSections(project.document, region.clipAssetId) : laneClipsForMapping;
+      const next = dragSourceRangeOnTimeline(mapping, initialRange, { mode, deltaFrames: frame - initialTimelineFrame, pointerFrame: frame, minSpan: 15 });
       if (!next) return;
       latest = { id: region.id, ...next };
       setZoomDragPreview(latest);
@@ -7610,6 +7647,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               const { settings: captionSettings } = getCaptions(captionDocument);
               if (!onCaptionsChange || !(captionSettings.enabled || (stored?.cues?.length ?? 0) > 0)) return null;
               const sections = model.lanes.screen.map((clip) => ({ sourceIn: clip.sourceIn ?? 0, sourceOut: clip.sourceOut ?? 0, timelineIn: clip.timelineIn ?? 0 }));
+              const addedPictureAssetIds = Array.from(new Set(insertedClips.filter((clip) => clip.kind === 'clip' && clip.lane === 'screen').map((clip) => clip.assetId)));
               const playheadFrame = Math.round(model.currentTimeSec * fps);
               const seekToFrame = (frame: number) => { const sec = Math.max(0, Math.min(model.durationSec, frame / fps)); onScrubStart(); onScrub(sec); onScrubEnd(sec); };
               return (
@@ -7625,6 +7663,22 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                     if (rect.width <= 0) return;
                     const timelineFrame = Math.round(((event.clientX - rect.left) / rect.width) * Math.max(1, Math.round(model.durationSec * fps)));
                     seekToFrame(timelineFrame);
+                    // Over an added clip the line belongs to that clip, in its own frames.
+                    const addedHere = addedClipAtFrame(captionDocument, timelineFrame);
+                    if (addedHere) {
+                      const view = clipCaptionView(captionDocument, addedHere.assetId);
+                      const addedLine = addCaption(view, addedHere.sourceFrame, { lengthFrames: Math.round(fps * 2) });
+                      if (!addedLine) { setCaptionNotice('No room here - click a gap between subtitles.'); return; }
+                      setCaptionNotice(null);
+                      event.preventDefault();
+                      const before = new Set(clipCaptions(captionDocument, addedHere.assetId).map((cue) => cue.id));
+                      const next = commitClipCaptionView(captionDocument, addedHere.assetId, addedLine.document);
+                      const newId = clipCaptions(next, addedHere.assetId).find((cue) => !before.has(cue.id))?.id ?? null;
+                      setCaptionFocusId(newId);
+                      captionSelection.select(newId);
+                      onCaptionsChange(next);
+                      return;
+                    }
                     const sourceFrame = sourceFrameAtTimeline(timelineFrame, sections);
                     const added = sourceFrame === null ? null : addCaption(captionDocument, sourceFrame, { lengthFrames: Math.round(fps * 2) });
                     if (!added) {
@@ -7640,6 +7694,25 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                   }}
                 >
                   {captionNotice ? <span className="captionsLaneHint captionsLaneNotice" role="status">{captionNotice}</span> : null}
+                  {(() => {
+                    const pickedAdded = insertedClips.find((item) => item.clipId === selectedInsertedClipId && item.kind === 'clip' && item.lane === 'screen' && item.hasAudio);
+                    if (!pickedAdded) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="captionSectionButton"
+                        data-clip-captions="true"
+                        style={{ left: `${frameRangeToPlacement(pickedAdded.timelineIn, pickedAdded.timelineOut, fps, model.durationSec).left}%` }}
+                        disabled={sectionCaptionJob !== null}
+                        title="Listen to this added clip and add captions where it has none"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onClick={() => { void addCaptionsToAddedClip(pickedAdded); }}
+                      >
+                        {sectionCaptionJob ?? 'Add captions to this clip'}
+                      </button>
+                    );
+                  })()}
                   {(() => {
                     const picked = model.lanes.screen.find((item) => item.id === selectedScreenClipId);
                     if (!picked) return null;
@@ -7669,6 +7742,21 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                     autoFocusId={captionFocusId}
                     onAutoFocusDone={() => setCaptionFocusId(null)}
                   />
+                  {addedPictureAssetIds.map((assetId) => (
+                    <CaptionsLane
+                      key={`clip-captions-${assetId}`}
+                      document={captionDocument}
+                      fps={fps}
+                      durationSec={model.durationSec}
+                      sections={clipScreenSections(captionDocument, assetId)}
+                      playheadFrame={playheadFrame}
+                      onChange={(next) => onCaptionsChange(next as ProjectDocument)}
+                      onSeek={seekToFrame}
+                      autoFocusId={captionFocusId}
+                      onAutoFocusDone={() => setCaptionFocusId(null)}
+                      scope={{ view: (document) => clipCaptionView(document, assetId), commit: (document, view) => commitClipCaptionView(document, assetId, view) }}
+                    />
+                  ))}
                 </TimelineLane>
               );
             })()}
@@ -7682,7 +7770,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                 const strength = Math.max(0, Math.min(1, region.strength ?? 0.5));
                 const depthPct = Math.round(strength * 100);
                 return (
-                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-layer={region.layer ?? 0} data-zoom-marker-id={region.id} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={(event) => selectZoomRegion(region, event)} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-layer={region.layer ?? 0} data-zoom-marker-id={region.id} data-clip-zoom={(region as { clipAssetId?: string }).clipAssetId ? "true" : undefined} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={(event) => selectZoomRegion(region, event)} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
                     <span className="zoomClipLabel"><Icon name={kind === 'auto' ? 'sparkle' : 'zoom'} /> Zoom</span>
                     <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
                     <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />

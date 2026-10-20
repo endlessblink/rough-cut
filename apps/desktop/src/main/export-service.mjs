@@ -7,6 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { probeCameraMediaTiming, probeVideoStreamStartOffsets } from './media-probe.mjs';
 import { buildScreenCropTrack, createCropPanSendcmdLayer, createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
+import { prerenderZoomedClipSegments } from './clip-zoom-export.mjs';
+import { clipOverlaysOnTimeline } from '../shared/clip-overlays.mjs';
 import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import {
   resolveCensorBlurSpacing,
@@ -792,8 +794,18 @@ export async function exportStyledProjectToMp4({
     ? await probeCameraMediaTiming(recording.camera.filePath, { runner: (command, args) => run(command, args, { signal }) }).catch(() => null)
     : null;
   let useSimpleFastPath = false;
+  let clipZoomPieces = null;
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
+    // Zooms on added clips: those spans are rendered zoomed first, then used as is.
+    clipZoomPieces = await prerenderZoomedClipSegments({
+      segments: recording.timelineSegments ?? [],
+      document: project,
+      fps,
+      run,
+      probeSize: probeVideoSize,
+      signal,
+    });
     const durationSeconds = ((recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration) - cutRemap.removedFrames) / fps;
     const videoEncoder = await resolveStyledVideoEncoder(signal);
     const styledArgsInput = {
@@ -818,7 +830,7 @@ export async function exportStyledProjectToMp4({
       sourceFps: recording.fps,
       sourceTrimStartFrame: recording.sourceIn ?? 0,
       sourceTrimEndFrame: recording.sourceOut ?? recording.duration,
-      timelineSegments: recording.timelineSegments ?? [],
+      timelineSegments: clipZoomPieces.segments,
       timelineDurationFrames: recording.timelineDurationFrames ?? null,
       timelineAudioSegments: includeTimelineAudio ? timelineAudioSegments : [],
       sourceHasAudio,
@@ -919,6 +931,7 @@ export async function exportStyledProjectToMp4({
     if (cursorLayer) await cursorLayer.cleanup();
     if (zoomLayer) await zoomLayer.cleanup();
     if (cropPanLayer) await cropPanLayer.cleanup();
+    if (clipZoomPieces) await clipZoomPieces.cleanup();
   }
   const exported = await stat(outputPath);
   onProgress({ phase: 'complete', progress: 1 });
@@ -1078,7 +1091,13 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
       : recording.camera,
     zoomMarkers,
     // Caption lines on the timeline (the clips already carry any timeline offset).
-    captionCues: mapSourceMarkersToTimeline(getCaptions(project).cues, timingSegments)
+    captionCues: [
+      ...mapSourceMarkersToTimeline(getCaptions(project).cues, timingSegments),
+      // Lines placed on added clips, already in timeline frames.
+      ...clipOverlaysOnTimeline(timelineModel.document ?? project).captions
+        .map((cue) => ({ ...cue, startFrame: cue.startFrame - timelineOffset, endFrame: cue.endFrame - timelineOffset })),
+    ]
+      .sort((left, right) => left.startFrame - right.startFrame)
       .map((cue) => ({
         ...cue,
         startFrame: clampFrame(cue.startFrame, 0, Math.max(0, timelineDurationFrames - 1)),
@@ -1107,7 +1126,7 @@ function resolveInsertedExportSegments(timelineModel, { recording, timelineOffse
   });
   const insertedClips = listInsertedClips(document).filter(inside);
   if (insertedClips.length === 0) return null;
-  const insertedPart = (clip) => ({ ...shifted(clip), inputPath: clip.filePath, inserted: true, hasAudio: clip.hasAudio });
+  const insertedPart = (clip) => ({ ...shifted(clip), inputPath: clip.filePath, inserted: true, hasAudio: clip.hasAudio, assetId: clip.assetId });
   const byTimeline = (left, right) => left.timelineIn - right.timelineIn || left.timelineOut - right.timelineOut;
   const timelineSegments = [
     ...screenSegments,

@@ -48,6 +48,7 @@ export function CaptionsLane({
   onSeek,
   autoFocusId,
   onAutoFocusDone,
+  scope = null,
 }: {
   document: unknown;
   fps: number;
@@ -58,8 +59,18 @@ export function CaptionsLane({
   onSeek: (frame: number) => void;
   autoFocusId: string | null;
   onAutoFocusDone: () => void;
+  /**
+   * Lines that belong to an added clip rather than the recording: `view` gives a stand-in
+   * project holding just those lines, `commit` writes an edited stand-in back. Without it
+   * the lane edits the recording's own lines.
+   */
+  scope?: { view: (document: unknown) => unknown; commit: (document: unknown, view: unknown) => unknown } | null;
 }) {
   const { selectedId, select } = React.useContext(CaptionSelectionContext);
+  const fullDocument = document;
+  document = scope ? scope.view(fullDocument) : fullDocument;
+  const emit = onChange;
+  onChange = (next: unknown) => emit(scope ? scope.commit(fullDocument, next) : next);
   const { cues } = getCaptions(document);
   const [preview, setPreview] = React.useState<{ id: string; document: unknown } | null>(null);
   const shownDocument = preview?.document ?? document;
@@ -134,7 +145,7 @@ export function CaptionsLane({
 
   return (
     <>
-      {tracks.length > 1 ? (
+      {!scope && tracks.length > 1 ? (
         // Always-visible language switch: which caption set shows in the video and the export.
         <div className="captionLaneSwitch" role="group" aria-label="Caption language" onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
           {tracks.map((track) => (
@@ -149,7 +160,7 @@ export function CaptionsLane({
           ))}
         </div>
       ) : null}
-      {placed.length === 0 ? <span className="captionsLaneHint" aria-hidden="true">Click here to add a subtitle</span> : null}
+      {!scope && placed.length === 0 ? <span className="captionsLaneHint" aria-hidden="true">Click here to add a subtitle</span> : null}
       {placed.map(({ cue, spot }) => {
         const placement = frameRangeToPlacement(spot.startFrame, spot.endFrame, fps, durationSec);
         const isSelected = cue.id === selectedId;
