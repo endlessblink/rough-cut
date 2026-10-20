@@ -243,8 +243,17 @@ export async function saveProjectFile(projectPath, project) {
   }
 
   await rename(tmpPath, projectPath);
+  await Promise.all([...projectWriteListeners].map((listener) => Promise.resolve(listener(projectPath)).catch(() => undefined)));
 
   return { path: projectPath, document: await resolveProjectAssetPaths(projectPath, document) };
+}
+
+// Told after every project file this app writes, so a watcher can tell the
+// app's own saves from changes made outside it.
+const projectWriteListeners = new Set();
+export function onProjectFileWritten(listener) {
+  projectWriteListeners.add(listener);
+  return () => projectWriteListeners.delete(listener);
 }
 
 export async function enrichUnifiedCameraMediaTiming(document, { probe = probeCameraMediaTiming } = {}) {

@@ -199,7 +199,8 @@ declare global {
       openProject: () => Promise<ProjectState | null>;
       openProjectPath: (path: string) => Promise<ProjectState | null>;
       onProjectUpdated: (callback: (update: { projectId: string; projectVersion: number; origin?: string }) => void) => () => void;
-      saveProject: (project: { path: string; document: ProjectState['document'] }) => Promise<ProjectState>;
+      onProjectChangedOnDisk?: (callback: (change: { path: string }) => void) => () => void;
+      saveProject: (project: { path: string; document: ProjectState['document']; force?: boolean }) => Promise<ProjectState>;
       pickImportFile: () => Promise<{ filePath: string; mimeType: string | null } | null>;
       createProjectFromImport: (payload: { importedFilePath: string; importedMimeType: string | null }) => Promise<ProjectState>;
       createBlankProject: (payload?: { name?: string; aspectRatio?: ProjectAspectRatio } | null) => Promise<ProjectState>;
@@ -515,6 +516,16 @@ function writePreRecordPreferences(preferences: PreRecordPreferences) {
 // outside App's closure but still need to honor the same gate.
 const renameInFlight = { current: false };
 
+// The open project's file was changed outside Rough Cut (an agent's edit) and
+// this edit would save over it. Main refuses that save; App asks the user
+// whether to load the outside version or keep theirs. The edit stays on screen
+// meanwhile, so nothing is lost either way.
+const diskConflict: { current: ProjectState | null; notify: ((project: ProjectState) => void) | null } = { current: null, notify: null };
+
+function isDiskConflict(err: unknown) {
+  return String((err as { message?: string })?.message ?? err).includes('PROJECT_CHANGED_ON_DISK');
+}
+
 async function saveProjectGuarded(payload: { path: string; document: ProjectState['document'] }): Promise<ProjectState> {
   if (renameInFlight.current) {
     // Synthetic ProjectState matching the input; the disk save is skipped
@@ -522,7 +533,14 @@ async function saveProjectGuarded(payload: { path: string; document: ProjectStat
     // coherent because path + document round-trip unchanged.
     return { path: payload.path, document: payload.document, recording: null, mediaUrl: null };
   }
-  return window.roughCut.saveProject(payload);
+  try {
+    return await window.roughCut.saveProject(payload);
+  } catch (err) {
+    if (!isDiskConflict(err)) throw err;
+    const unsaved = { ...(diskConflict.current ?? { recording: null, mediaUrl: null }), path: payload.path, document: payload.document } as ProjectState;
+    diskConflict.notify?.(unsaved);
+    return unsaved;
+  }
 }
 
 function App() {
@@ -660,6 +678,32 @@ function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [activeAppView, project?.document?.id, project?.path, projectVersion]);
 
+  // Someone else changed the open project's file: show their version at once.
+  // If an edit of Noam's clashed with it, ask which one to keep instead.
+  const [diskChoice, setDiskChoice] = React.useState<ProjectState | null>(null);
+  React.useEffect(() => { diskConflict.current = project; }, [project]);
+  React.useEffect(() => {
+    diskConflict.notify = (unsaved) => setDiskChoice(unsaved);
+    return () => { diskConflict.notify = null; };
+  }, []);
+  const reloadFromDisk = React.useCallback(async (path: string) => {
+    const opened = await window.roughCut.openProjectPath(path);
+    if (!opened) return;
+    setProject(opened);
+    setEditHistory(EMPTY_EDIT_HISTORY);
+    setDiskChoice(null);
+  }, []);
+  React.useEffect(() => window.roughCut.onProjectChangedOnDisk?.((change) => {
+    if (!project || change.path !== project.path || diskChoice) return;
+    void reloadFromDisk(project.path).catch((err) => console.warn('[disk-reload] failed:', err?.message ?? err));
+  }), [project, diskChoice, reloadFromDisk]);
+  const keepMine = React.useCallback(async () => {
+    if (!diskChoice) return;
+    const saved = await window.roughCut.saveProject({ path: diskChoice.path, document: diskChoice.document, force: true });
+    setProject(saved);
+    setDiskChoice(null);
+  }, [diskChoice]);
+
   React.useEffect(() => window.roughCut.onProjectUpdated((update) => {
     if (!project || update.projectId !== project.document.id) return;
     setProjectVersion(update.projectVersion);
@@ -767,7 +811,7 @@ function App() {
     const id = window.setInterval(() => {
       if (renameInFlight.current) return;
       window.roughCut.saveProject({ path: project.path, document: project.document })
-        .catch((err) => console.warn('[autosave] failed:', err?.message ?? err));
+        .catch((err) => { if (!isDiskConflict(err)) console.warn('[autosave] failed:', err?.message ?? err); });
     }, 60_000);
     return () => window.clearInterval(id);
   }, [project]);
@@ -1490,6 +1534,7 @@ function App() {
 
   return (
     <main className={`shell ${recordingViewCompact ? 'recordingRoot' : ''}`}>
+      {diskChoice ? <DiskChangeDialog onReload={() => reloadFromDisk(diskChoice.path)} onKeepMine={keepMine} /> : null}
       {/* Deliberately unkeyed. Keying this section on the active view remounts
           its entire subtree on every switch — including the persistent editor
           slot below, whose whole purpose is to survive a switch. The per-view
@@ -1871,6 +1916,23 @@ function AboutButton() {
       </button>
       {open ? <AboutDialog onClose={() => setOpen(false)} /> : null}
     </>
+  );
+}
+
+function DiskChangeDialog({ onReload, onKeepMine }: { onReload: () => Promise<void>; onKeepMine: () => Promise<void> }) {
+  const [busy, setBusy] = React.useState(false);
+  const run = (action: () => Promise<void>) => { setBusy(true); void action().catch(() => setBusy(false)); };
+  return (
+    <div className="aboutBackdrop" role="dialog" aria-modal="true" aria-labelledby="diskChangeHeading" data-disk-change-dialog="true">
+      <div className="aboutDialog">
+        <h2 id="diskChangeHeading" className="aboutHeading">Project changed outside Rough Cut</h2>
+        <p className="aboutBody">Someone else saved this project while you were editing it. Load their version, or keep yours and save it over theirs.</p>
+        <div className="aboutActions">
+          <button type="button" disabled={busy} onClick={() => run(onKeepMine)} data-disk-change="keep">Keep mine</button>
+          <button type="button" className="aboutPrimary" disabled={busy} onClick={() => run(onReload)} data-disk-change="reload">Load their version</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

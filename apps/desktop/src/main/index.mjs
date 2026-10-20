@@ -19,7 +19,8 @@ import { projectFolderName } from './project-folders.mjs';
 import { listGraphics } from '../shared/motion-graphics.mjs';
 import { trackCensorRegion } from './censor-tracking.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
-import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveBlankProject, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
+import { createProjectDiskWatch, PROJECT_CHANGED_ON_DISK } from './project-disk-watch.mjs';
+import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, onProjectFileWritten, openProjectFile, renameProjectFile, saveBlankProject, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { cancelWaveformDecoders } from './waveform-envelope.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
@@ -1176,7 +1177,9 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
   // Keep the extension + null-byte checks but skip the allowlist.
   const safePath = validateProjectPath(result.filePaths[0]);
   trustProjectFolder(safePath);
-  return formatProject(await openProjectFile(safePath, { ownIdForCopies: true }));
+  const opened = await openProjectFile(safePath, { ownIdForCopies: true });
+  await projectDiskWatch.opened(safePath);
+  return formatProject(opened);
 });
 // P-AI-C/TASK-167 — Library "Import file" picker. Filters the dialog to the
 // supported types so the common case never sees a rejection. Returns
@@ -1243,6 +1246,7 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_event, projectPath) => {
   const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });
   try {
     const opened = await openProjectFile(safePath, { ownIdForCopies: true });
+    await projectDiskWatch.opened(safePath);
     return formatProject(opened);
   } catch (err) {
     if (err?.code === 'ENOENT') {
@@ -1260,10 +1264,26 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_event, projectPath) => {
 // after rename. Queueing per path makes saves strictly sequential, which is
 // what saveProjectFile already assumes.
 const projectSaveQueues = new Map();
-ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_event, { path, document }) => {
+// The open project's file changed outside the app (an agent's edit): the
+// renderer reloads it, and saves of the older in-memory copy are refused
+// until it reloads or the user chooses to keep their own version (force).
+const projectDiskWatch = createProjectDiskWatch({
+  onOutsideChange: (path) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PROJECT_CHANGED_ON_DISK, { path });
+    }
+  },
+});
+onProjectFileWritten((path) => projectDiskWatch.noteOwnWrite(path));
+ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_event, { path, document, force = false }) => {
   const safePath = validateProjectPath(path, { allowedRoots: buildAllowedProjectRoots() });
   const prev = projectSaveQueues.get(safePath) ?? Promise.resolve();
-  const next = prev.catch(() => {}).then(() => saveProjectFile(safePath, document).then(formatProject));
+  const next = prev.catch(() => {}).then(async () => {
+    if (!force && await projectDiskWatch.changedOutside(safePath)) {
+      throw new Error(`${PROJECT_CHANGED_ON_DISK}: the project file was changed outside Rough Cut`);
+    }
+    return formatProject(await saveProjectFile(safePath, document));
+  });
   projectSaveQueues.set(safePath, next);
   try {
     return await next;

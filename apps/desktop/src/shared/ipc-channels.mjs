@@ -14,6 +14,7 @@ export const IPC_CHANNELS = {
   PROJECT_NEW: 'project:new',
   PROJECT_OPEN_PATH: 'project:open-path',
   PROJECT_UPDATED: 'project:updated',
+  PROJECT_CHANGED_ON_DISK: 'project:changed-on-disk',
   LIBRARY_OPEN: 'library:open',
   LIBRARY_SAVE: 'library:save',
   LIBRARY_SAVE_AS: 'library:save-as',

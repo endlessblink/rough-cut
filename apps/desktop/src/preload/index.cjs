@@ -24,6 +24,7 @@ const IPC_CHANNELS = {
   PROJECT_OPEN: 'project:open',
   PROJECT_OPEN_PATH: 'project:open-path',
   PROJECT_UPDATED: 'project:updated',
+  PROJECT_CHANGED_ON_DISK: 'project:changed-on-disk',
   PROJECT_SAVE: 'project:save',
   LIBRARY_PICK_IMPORT_FILE: 'library:pick-import-file',
   LIBRARY_CREATE_FROM_IMPORT: 'library:create-from-import',
@@ -211,6 +212,11 @@ contextBridge.exposeInMainWorld('roughCut', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_UPDATED, listener);
   },
   saveProject: (project) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE, project),
+  onProjectChangedOnDisk: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.PROJECT_CHANGED_ON_DISK, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_CHANGED_ON_DISK, listener);
+  },
   pickImportFile: () => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_PICK_IMPORT_FILE),
   createProjectFromImport: (payload) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CREATE_FROM_IMPORT, payload),
   createBlankProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CREATE_BLANK_PROJECT, payload ?? null),
