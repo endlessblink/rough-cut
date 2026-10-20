@@ -807,7 +807,11 @@ export async function exportStyledProjectToMp4({
       screenCropPanSendcmdPath: cropPanLayer?.path ?? null,
       sourceStabilizationTransform: sourceStabilization,
       cameraStabilizationTransform: cameraStabilization,
-      cameraInputPath: recording.camera?.filePath ?? null,
+      // Camera set to Hidden: no bubble, as in the preview. A camera take still shows there.
+      cameraInputPath: recording.presentation?.camera?.visible === false
+        && !(recording.camera?.timelineSegments ?? []).some((segment) => segment?.inserted)
+        ? null
+        : recording.camera?.filePath ?? null,
       cameraSourceWidth: recording.camera?.width ?? null,
       cameraSourceHeight: recording.camera?.height ?? null,
       cameraSourceInFrames: recording.camera?.sourceInFrames ?? 0,
