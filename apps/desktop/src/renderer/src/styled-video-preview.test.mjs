@@ -104,12 +104,15 @@ test('styled video preview plays timeline gaps as black timeline time under cont
   assert.match(source, /const timelineClockSegments = timelineClockFrame !== null \? buildTimelinePlaybackSegments\(\) : \[\]/);
   assert.match(source, /const activeClockSegment = timelineClockFrame !== null\n\s+\? timelineSegmentAtFrame\(timelineClockSegments, timelineClockFrame\)/);
   assert.match(source, /const nextClockSegment = timelineClockFrame !== null\n\s+\? nextTimelineSegmentAfterFrame\(timelineClockSegments, timelineClockFrame\)/);
-  assert.match(source, /const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && nextClockSegment && timelineClockFrame < nextClockSegment\.timelineIn/);
+  // A gap is any clock position with no recording clip: before the next clip, or
+  // over clips inserted from outside the recording (they have their own decoder).
+  assert.match(source, /const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && \(\n\s+\(nextClockSegment && timelineClockFrame < nextClockSegment\.timelineIn\) \|\| insertedContentAfter\(timelineClockFrame\)\n\s+\)/);
   assert.match(source, /if \(timelineClockGapFrame !== null\) \{\n\s+activeTimelineSegmentRef\.current = null;\n\s+timelineFrameFallbackRef\.current = timelineClockGapFrame;\n\s+pausePreviewVideo\(screenVideo\);\n\s+cameraVideo\?\.pause\(\);/);
   assert.match(source, /: timelineClockGapFrame !== null\n\s+\? null\n\s+: timeMode === 'timeline' && isPlaying\n\s+\? handleTimelineDecodedFrame\(sourceFrame\)/);
   assert.match(source, /const playingGapFrame = timeMode === 'timeline' && isPlaying && !timelineDecoded && !activeTimelineSegmentRef\.current\n\s+\? timelineClockGapFrame \?\? Math\.max\(0, Math\.round\(currentTimeRef\.current \* fps\)\)/);
   assert.doesNotMatch(source, /notify: controlledPlaying === true \? false : undefined/);
-  assert.match(source, /const decodedFrameTime = Math\.min\(timelineDuration, currentFrame \/ fps\);/);
+  // Gaps keep the clock's sub-frame time; decoded frames publish their own frame time.
+  assert.match(source, /const decodedFrameTime = playingGapFrame !== null\n\s+\? Math\.min\(timelineDuration, Math\.max\(currentFrame \/ fps, currentTimeRef\.current\)\)\n\s+: Math\.min\(timelineDuration, currentFrame \/ fps\);/);
   assert.match(source, /const clockOwnsPlayhead = acceleratedTimelinePlaybackClock && playingGapFrame === null && clockLeadSec > 0 && clockLeadSec <= 3 \/ fps;/);
   assert.match(source, /if \(!clockOwnsPlayhead\) \{\n\s+updateCurrentTime\(decodedFrameTime, \{\n\s+immediate: playingGapFrame !== null,\n\s+\}\)/);
   assert.doesNotMatch(source, /timelineSegmentAtFrame\(segments, currentTimelineFrame\) \?\? nextTimelineSegmentAfterFrame\(segments, currentTimelineFrame\)/);

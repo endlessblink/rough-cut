@@ -1,5 +1,14 @@
 # Changelog
 
+## Dev only — not in public builds
+
+Behind a local switch (Noam's own dock copy). Spec: docs/SPEC-dev-insert-and-camera-takes-2026-10-20.md.
+
+- Dev: add a clip at the playhead from a video file or from another Rough Cut project (exported with its finished look first), as Insert (everything after moves later, graphics too) or Overwrite. The clip takes the whole picture over the project background; the recording's camera, cursor, clicks and zooms are hidden for its length and its sound replaces the recording's. Trim, move, split, delete and undo like any clip; export matches the preview.
+- Dev: record a camera take over a marked range (3-2-1, the range plays silent unless sound is switched on, stops by itself). The take is the camera bubble for that range and its voice replaces the old one, which is muted, not deleted. Every take is kept; the newest is used and any other can be picked from the Dev menu.
+- Fix: timeline playback no longer stops at the first frame of an empty stretch on the timeline.
+- Export ffmpeg also runs at low CPU and idle disk priority inside its memory-capped scope.
+
 ## 0.1.0-beta.11 — not yet published
 
 - New: in-app updates on Windows (Help, Check for updates), checked against the owner's signature before anything installs; the updater is now switched on for Linux and Windows. Windows users on beta.10 or earlier update once by running the new installer.

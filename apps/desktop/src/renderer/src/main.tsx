@@ -69,7 +69,14 @@ import {
   type CursorStyle,
   type RecordingBackgroundStyle,
   type ZoomMarker,
+  listInsertedClips,
+  moveInsertedClip,
+  removeInsertedClip,
+  splitInsertedClipsAt,
+  trimInsertedClip,
+  type InsertedClipView,
 } from '@rough-cut/project-model';
+import { DevMediaMenu, useDevFeatures, type TakeRange } from './dev-media-tools';
 import { getCameraLayoutRect, resolveFrame, resolveFramedCrop } from '@rough-cut/frame-resolver';
 import './styles.css';
 
@@ -4263,6 +4270,11 @@ function ProjectPreview({
     };
   }, []);
   const [previewPlaying, setPreviewPlaying] = React.useState(false);
+  // Dev-only (dock copy): added clips and camera takes.
+  const devFeatures = useDevFeatures();
+  const [takeRange, setTakeRange] = React.useState<TakeRange>({ startFrame: null, endFrame: null });
+  const [takePlayback, setTakePlayback] = React.useState<{ playing: boolean; muted: boolean } | null>(null);
+  const [selectedInsertedClipId, setSelectedInsertedClipId] = React.useState<string | null>(null);
   const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
   const [cutModeActive, setCutModeActive] = React.useState(false);
   const [censorDrawArmed, setCensorDrawArmed] = React.useState(false);
@@ -5271,6 +5283,17 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+  async function editInsertedMedia(edit: (document: ProjectDocument) => ProjectDocument) {
+    try {
+      const current = latestProjectRef.current.document as unknown as ProjectDocument;
+      const next = edit(current);
+      if (next === current) return;
+      await persist(next as unknown as ProjectState['document']);
+    } catch {
+      // Overlaps and out-of-file trims are refused by the model; keep the edit as it was.
+    }
+  }
+
   async function splitAtPlayhead() {
     if (!effectiveRecording) return;
     const frame = Math.round(currentTimeSec * (effectiveRecording.fps || 30));
@@ -5279,10 +5302,10 @@ function ProjectPreview({
 
   async function splitAtFrame(frame: number) {
     if (!recordingAsset?.id || !effectiveRecording) return;
-    const nextDocument = splitRecordingAtFrame(project.document as unknown as ProjectDocument, {
+    const nextDocument = splitInsertedClipsAt(splitRecordingAtFrame(project.document as unknown as ProjectDocument, {
       assetId: recordingAsset.id,
       frame,
-    }) as unknown as ProjectState['document'];
+    }) as unknown as ProjectDocument, { frame }) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
     await persist(nextDocument);
   }
@@ -5374,7 +5397,7 @@ function ProjectPreview({
         <h2 className="srOnly">{project.document.name}</h2>
         {project.mediaUrl ? <GraphicsOverlay stageRef={graphicsStageRef} graphics={graphics} currentTimeSec={currentTimeSec} fps={graphicsFps} canvasWidth={graphicsCanvas.width} canvasHeight={graphicsCanvas.height} selectedGraphicId={selectedGraphicId} editable={!previewPlaying} onLayoutChange={changeGraphicLayout} onSelect={selectGraphic} /> : null}
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
+          <VideoPreview project={effectiveProject} isPlaying={takePlayback ? takePlayback.playing : undefined} audioMuted={Boolean(takePlayback?.muted)} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets).
           <section className="projectPreviewEmpty" data-testid="project-preview-empty" aria-label="Blank project empty state">
@@ -5389,7 +5412,22 @@ function ProjectPreview({
           <p className="timelineHeaderTitle">Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onCaptionsChange={(next) => { void persist(next as unknown as ProjectState['document']); }} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} /> : null}
+           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onCaptionsChange={(next) => { void persist(next as unknown as ProjectState['document']); }} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} selectedInsertedClipId={selectedInsertedClipId} onSelectInsertedClip={setSelectedInsertedClipId} onEditInsertedMedia={(edit) => void editInsertedMedia(edit)} takeRange={devFeatures ? takeRange : null} devToolbar={devFeatures ? (
+            <DevMediaMenu
+              projectPath={project.path ?? null}
+              fps={effectiveRecording.fps || 30}
+              playheadFrame={Math.round(currentTimeSec * (effectiveRecording.fps || 30))}
+              playheadSec={currentTimeSec}
+              takeRange={takeRange}
+              onTakeRangeChange={setTakeRange}
+              selectedTakeClipId={selectedInsertedClipId && listInsertedClips(project.document as unknown as ProjectDocument).some((clip) => clip.clipId === selectedInsertedClipId && clip.lane === 'camera') ? selectedInsertedClipId : null}
+              hasCamera={Boolean(effectiveRecording.camera)}
+              getDocument={() => latestProjectRef.current.document as unknown as ProjectDocument}
+              onApply={(next) => persist(next as unknown as ProjectState['document'])}
+              onSeekFrame={(frame) => { const sec = Math.max(0, frame / (effectiveRecording.fps || 30)); setCurrentTimeSec(sec); setTimelineSeekSec(sec); }}
+              onTakePlayback={setTakePlayback}
+            />
+          ) : null} /> : null}
         </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector" hidden={!inspectorOpen}>
         <div className="inspectorHeader">
@@ -5585,7 +5623,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove, onCaptionsChange }: { onCaptionsChange?: (next: ProjectDocument) => void; project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
+function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove, onCaptionsChange, selectedInsertedClipId = null, onSelectInsertedClip, onEditInsertedMedia, takeRange = null, devToolbar = null }: { selectedInsertedClipId?: string | null; onSelectInsertedClip?: (clipId: string | null) => void; onEditInsertedMedia?: (edit: (document: ProjectDocument) => ProjectDocument) => void; takeRange?: TakeRange | null; devToolbar?: React.ReactNode; onCaptionsChange?: (next: ProjectDocument) => void; project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -5595,6 +5633,97 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
 
   const fps = project.recording?.fps && project.recording.fps > 0 ? project.recording.fps : 30;
   const sourceFrameDuration = Math.max(1, Math.round((model.sourceDurationSec ?? model.durationSec) * fps));
+  // Clips added from outside the recording and camera takes: edited like any clip,
+  // previewed locally while dragging and committed once on pointer up.
+  const insertedClips = listInsertedClips(project.document as unknown as ProjectDocument);
+  const [insertedDrag, setInsertedDrag] = React.useState<{ clipId: string; timelineIn: number; timelineOut: number } | null>(null);
+  function beginInsertedDrag(clip: InsertedClipView, mode: 'move' | 'head' | 'tail', event: React.PointerEvent<HTMLElement>) {
+    if (event.button !== 0 || cutModeActive) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const startFrame = timelineFrameFromClientUnclamped(handle, event.clientX) ?? clip.timelineIn;
+    const startX = event.clientX;
+    let moved = false;
+    let latest = { timelineIn: clip.timelineIn, timelineOut: clip.timelineOut };
+    const length = clip.timelineOut - clip.timelineIn;
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!moved && Math.abs(moveEvent.clientX - startX) < 4) return;
+      moved = true;
+      const frame = timelineFrameFromClientUnclamped(handle, moveEvent.clientX);
+      if (frame === null) return;
+      const delta = frame - startFrame;
+      if (mode === 'move') {
+        const timelineIn = Math.max(0, clip.timelineIn + delta);
+        latest = { timelineIn, timelineOut: timelineIn + length };
+      } else if (mode === 'head') {
+        latest = { timelineIn: Math.max(clip.timelineIn - clip.sourceIn, Math.min(clip.timelineOut - 1, clip.timelineIn + delta)), timelineOut: clip.timelineOut };
+      } else {
+        latest = { timelineIn: clip.timelineIn, timelineOut: Math.max(clip.timelineIn + 1, Math.min(clip.timelineOut + (clip.sourceDuration - clip.sourceOut), clip.timelineOut + delta)) };
+      }
+      setInsertedDrag({ clipId: clip.clipId, ...latest });
+    };
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onCancel);
+      setInsertedDrag(null);
+      onSelectInsertedClip?.(clip.clipId);
+      if (!moved) return;
+      if (mode === 'move') onEditInsertedMedia?.((document) => moveInsertedClip(document, { clipId: clip.clipId, timelineIn: latest.timelineIn }));
+      else onEditInsertedMedia?.((document) => trimInsertedClip(document, { clipId: clip.clipId, edge: mode, frame: mode === 'head' ? latest.timelineIn : latest.timelineOut }));
+    };
+    const onCancel = () => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onCancel);
+      setInsertedDrag(null);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onCancel);
+  }
+  function renderInsertedClip(clip: InsertedClipView) {
+    const span = insertedDrag?.clipId === clip.clipId ? insertedDrag : clip;
+    const placement = frameRangeToPlacement(span.timelineIn, span.timelineOut, fps, model.durationSec);
+    const selected = selectedInsertedClipId === clip.clipId;
+    const isTake = clip.lane === 'camera';
+    return (
+      <div
+        key={clip.clipId}
+        className={`insertedClipBar${isTake ? ' cameraTakeBar' : ''}${selected ? ' selectedClip' : ''}${insertedDrag?.clipId === clip.clipId ? ' dragging' : ''}`}
+        style={{ left: `${placement.left}%`, width: `${placement.width}%` }}
+        data-inserted-clip-id={clip.clipId}
+        data-inserted-lane={clip.lane}
+        data-timeline-in={Math.round(span.timelineIn)}
+        data-timeline-out={Math.round(span.timelineOut)}
+      >
+        <span role="presentation" className="trimHandle trimHandleStart" title="Drag to trim the start" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginInsertedDrag(clip, 'head', event)} />
+        <button
+          type="button"
+          className="clipBody insertedClipBody"
+          aria-label={`${selected ? 'Selected ' : ''}${isTake ? 'Camera take' : 'Added clip'} ${clip.name}`}
+          title={`${clip.name} · drag to move · Delete removes it`}
+          onPointerDown={(event) => { event.currentTarget.focus(); beginInsertedDrag(clip, 'move', event); }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+            event.preventDefault();
+            event.stopPropagation();
+            onSelectInsertedClip?.(null);
+            onEditInsertedMedia?.((document) => removeInsertedClip(document, { clipId: clip.clipId }));
+          }}
+        >
+          <span className="insertedClipName">{clip.name}</span>
+          <span className="clipDuration">{Math.max(0, (span.timelineOut - span.timelineIn) / fps).toFixed(1)}s</span>
+        </button>
+        <span role="presentation" className="trimHandle trimHandleEnd" title="Drag to trim the end" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginInsertedDrag(clip, 'tail', event)} />
+      </div>
+    );
+  }
+  const takeBand = takeRange && takeRange.startFrame !== null
+    ? frameRangeToPlacement(takeRange.startFrame, takeRange.endFrame ?? takeRange.startFrame + 1, fps, model.durationSec)
+    : null;
   const hasHiddenStart = model.trimStartFrame > 0;
   const hasHiddenEnd = model.trimEndFrame < sourceFrameDuration;
   const [zoomDragPreview, setZoomDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
@@ -6671,7 +6800,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   function handleTimelineSurfacePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement | null;
-    if (target?.closest('.timelineToolButton, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .zoomEditorChip, .trimHandle, .hiddenTrimRange, .hiddenCutRange, .laneResizeHandle, .laneLabel')) return;
+    if (target?.closest('.timelineToolButton, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .zoomEditorChip, .trimHandle, .hiddenTrimRange, .hiddenCutRange, .laneResizeHandle, .laneLabel, .devMediaMenu, .devMenuLayer, .insertedClipBar')) return;
     const track = event.currentTarget.querySelector('.laneTrack');
     if (!(track instanceof HTMLElement)) return;
      if (target?.closest('.clipBody, .laneTrack, .timelineRuler')) return;
@@ -7119,6 +7248,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
         <span className="timelineToolbarDivider" aria-hidden="true" />
         <button type="button" className={cutModeActive ? 'timelineToolButton active timelineRangeButton' : 'timelineToolButton timelineRangeButton'} aria-label="Range cut mode" aria-pressed={cutModeActive} title={cutModeActive ? 'Range cut mode active - drag a range to remove it. Press Escape to cancel.' : 'Range cut mode - drag a range to remove it.'} onClick={() => onCutModeToggle?.()}>Select range</button>
         {onRestoreOriginal ? <button type="button" className="timelineToolButton timelineRestoreButton" aria-label="Restore original recording" title="Restore the untouched recording state" onClick={() => void onRestoreOriginal()}><PhosphorArrowCounterClockwise size={17} weight="regular" /></button> : null}
+        {devToolbar ? <><span className="timelineToolbarDivider" aria-hidden="true" />{devToolbar}</> : null}
         <span className="timelineToolbarSpacer" aria-hidden="true" />
         <div className="timelineZoomGroup" role="group" aria-label="Timeline zoom">
           <button type="button" className="timelineToolButton" aria-label="Zoom timeline out" title="Zoom timeline out (-)" disabled={!timelineZoomedIn} onClick={() => applyTimelineViewportZoom(-1)}><PhosphorMagnifyingGlassMinus size={17} weight="regular" /></button>
@@ -7254,6 +7384,8 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               {<button type="button" role="slider" className={`trimHandle trimHandleEnd${(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? ' hasHiddenFootage' : ''}`} title={(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? `${formatClock((sourceFrameDuration - (region.sourceOut ?? sourceFrameDuration)) / fps)} of later footage is hidden. Drag right to bring it back.` : 'Drag left to trim the end'} data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} />}
               </div>
           ))}
+          {insertedClips.filter((clip) => clip.lane === 'screen').map(renderInsertedClip)}
+          {takeBand ? <span className={`takeRangeBand${takeRange?.endFrame === null ? ' takeRangeOpen' : ''}`} style={{ left: `${takeBand.left}%`, width: `${takeRange?.endFrame === null ? 0 : takeBand.width}%` }} aria-label="Camera take range" /> : null}
           {cutDragPreview ? (() => {
             const start = Math.min(cutDragPreview.startFrame, cutDragPreview.endFrame);
             const end = Math.max(cutDragPreview.startFrame, cutDragPreview.endFrame);
@@ -7269,6 +7401,22 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             </TimelineLane>
             <TimelineLane label="Audio" className="audioLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
            {renderGaps('audio')}
+           {insertedClips.filter((clip) => clip.lane === 'audio').map((clip) => {
+             // Sound from an added clip, or a camera take's voice (the recording's sound stays, muted under it).
+             const isTakeVoice = insertedClips.some((other) => other.lane === 'camera' && other.assetId === clip.assetId);
+             const placement = frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, model.durationSec);
+             return (
+               <span
+                 key={clip.clipId}
+                 className={`insertedAudioRegion${isTakeVoice ? ' takeVoiceRegion' : ''}`}
+                 style={{ left: `${placement.left}%`, width: `${placement.width}%` }}
+                 data-inserted-audio-clip-id={clip.clipId}
+                 title={isTakeVoice ? `${clip.name} voice: the recording's sound is muted here` : `${clip.name} sound`}
+               >
+                 <span className="insertedClipName">{isTakeVoice ? `${clip.name} voice` : clip.name}</span>
+               </span>
+             );
+           })}
            {model.lanes.audio.length > 0
              ? model.lanes.audio.map((region, index) => { const linkedScreen = linkedScreenRegionForAudio(region); const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} data-recording-linked-screen-clip-id={linkedScreen?.id ?? ''} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={audioRegionStyle(region)} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
                   {index > 0 ? <span className="clipCutBoundary audioCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} aria-hidden="true" /> : null}
@@ -7533,6 +7681,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             : <p className="srOnly">No click events yet.</p>}
             </TimelineLane>
             <TimelineLane label="Camera" className="cameraLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+          {insertedClips.filter((clip) => clip.lane === 'camera').map(renderInsertedClip)}
           {model.lanes.camera.length > 0
             ? model.lanes.camera.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'camera', label: 'Camera track', detail: 'Camera presence selected from the timeline.' })}>Camera</button>)
             : <p className="srOnly">No camera track.</p>}

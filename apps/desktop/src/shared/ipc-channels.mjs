@@ -5,6 +5,16 @@ export const IPC_CHANNELS = {
   // In-app updates: main pushes the status (and answers a get); install runs the menu's restart flow.
   UPDATE_STATUS: 'update:status',
   UPDATE_INSTALL: 'update:install',
+  // Dev-only (Noam's own dock copy): add outside clips, record camera takes.
+  // Main registers the DEV_* handlers only when the local dev switch is on.
+  DEV_FEATURES_STATUS: 'dev:features-status',
+  DEV_INSERT_PICK: 'dev:insert-pick',
+  DEV_INSERT_PREPARE: 'dev:insert-prepare',
+  DEV_INSERT_PROGRESS: 'dev:insert-progress',
+  DEV_TAKE_BEGIN: 'dev:take-begin',
+  DEV_TAKE_CHUNK: 'dev:take-chunk',
+  DEV_TAKE_FINISH: 'dev:take-finish',
+  DEV_TAKE_CANCEL: 'dev:take-cancel',
   // Project I/O
   PROJECT_OPEN: 'project:open',
   PROJECT_SAVE: 'project:save',

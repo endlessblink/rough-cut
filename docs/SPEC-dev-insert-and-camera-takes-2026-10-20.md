@@ -67,3 +67,32 @@ launch video himself. Build only after he confirms this file.
   the switch off.
 - Work on a copy of the beta_11 walkthrough project, never the original.
 - Commit on a branch, no release.
+
+## Built (2026-10-20, branch dev/insert-clips-camera-takes)
+
+- Switch: `ROUGH_CUT_DEV_FEATURES=1` in the environment, or an empty file
+  `dev-features.on` in the app's user-data folder (`ROUGH_CUT_DEV_FEATURES=0`
+  forces it off). With it off the Dev button, the menu and the dev IPC handlers do
+  not exist (tests prove it).
+- Model: `packages/project-model/src/inserted-media.ts`. Added clips are their own
+  assets (file referenced in place) on the recording's screen/audio lanes; camera
+  takes live on two take lanes above the recording ("Camera takes", "Take voice"),
+  so the recording's own camera and voice clips stay untouched (muted, not deleted).
+  Takes for one range share a take group; switching swaps the clip on the take lanes.
+- Preview: each added file has its own hidden decoder positioned from the timeline
+  clock; the recording's playback treats those spans as gaps. The clock never runs
+  more than two frames ahead of an added clip's picture.
+- Export: each added clip and take is its own seeked, capped ffmpeg input; added
+  clips form a full-picture layer over the background, takes go into the camera lane,
+  and sound follows the audio lanes (take voices mute the recording under them).
+- Files written: takes and finished exports of other projects go in `added-media/`
+  beside the project. Source files and projects are never modified.
+- Tests: model unit tests; `pnpm test:inserted-media-export` (real export, frames and
+  sound checked); `pnpm verify:dev-insert-takes <project>` (real app, temp copy, fake
+  camera: insert/overwrite, undo/redo, playback through a clip, two takes on the
+  marked range, take switching and its undo, Dev menu absent with the switch off).
+
+Not done yet:
+- Zooms and captions placed on an added clip (graphics and camera takes work there).
+  Both are stored in recording frames today, so an added clip has no frames for them.
+- Audio-only files (mp3/wav) as added clips.

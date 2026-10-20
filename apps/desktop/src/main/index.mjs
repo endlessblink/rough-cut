@@ -6,12 +6,13 @@ import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, M
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
-import { exportProjectToMp4 } from './export-service.mjs';
+import { exportProjectToMp4, runCappedFfmpeg } from './export-service.mjs';
+import { buildTakeRemuxArgs, classifyInsertPick, createTakeWriter, describeInsertableVideo, devFeaturesEnabled, exportProjectForInsert, INSERTABLE_VIDEO_EXTENSIONS } from './dev-media-service.mjs';
 import { verifyExportedFile } from './export-verify.mjs';
 import { createAppSettingsStore, defaultAppSettingsPath } from './app-settings-store.mjs';
 import { pickDirectory, pickSavePath } from './file-picker.mjs';
@@ -1252,6 +1253,67 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_event, projectPath) => {
     throw err;
   }
 });
+// Dev-only features (docs/SPEC-dev-insert-and-camera-takes-2026-10-20.md). The
+// switch is read once at start: an env var from Noam's dock launcher or a file in
+// the app config folder. Public builds have neither, so these handlers never exist.
+const devFeaturesOn = devFeaturesEnabled({ userDataDir: app.getPath('userData') });
+ipcMain.handle(IPC_CHANNELS.DEV_FEATURES_STATUS, () => ({ enabled: devFeaturesOn }));
+if (devFeaturesOn) registerDevMediaHandlers();
+
+function registerDevMediaHandlers() {
+  console.info('[dev] dev features are on (add clips, camera takes)');
+  const takes = createTakeWriter();
+  ipcMain.handle(IPC_CHANNELS.DEV_INSERT_PICK, async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = await dialog.showOpenDialog(owner, {
+      title: 'Add clip at playhead',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Video or Rough Cut project', extensions: [...INSERTABLE_VIDEO_EXTENSIONS, 'roughcut'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const filePath = result.filePaths[0];
+    const kind = classifyInsertPick(filePath);
+    if (!kind) throw new Error('Pick a video file or a Rough Cut project.');
+    return { filePath, kind, name: basename(filePath) };
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_INSERT_PREPARE, async (event, payload) => {
+    const filePath = payload?.filePath;
+    const kind = classifyInsertPick(filePath);
+    if (!kind) throw new Error('Pick a video file or a Rough Cut project.');
+    let videoPath = filePath;
+    if (kind === 'project') {
+      const targetProjectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
+      videoPath = await exportProjectForInsert({
+        sourceProjectPath: filePath,
+        targetProjectPath,
+        openProject: openProjectFile,
+        exportProject: exportProjectToMp4,
+        onProgress: (progress) => event.sender.send(IPC_CHANNELS.DEV_INSERT_PROGRESS, progress),
+      });
+      if (!videoPath) return null;
+    }
+    return describeInsertableVideo(videoPath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia });
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_TAKE_BEGIN, async (_event, payload) => {
+    const projectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
+    return takes.begin({ projectPath });
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_TAKE_CHUNK, (_event, id, chunk) => takes.append(id, chunk));
+  ipcMain.handle(IPC_CHANNELS.DEV_TAKE_FINISH, async (_event, payload) => {
+    const finalPath = await takes.finish(payload?.id, {
+      remux: async (inputPath, outputPath) => {
+        const result = await runCappedFfmpeg(buildTakeRemuxArgs(inputPath, outputPath));
+        return result.code === 0;
+      },
+    });
+    return describeInsertableVideo(finalPath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia });
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_TAKE_CANCEL, (_event, id) => takes.cancel(id));
+}
+
 // Serialize concurrent saves per project path. The renderer can fire two
 // project:save calls in quick succession (e.g. autosave + manual save). The
 // atomic write in saveProjectFile uses a fixed `.tmp` suffix per path; two

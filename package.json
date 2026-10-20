@@ -35,6 +35,8 @@
     "user:confirm-visual": "node scripts/confirm-user-visual-review.mjs",
     "verify:recording-editor-skill": "node scripts/verify-rough-cut-timeline-skill-gate.mjs",
     "verify:recording-linked-lanes": "ROUGH_CUT_DOCK_LAUNCH=1 node scripts/recording-editor-interactions-playwright.mjs",
+    "test:inserted-media-export": "pnpm --filter @rough-cut/project-model build && node scripts/e2e-inserted-media-export.mjs",
+    "verify:dev-insert-takes": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && xvfb-run -a -s '-screen 0 1920x1080x24' node scripts/e2e-dev-insert-takes-playwright.mjs",
     "verify:recording-edit-regressions": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && xvfb-run -a -s '-screen 0 1920x1080x24' node scripts/recording-edit-regressions-playwright.mjs",
     "smoke:sidebar-layout": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-sidebar-layout.mjs",
     "smoke:styled-export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-styled-export.mjs",

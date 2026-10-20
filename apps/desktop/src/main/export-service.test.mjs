@@ -22,10 +22,11 @@ test('ffmpeg exports use bounded CPU and low I/O priority by default', () => {
   try {
     const scoped = memoryCappedCommand('ffmpeg', ['-version'], 'linux');
     assert.equal(memoryCappedCommand('ffmpeg', ['-version'], 'win32'), null);
-    assert.deepEqual(scoped.args.slice(0, 14), [
+    assert.deepEqual(scoped.args.slice(0, 20), [
       '--user', '--scope', '-q', '--collect',
       '-p', 'MemoryMax=32G', '-p', 'MemorySwapMax=0',
       '-p', 'CPUQuota=400%', '-p', 'IOWeight=20',
+      'nice', '-n', '10', 'ionice', '-c', '3',
       'ffmpeg', '-version',
     ]);
   } finally {

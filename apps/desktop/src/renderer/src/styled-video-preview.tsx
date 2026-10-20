@@ -18,7 +18,10 @@ import {
   createDefaultRecordingBackgroundStyle,
   getRecordingBackgroundColors,
   getStyledCanvasResolution,
+  insertedMediaSourceIds,
+  listInsertedClips,
   type CameraPresentation,
+  type InsertedClipView,
   type NormalizedRect,
   type ProjectAspectRatio,
   type ProjectDocument,
@@ -514,6 +517,7 @@ export function StyledVideoPreview({
   onCensorRectChange,
   mediaUrlOverride,
   cameraMediaUrlOverride,
+  audioMuted = false,
 }: {
   project: StyledPreviewProject;
   seekTimeSec?: number;
@@ -561,6 +565,8 @@ export function StyledVideoPreview({
   ) => void;
   mediaUrlOverride?: string | null;
   cameraMediaUrlOverride?: string | null;
+  /** Silence the program (used while recording a pickup over playback). */
+  audioMuted?: boolean;
 }) {
   // videoRef/cameraVideoRef always point at the program (drawn, audible)
   // element. Each lane has a second, standby decoder so a cut that skips source
@@ -580,6 +586,7 @@ export function StyledVideoPreview({
     context: AudioContext;
     gains: Map<HTMLVideoElement, GainNode>;
     targets: Map<HTMLVideoElement, number>;
+    master: GainNode;
   } | null>(null);
   const screenSlotRefCallbacks = React.useMemo(() => ([0, 1] as const).map((slot) => (element: HTMLVideoElement | null) => {
     screenSlotsRef.current[slot] = element;
@@ -786,6 +793,31 @@ export function StyledVideoPreview({
     () => canonicalizeProjectDocument(project.document as unknown as ProjectDocument),
     [project.document],
   );
+  // Footage inserted from outside the recording (clips, camera pickups). Each file
+  // has its own hidden decode surface; the canonical timeline clock positions it,
+  // and the recording's own playback treats those spans as gaps.
+  const insertedSourceIds = React.useMemo(() => insertedMediaSourceIds(canonicalDocument), [canonicalDocument]);
+  const insertedVideoClips = React.useMemo(
+    () => listInsertedClips(canonicalDocument).filter((clip) => clip.lane !== 'audio'),
+    [canonicalDocument],
+  );
+  const insertedAssetIds = React.useMemo(() => new Set(insertedVideoClips.map((clip) => clip.assetId)), [insertedVideoClips]);
+  const insertedMediaSources = React.useMemo(() => {
+    const urls = new Map<string, string>();
+    for (const clip of insertedVideoClips) {
+      if (!urls.has(clip.assetId)) urls.set(clip.assetId, `media://file/${encodeURIComponent(clip.filePath)}`);
+    }
+    return [...urls.entries()].map(([assetId, url]) => ({ assetId, url }));
+  }, [insertedVideoClips]);
+  const insertedVideoClipsRef = React.useRef<InsertedClipView[]>(insertedVideoClips);
+  insertedVideoClipsRef.current = insertedVideoClips;
+  const insertedVideosRef = React.useRef(new Map<string, HTMLVideoElement>());
+  const audioMutedRef = React.useRef(audioMuted);
+  audioMutedRef.current = audioMuted;
+  // The project's camera style, for a camera take placed where the recording shows no bubble.
+  const recordingPresentationForTakes = getPrimaryRecordingAsset(project.document as unknown as ProjectDocument)?.presentation;
+  const fallbackCameraPresentation: CameraPresentation = { ...(recordingPresentationForTakes?.camera ?? DEFAULT_CAMERA_PRESENTATION), visible: true };
+  const fallbackCameraFrame = recordingPresentationForTakes?.cameraFrame ?? null;
   const sourceWidth = project.recording?.width ?? 1920;
   const sourceHeight = project.recording?.height ?? 1080;
   const fps = project.recording?.fps ?? 30;
@@ -952,7 +984,9 @@ export function StyledVideoPreview({
   function timelineTimeToSourceTime(timelineTimeSec: number) {
     const timelineFrame = Math.max(0, Math.round(timelineTimeSec * fps));
     const resolved = resolveTimelineFrame(canonicalDocument, timelineFrame);
-    return resolved.video ? resolved.video.sourceFrame / fps : null;
+    const recordingLayers = resolved.videoLayers.filter((layer) => !insertedSourceIds.has(layer.media.id));
+    const top = recordingLayers[recordingLayers.length - 1] ?? null;
+    return top ? top.sourceFrame / fps : null;
   }
 
   function buildTimelinePlaybackSegments(): TimelinePlaybackSegment[] {
@@ -966,6 +1000,8 @@ export function StyledVideoPreview({
         const media = sources.find((source) => source.id === clip.mediaId);
         const asset = media?.assetId ? assets.find((item) => item.id === media.assetId) : null;
         if (media?.kind === 'camera' || asset?.metadata?.isCamera) return [];
+        // Inserted footage has its own decoder; for the recording it is a gap.
+        if (insertedSourceIds.has(clip.mediaId)) return [];
         return [{
           timelineIn: Math.max(0, Math.round(Number(clip.timelineIn) || 0)),
           timelineOut: Math.max(0, Math.round(Number(clip.timelineOut) || 0)),
@@ -988,6 +1024,60 @@ export function StyledVideoPreview({
   function nextTimelineSegmentAfterFrame(segments: readonly TimelinePlaybackSegment[], timelineFrame: number) {
     const frame = Math.max(0, Math.round(timelineFrame));
     return segments.find((segment) => segment.timelineIn >= frame) ?? null;
+  }
+
+  function insertedClipAt(timelineFrame: number, lane: 'screen' | 'camera'): InsertedClipView | null {
+    const frame = Math.max(0, Math.round(timelineFrame));
+    return insertedVideoClipsRef.current.find((clip) => clip.lane === lane && frame >= clip.timelineIn && frame < clip.timelineOut) ?? null;
+  }
+
+  /** Inserted footage still to come keeps playback running past the recording's last clip. */
+  function insertedContentAfter(timelineFrame: number) {
+    return insertedVideoClipsRef.current.some((clip) => clip.timelineOut > timelineFrame);
+  }
+
+  function insertedContentEndFrame() {
+    return insertedVideoClipsRef.current.reduce((end, clip) => Math.max(end, clip.timelineOut), 0);
+  }
+
+  function isRecordingScreenLayer(layer: { isCamera?: boolean; assetId?: string }) {
+    return !layer.isCamera && !insertedAssetIds.has(String(layer.assetId));
+  }
+
+  /**
+   * Position every inserted decoder from canonical timeline time. Video elements
+   * never own the clock: an active one plays along and is re-seeked only when it
+   * drifts, an upcoming one is parked on its first frame, the rest are paused.
+   */
+  function syncInsertedMedia(timelineFrame: number, playing: boolean) {
+    const clips = insertedVideoClipsRef.current;
+    if (clips.length === 0) return;
+    const frame = Math.max(0, Math.round(timelineFrame));
+    const rate = timelineRateRef.current;
+    for (const [assetId, element] of insertedVideosRef.current) {
+      const active = clips.find((clip) => clip.assetId === assetId && frame >= clip.timelineIn && frame < clip.timelineOut) ?? null;
+      if (!active) {
+        if (!element.paused) element.pause();
+        const upcoming = playing
+          ? clips.find((clip) => clip.assetId === assetId && clip.timelineIn > frame && clip.timelineIn - frame <= fps * 1.5) ?? null
+          : null;
+        if (upcoming && !element.seeking && Math.abs(element.currentTime - upcoming.sourceIn / fps) > 1 / fps) {
+          element.currentTime = upcoming.sourceIn / fps;
+        }
+        continue;
+      }
+      const target = (active.sourceIn + (frame - active.timelineIn)) / fps;
+      const muted = audioMutedRef.current || !active.hasAudio;
+      if (element.muted !== muted) element.muted = muted;
+      if (playing) {
+        if (element.playbackRate !== rate) element.playbackRate = rate;
+        if (!element.seeking && Math.abs(element.currentTime - target) > 0.2) element.currentTime = target;
+        if (element.paused) void element.play().catch(() => undefined);
+      } else {
+        if (!element.paused) element.pause();
+        if (!element.seeking && Math.abs(element.currentTime - target) > 0.5 / fps) element.currentTime = target;
+      }
+    }
   }
 
   function sameTimelinePlaybackSegment(left: TimelinePlaybackSegment | null, right: TimelinePlaybackSegment | null) {
@@ -1038,17 +1128,20 @@ export function StyledVideoPreview({
       const context = new AudioContextCtor();
       const gains = new Map<HTMLVideoElement, GainNode>();
       const targets = new Map<HTMLVideoElement, number>();
+      const master = context.createGain();
+      master.gain.value = audioMutedRef.current ? 0 : 1;
+      master.connect(context.destination);
       for (const element of screenSlotsRef.current) {
         if (!element) continue;
         const gain = context.createGain();
         const target = element === videoRef.current ? element.volume : 0;
         gain.gain.value = target;
         element.volume = 1;
-        context.createMediaElementSource(element).connect(gain).connect(context.destination);
+        context.createMediaElementSource(element).connect(gain).connect(master);
         gains.set(element, gain);
         targets.set(element, target);
       }
-      previewAudioRef.current = { context, gains, targets };
+      previewAudioRef.current = { context, gains, targets, master };
       void context.resume().catch(() => undefined);
       return previewAudioRef.current;
     } catch (err) {
@@ -1079,7 +1172,16 @@ export function StyledVideoPreview({
     if (standbyCamera && !standbyCamera.paused) standbyCamera.pause();
   }
 
+  React.useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (audio) audio.master.gain.setTargetAtTime(audioMuted ? 0 : 1, audio.context.currentTime, 0.01);
+    for (const element of insertedVideosRef.current.values()) {
+      if (audioMuted) element.muted = true;
+    }
+  }, [audioMuted]);
+
   React.useEffect(() => () => {
+    for (const element of insertedVideosRef.current.values()) element.pause();
     void previewAudioRef.current?.context.close().catch(() => undefined);
     previewAudioRef.current = null;
   }, []);
@@ -1254,7 +1356,7 @@ export function StyledVideoPreview({
       let timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
       let segment = timelineSegmentAtFrame(segments, timelineFrame);
       if (!segment) {
-        if (!nextTimelineSegmentAfterFrame(segments, timelineFrame)) {
+        if (!nextTimelineSegmentAfterFrame(segments, timelineFrame) && !insertedContentAfter(timelineFrame)) {
           setInternalPlaying(false);
           onPlayingChangeRef.current?.(false);
           return;
@@ -1756,7 +1858,7 @@ export function StyledVideoPreview({
         if (segment && decodedSourceFrame >= segment.sourceOut) {
           const nextSegment = nextTimelineSegmentAfterFrame(segments, currentTimelineFrame);
           if (nextSegment && nextSegment.timelineIn > segment.timelineOut) return enterTimelineGapAfterSegment(segment);
-          if (!nextSegment) return holdTimelineSegmentEnd(segment);
+          if (!nextSegment) return insertedContentAfter(segment.timelineOut) ? enterTimelineGapAfterSegment(segment) : holdTimelineSegmentEnd(segment);
           if (seekTimelineBoundary(nextSegment)) return null;
           segment = nextSegment;
         }
@@ -1823,7 +1925,10 @@ export function StyledVideoPreview({
         }
       }
       lastTickAtMs = tickAtMs;
-      if (acceleratedTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && lastTickAtMs !== null && tickDeltaSec > 0) {
+      // The wall clock drives the playhead with the accelerated renderer, and with any
+      // renderer while no recording section is playing (a gap, or footage inserted from
+      // outside the recording): there is no decoded frame to follow there.
+      if ((acceleratedTimelinePlaybackClock || !activeTimelineSegmentRef.current) && timeMode === 'timeline' && isPlaying && lastTickAtMs !== null && tickDeltaSec > 0) {
         let nextClockTime = Math.min(timelineDuration, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
         // Never let the free-running clock outrun the decoder: on a stall the
         // cursor/zoom would glide over a frozen frame. Park the clock at most
@@ -1833,6 +1938,19 @@ export function StyledVideoPreview({
           const videoTimelineSec = (clampSegment.timelineIn + (video.currentTime * fps - clampSegment.sourceIn)) / fps;
           const maxClockTime = videoTimelineSec + 2 / fps;
           if (nextClockTime > maxClockTime) nextClockTime = Math.max(currentTimeRef.current, maxClockTime);
+        }
+        // Same rule over a clip inserted from outside the recording: its own decoder sets the pace.
+        const clampInserted = !clampSegment ? insertedClipAt(Math.round(currentTimeRef.current * fps), 'screen') : null;
+        const clampInsertedVideo = clampInserted ? insertedVideosRef.current.get(clampInserted.assetId) : null;
+        if (clampInserted && clampInsertedVideo) {
+          if (clampInsertedVideo.paused || clampInsertedVideo.seeking || clampInsertedVideo.readyState < 3) {
+            // Starting or re-seeking: hold the clock until the picture moves.
+            nextClockTime = currentTimeRef.current;
+          } else if (!clampInsertedVideo.ended) {
+            const insertedTimelineSec = (clampInserted.timelineIn + (clampInsertedVideo.currentTime * fps - clampInserted.sourceIn)) / fps;
+            const maxClockTime = insertedTimelineSec + 2 / fps;
+            if (nextClockTime > maxClockTime) nextClockTime = Math.max(currentTimeRef.current, maxClockTime);
+          }
         }
         if (nextClockTime > currentTimeRef.current) {
           updateCurrentTime(nextClockTime);
@@ -1873,7 +1991,7 @@ export function StyledVideoPreview({
         : null;
       const parkedTimelinePreviewFrame = parkedTimelineFrame !== null ? resolveCurrentFrame(parkedTimelineFrame) : null;
       const parkedTimelineGap = Boolean(
-        parkedTimelinePreviewFrame && !(parkedTimelinePreviewFrame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null),
+        parkedTimelinePreviewFrame && !(parkedTimelinePreviewFrame.layers?.find(isRecordingScreenLayer) ?? null),
       );
       if (!parkedTimelineGap && (video.seeking || video.readyState < 2)) {
         recordPlaybackDebug('render-skip-video-not-ready', {
@@ -1918,7 +2036,9 @@ export function StyledVideoPreview({
       const nextClockSegment = timelineClockFrame !== null
         ? nextTimelineSegmentAfterFrame(timelineClockSegments, timelineClockFrame)
         : null;
-      const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && nextClockSegment && timelineClockFrame < nextClockSegment.timelineIn
+      const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && (
+        (nextClockSegment && timelineClockFrame < nextClockSegment.timelineIn) || insertedContentAfter(timelineClockFrame)
+      )
         ? timelineClockFrame
         : null;
       if (timelineClockGapFrame !== null) {
@@ -1945,8 +2065,9 @@ export function StyledVideoPreview({
         let segmentAtClock = timelineSegmentAtFrame(segments, timelineFrame);
         if (!segmentAtClock) {
           const nextSegment = nextTimelineSegmentAfterFrame(segments, timelineFrame);
-          if (nextSegment) {
-            const gapTime = Math.min(nextSegment.timelineIn / fps, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
+          const gapEndFrame = nextSegment?.timelineIn ?? (insertedContentAfter(timelineFrame) ? insertedContentEndFrame() : null);
+          if (gapEndFrame !== null) {
+            const gapTime = Math.min(gapEndFrame / fps, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
             if (gapTime > currentTimeRef.current) {
               updateCurrentTime(gapTime);
               timelineFrameFallbackRef.current = Math.max(0, Math.round(gapTime * fps));
@@ -1981,7 +2102,7 @@ export function StyledVideoPreview({
         : null;
       if (timeMode === 'timeline' && isPlaying && !timelineDecoded) {
         const timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
-        const waitingForSegment = !activeTimelineSegmentRef.current && nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), timelineFrame);
+        const waitingForSegment = !activeTimelineSegmentRef.current && (nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), timelineFrame) || insertedContentAfter(timelineFrame));
         if (waitingForSegment) {
           timelineFrameFallbackRef.current = timelineFrame;
         } else {
@@ -2001,9 +2122,26 @@ export function StyledVideoPreview({
       const currentFrame = timeMode === 'timeline'
         ? timelineDecoded?.timelineFrame ?? playingGapFrame ?? parkedTimelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
         : sourceFrame;
+      syncInsertedMedia(timeMode === 'timeline' ? currentFrame : -1, timeMode === 'timeline' && isPlaying && !scrubbing);
+      if (
+        timeMode === 'timeline'
+        && isPlaying
+        && playingGapFrame !== null
+        && insertedVideoClipsRef.current.length > 0
+        && !insertedContentAfter(currentFrame)
+        && !nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), currentFrame)
+      ) {
+        // Past the last inserted clip with no recording after it: the timeline ended.
+        updateCurrentTime(Math.min(timelineDuration, insertedContentEndFrame() / fps), { immediate: true });
+        setInternalPlaying(false);
+        onPlayingChangeRef.current?.(false);
+      }
       setScreenGain(
         screenVideo,
-        timeMode === 'timeline' && timelineDecoded?.segment
+        // A camera take's voice replaces the recording's sound for its range (muted, not removed).
+        timeMode === 'timeline' && insertedClipAt(currentFrame, 'camera')?.hasAudio
+          ? 0
+          : timeMode === 'timeline' && timelineDecoded?.segment
           ? timelineJoinGain(
               buildTimelinePlaybackSegments(),
               timelineDecoded.segment,
@@ -2023,7 +2161,12 @@ export function StyledVideoPreview({
         // and can be a fraction behind the clock, so letting it write too made the playhead step forward, dip
         // back and step forward again every frame (the "wiggle"). Within a few frames behind, the clock wins; a
         // larger gap is a real seek or restart and still applies.
-        const decodedFrameTime = Math.min(timelineDuration, currentFrame / fps);
+        // In a gap there is no decoded frame: the clock is the time. Snapping it to the
+        // nearest whole frame every tick undid each sub-frame step (a 60 Hz tick is under
+        // half a frame at 30 fps), so playback froze at the first frame of every gap.
+        const decodedFrameTime = playingGapFrame !== null
+          ? Math.min(timelineDuration, Math.max(currentFrame / fps, currentTimeRef.current))
+          : Math.min(timelineDuration, currentFrame / fps);
         const clockLeadSec = currentTimeRef.current - decodedFrameTime;
         const clockOwnsPlayhead = acceleratedTimelinePlaybackClock && playingGapFrame === null && clockLeadSec > 0 && clockLeadSec <= 3 / fps;
         if (!clockOwnsPlayhead) {
@@ -2084,7 +2227,7 @@ export function StyledVideoPreview({
       const activeTimelinePlayback = timeMode === 'timeline' && isPlaying;
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = activeTimelinePlayback ? 'low' : 'high';
-      const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
+      const screenLayer = frame.layers?.find(isRecordingScreenLayer) ?? null;
       (window as unknown as Record<string, unknown>).__roughCutPreviewRenderDebug = {
         src,
         cameraSrc,
@@ -2168,6 +2311,68 @@ export function StyledVideoPreview({
       markDrawPhase('background');
       // Empty timeline position: no clip covers the playhead, so there is no
       // recording to draw here and the frame is empty.
+      const insertedScreen = timeMode === 'timeline' && !screenLayer ? insertedClipAt(currentFrame, 'screen') : null;
+      if (insertedScreen) {
+        publishCursorOffscreenStatus(null);
+        const insertedVideo = insertedVideosRef.current.get(insertedScreen.assetId) ?? null;
+        if (!insertedVideo || insertedVideo.readyState < 2 || insertedVideo.videoWidth <= 0) {
+          // Not decoded yet: keep the last picture rather than flash black, and retry.
+          lastDrawnFrame = -1;
+          scheduleNextDraw();
+          return;
+        }
+        // Styled exactly like the recording it sits between, so it reads as part of one video.
+        screenLayerRenderer.drawBackground({
+          ctx,
+          canvasWidth,
+          canvasHeight,
+          startColor: backgroundStart,
+          endColor: backgroundEnd,
+          image: backgroundImageRef.current,
+        });
+        if (editablePreview && alignmentGridVisibleRef.current && !parityCapture) drawAlignmentGuides(ctx, canvasWidth, canvasHeight);
+        drawInsertedScreenClip(ctx, insertedVideo, canvasWidth, canvasHeight);
+        // A camera take recorded over the added clip is its bubble.
+        const takeOverClip = insertedClipAt(currentFrame, 'camera');
+        const takeVideo = takeOverClip ? insertedVideosRef.current.get(takeOverClip.assetId) ?? null : null;
+        if (takeVideo && takeVideo.readyState >= 2 && takeVideo.videoWidth > 0) {
+          const takePresentation = { ...(frame.cameraPresentation ?? fallbackCameraPresentation), visible: true };
+          const takeFrame = constrainCameraShapeFrame(
+            resolveCameraFrame(frame.cameraFrame ?? fallbackCameraFrame, takePresentation, canvasWidth, canvasHeight),
+            takePresentation,
+            canvasWidth,
+            canvasHeight,
+          );
+          const takeSource = resolveCameraSourceRect(takeVideo.videoWidth, takeVideo.videoHeight, takeFrame.w, takeFrame.h, undefined);
+          if (takeSource) try {
+            screenLayerRenderer.drawCamera({
+              ctx,
+              video: takeVideo,
+              canvasWidth,
+              canvasHeight,
+              frame: takeFrame,
+              source: takeSource,
+              sourceWidth: takeVideo.videoWidth,
+              sourceHeight: takeVideo.videoHeight,
+              radius: resolveCameraRadius(takePresentation, takeFrame),
+              presentation: takePresentation,
+              shadow: !activeTimelinePlayback,
+            });
+          } catch {
+            // Draw the bubble on the next decoded frame.
+          }
+        }
+        (window as unknown as Record<string, unknown>).__roughCutInsertedMediaDebug = {
+          clipId: insertedScreen.clipId,
+          lane: 'screen',
+          videoTime: insertedVideo.currentTime,
+          expectedTime: (insertedScreen.sourceIn + (currentFrame - insertedScreen.timelineIn)) / fps,
+        };
+        cameraRectRef.current = null;
+        publishResolvedLayout(resolvedScreenFrame, null, canvasWidth, canvasHeight);
+        scheduleNextDraw();
+        return;
+      }
       if (timeMode === 'timeline' && !screenLayer) {
         publishCursorOffscreenStatus(null);
         // Black, not the styled backdrop. The background is part of how the
@@ -2200,7 +2405,30 @@ export function StyledVideoPreview({
       const zoomSafety = !activeTimelinePlayback && selectedZoomFocalRef.current
         ? resolveZoomAuthoringSafety({ sourceWidth, sourceHeight, scale, offsetX, offsetY, cursor: cursorPos })
         : null;
-      const cameraHasFrame = Boolean(
+      const insertedCamera = timeMode === 'timeline' ? insertedClipAt(currentFrame, 'camera') : null;
+      const insertedCameraVideo = insertedCamera ? insertedVideosRef.current.get(insertedCamera.assetId) ?? null : null;
+      // A take is always shown, in the project's camera style, even where the recording had no camera.
+      const pickupHasFrame = Boolean(
+        insertedCamera &&
+        insertedCameraVideo &&
+        insertedCameraVideo.readyState >= 2 &&
+        insertedCameraVideo.videoWidth > 0,
+      );
+      if (pickupHasFrame && frame.cameraPresentation?.visible === false) {
+        frame.cameraPresentation = { ...frame.cameraPresentation, visible: true };
+      } else if (pickupHasFrame && !frame.cameraPresentation) {
+        frame.cameraPresentation = { ...fallbackCameraPresentation, visible: true };
+      }
+      if (insertedCamera && insertedCameraVideo) {
+        (window as unknown as Record<string, unknown>).__roughCutInsertedMediaDebug = {
+          clipId: insertedCamera.clipId,
+          lane: 'camera',
+          videoTime: insertedCameraVideo.currentTime,
+          expectedTime: (insertedCamera.sourceIn + (currentFrame - insertedCamera.timelineIn)) / fps,
+        };
+      }
+      // A pickup on the camera lane takes the bubble's place; the recording's camera stays hidden under it.
+      const cameraHasFrame = !insertedCamera && Boolean(
         cameraVideo &&
         cameraSrc &&
         cameraVideo.readyState >= 2 &&
@@ -2211,7 +2439,28 @@ export function StyledVideoPreview({
       let cameraFrameForDraw: { x: number; y: number; w: number; h: number } | null = null;
       let cameraSourceForDraw: { sx: number; sy: number; sw: number; sh: number } | null = null;
       let cameraRadiusForDraw = 0;
-      if (cameraHasFrame && cameraVideo) {
+      const cameraDrawVideo = pickupHasFrame ? insertedCameraVideo : cameraVideo;
+      if (pickupHasFrame && insertedCameraVideo) {
+        const dragRect = cameraDragRef.current;
+        const rawCameraFrame = constrainCameraShapeFrame(dragRect
+          ? { x: dragRect.x * canvasWidth, y: dragRect.y * canvasHeight, w: dragRect.w * canvasWidth, h: dragRect.h * canvasHeight }
+          : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight), frame.cameraPresentation, canvasWidth, canvasHeight);
+        cameraFrameForDraw = activeTimelinePlayback
+          ? { x: Math.round(rawCameraFrame.x), y: Math.round(rawCameraFrame.y), w: Math.round(rawCameraFrame.w), h: Math.round(rawCameraFrame.h) }
+          : rawCameraFrame;
+        cameraRectRef.current = cameraFrameForDraw;
+        cameraIsCircleRef.current = frame.cameraPresentation?.shape === 'circle';
+        cameraRadiusForDraw = resolveCameraRadius(frame.cameraPresentation, cameraFrameForDraw);
+        cameraRadiusRef.current = cameraRadiusForDraw;
+        // A pickup is a different file, so the recording camera's crop (in its pixels) does not apply.
+        cameraSourceForDraw = resolveCameraSourceRect(
+          insertedCameraVideo.videoWidth,
+          insertedCameraVideo.videoHeight,
+          cameraFrameForDraw.w,
+          cameraFrameForDraw.h,
+          undefined,
+        );
+      } else if (cameraHasFrame && cameraVideo) {
         const expectedCameraTime = clampedCameraTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps);
         if (timeMode !== 'timeline' && Math.abs(cameraVideo.currentTime - expectedCameraTime) > Math.max(0.12, 2 / fps)) {
           cameraVideo.currentTime = expectedCameraTime;
@@ -2343,13 +2592,13 @@ export function StyledVideoPreview({
               style: resolvedCursor?.style ?? 'default',
               sizePercent: resolvedCursor?.sizePercent ?? 100,
             },
-            camera: cameraVideo && cameraFrameForDraw && cameraSourceForDraw
+            camera: cameraDrawVideo && cameraFrameForDraw && cameraSourceForDraw
               ? {
-                  video: cameraVideo,
+                  video: cameraDrawVideo,
                   frame: cameraFrameForDraw,
                   source: cameraSourceForDraw,
-                  sourceWidth: cameraVideo.videoWidth,
-                  sourceHeight: cameraVideo.videoHeight,
+                  sourceWidth: cameraDrawVideo.videoWidth,
+                  sourceHeight: cameraDrawVideo.videoHeight,
                   radius: cameraRadiusForDraw,
                   presentation: frame.cameraPresentation,
                   shadow: false,
@@ -2572,7 +2821,7 @@ export function StyledVideoPreview({
           offsetY,
         });
       }
-      if (cameraVideo && cameraFrameForDraw && cameraSourceForDraw) {
+      if (cameraDrawVideo && cameraFrameForDraw && cameraSourceForDraw) {
         try {
           ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.globalAlpha = 1;
@@ -2580,13 +2829,13 @@ export function StyledVideoPreview({
           ctx.filter = 'none';
           const cameraLayerStats = screenLayerRenderer.drawCamera({
             ctx,
-            video: cameraVideo,
+            video: cameraDrawVideo,
             canvasWidth,
             canvasHeight,
             frame: cameraFrameForDraw,
             source: cameraSourceForDraw,
-            sourceWidth: cameraVideo.videoWidth,
-            sourceHeight: cameraVideo.videoHeight,
+            sourceWidth: cameraDrawVideo.videoWidth,
+            sourceHeight: cameraDrawVideo.videoHeight,
             radius: cameraRadiusForDraw,
             presentation: frame.cameraPresentation,
             shadow: !activeTimelinePlayback,
@@ -2858,6 +3107,24 @@ export function StyledVideoPreview({
           }}
         />
       )) : null}
+      {insertedMediaSources.map(({ assetId, url }) => (
+        <video
+          key={`inserted-${assetId}`}
+          ref={(element) => {
+            if (element) insertedVideosRef.current.set(assetId, element);
+            else insertedVideosRef.current.delete(assetId);
+          }}
+          data-inserted-asset-id={assetId}
+          crossOrigin="anonymous"
+          src={url}
+          preload="auto"
+          playsInline
+          muted
+          className="hiddenStandbySource"
+          onLoadedData={() => { previewInteractionDirtyRef.current = true; }}
+          onSeeked={() => { previewInteractionDirtyRef.current = true; }}
+        />
+      ))}
       <canvas
         ref={webglCanvasRef}
         className={`styledPreviewAcceleratedCanvas styledPreviewWebglCanvas${acceleratedPresentationActive ? ' isActive' : ''}`}
@@ -3328,6 +3595,27 @@ export function StyledVideoPreview({
       {error ? <p className="error">Video failed to load: {error}</p> : null}
     </div>
   );
+}
+
+/**
+ * Draw a clip from outside the recording: it takes the whole picture, like a cut
+ * to another shot, fitted whole with the project background (already painted)
+ * showing on the empty sides. Same geometry as the export.
+ */
+function drawInsertedScreenClip(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, canvasWidth: number, canvasHeight: number) {
+  const rect = fitInsertedClipRect(video.videoWidth, video.videoHeight, canvasWidth, canvasHeight);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.filter = 'none';
+  ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h);
+}
+
+export function fitInsertedClipRect(clipWidth: number, clipHeight: number, canvasWidth: number, canvasHeight: number) {
+  const scale = Math.min(canvasWidth / Math.max(1, clipWidth), canvasHeight / Math.max(1, clipHeight));
+  const w = clipWidth * scale;
+  const h = clipHeight * scale;
+  return { x: (canvasWidth - w) / 2, y: (canvasHeight - h) / 2, w, h };
 }
 
 function videoErrorMessage(video: HTMLVideoElement) {

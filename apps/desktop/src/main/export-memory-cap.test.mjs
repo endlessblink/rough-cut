@@ -89,3 +89,9 @@ test('a custom ceiling is honoured', { skip: process.platform !== 'linux' }, () 
   const capped = withEnv('8G', () => memoryCappedCommand('ffmpeg', ARGS));
   assert.ok(capped.args.includes('MemoryMax=8G'));
 });
+
+test('renders run at low CPU and idle disk priority inside the scope', { skip: process.platform !== 'linux' }, () => {
+  const capped = withEnv(undefined, () => memoryCappedCommand('ffmpeg', ARGS));
+  const before = capped.args.slice(0, capped.args.indexOf('ffmpeg'));
+  assert.deepEqual(before.slice(-6), ['nice', '-n', '10', 'ionice', '-c', '3']);
+});
