@@ -53,6 +53,8 @@ jobs:
           exit 0
 
       - run: pnpm install --frozen-lockfile
+      # pnpm does not run Electron's download step on its own; packaging copies the Electron runtime from it.
+      - run: pnpm electron:install
       - run: pnpm build
       - run: node scripts/prepare-windows-tools.mjs
       - run: node scripts/package-windows.mjs
