@@ -1176,7 +1176,7 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
   // Keep the extension + null-byte checks but skip the allowlist.
   const safePath = validateProjectPath(result.filePaths[0]);
   trustProjectFolder(safePath);
-  return formatProject(await openProjectFile(safePath));
+  return formatProject(await openProjectFile(safePath, { ownIdForCopies: true }));
 });
 // P-AI-C/TASK-167 — Library "Import file" picker. Filters the dialog to the
 // supported types so the common case never sees a rejection. Returns
@@ -1242,7 +1242,7 @@ ipcMain.handle(IPC_CHANNELS.LIBRARY_CREATE_BLANK_PROJECT, async (_event, payload
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_event, projectPath) => {
   const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });
   try {
-    const opened = await openProjectFile(safePath);
+    const opened = await openProjectFile(safePath, { ownIdForCopies: true });
     return formatProject(opened);
   } catch (err) {
     if (err?.code === 'ENOENT') {

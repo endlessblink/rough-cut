@@ -1,4 +1,5 @@
-import { copyFile, mkdir, open, readFile, rename, stat, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { copyFile, mkdir, open, readdir, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   createAsset,
@@ -268,7 +269,7 @@ export async function enrichUnifiedCameraMediaTiming(document, { probe = probeCa
   }
 }
 
-export async function openProjectFile(projectPath, { probeCameraTiming = probeCameraMediaTiming } = {}) {
+export async function openProjectFile(projectPath, { probeCameraTiming = probeCameraMediaTiming, ownIdForCopies = false } = {}) {
   const tmpPath = `${projectPath}${PROJECT_TEMP_SUFFIX}`;
   const backupPath = `${projectPath}${PROJECT_BACKUP_SUFFIX}`;
   const interruptedTmp = await stat(tmpPath).catch(() => null);
@@ -294,6 +295,7 @@ export async function openProjectFile(projectPath, { probeCameraTiming = probeCa
   repairUnifiedCameraClock(document);
   repairCameraSyncOffset(document);
   ensureRecordingAudioTrack(document);
+  if (ownIdForCopies) document = await giveCopyItsOwnId(projectPath, document);
   return {
     path: projectPath,
     document,
@@ -552,9 +554,45 @@ export async function duplicateProjectFile({ fromPath }) {
   // and editor surfaces show the copy as a distinct project. saveProjectFile
   // refreshes modifiedAt as a side effect, landing the duplicate in "Today".
   const opened = await openProjectFile(targetPath);
-  const renamedDoc = { ...opened.document, name: targetStem };
+  const renamedDoc = { ...opened.document, id: randomUUID(), name: targetStem };
   const saved = await saveProjectFile(targetPath, renamedDoc);
   return { path: saved.path, document: saved.document };
+}
+
+// A project file copied outside the app (file manager, cp, an agent) keeps
+// the original's id. When the user opens such a copy, it gets its own id in
+// memory, written with their next edit. One file of the set keeps the
+// original id: the one named after the recording video, else the shortest
+// name (copies usually add to the original's name). (File times can't tell copy from original: every save replaces the
+// file.) Nothing on disk is changed here.
+export async function giveCopyItsOwnId(projectPath, document, { list = readdir, read = readFile, newId = randomUUID } = {}) {
+  if (typeof document?.id !== 'string' || document.id.length === 0) return document;
+  const dir = dirname(projectPath);
+  let names;
+  try {
+    names = await list(dir);
+  } catch {
+    return document;
+  }
+  const ext = PROJECT_FILE_EXTENSION.toLowerCase();
+  const sharing = [projectPath];
+  for (const name of names) {
+    if (!String(name).toLowerCase().endsWith(ext)) continue;
+    const other = join(dir, name);
+    if (other === projectPath) continue;
+    try {
+      if (JSON.parse(await read(other, 'utf8'))?.id === document.id) sharing.push(other);
+    } catch {
+      continue;
+    }
+  }
+  if (sharing.length === 1) return document;
+  const assets = Array.isArray(document.assets) ? document.assets : [];
+  const videoPath = assets.find((asset) => asset?.type === 'recording' || asset?.type === 'video')?.filePath;
+  const videoStem = videoPath ? basename(videoPath).replace(/\.[^.]+$/, '') : null;
+  const keeper = sharing.find((path) => videoStem && basename(path).slice(0, -ext.length) === videoStem)
+    ?? [...sharing].sort((a, b) => basename(a).length - basename(b).length || (a < b ? -1 : 1))[0];
+  return keeper === projectPath ? document : { ...document, id: newId() };
 }
 
 function escapeRegExp(value) {
