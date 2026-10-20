@@ -34,24 +34,26 @@ export function installReleaseServices({ app, Menu, dialog, BrowserWindow, isBus
     try { await fn(); }
     catch { await dialog.showMessageBox(window(), { type: 'error', message: 'The requested action could not be completed.', detail: 'Your project was not modified. Check that the destination is writable and try again.', buttons: ['OK'] }); }
   };
-  const explain = (state) => dialog.showMessageBox(window(), { type: state.status === 'error' ? 'error' : 'info', message: ({ downloaded: `Rough Cut ${state.version} is ready.`, current: 'You have the latest version.', busy: 'Finish recording or exporting first.', 'install-requested': 'Restart requested.' })[state.status] ?? 'Updates are unavailable for this build.', detail: state.reason ?? 'Use Help → Restart to install update when your work is saved.', buttons: ['OK'] });
-  // Shared by the Help menu and the top bar's "Update ready" button: always asks first, never while busy.
-  async function restartToInstall() {
-    if (isBusy()) return explain({ status: 'busy' });
-    if (updates.status().status !== 'downloaded') return explain(updates.status());
-    const answer = await dialog.showMessageBox(window(), { type: 'question', message: 'Save your work, then restart to install the update?', detail: windows ? 'Rough Cut closes, installs the update for your user only, and starts again. Your recordings and settings are kept. Recording and export must be stopped.' : 'The previous AppImage is kept beside this version for rollback. Recording and export must be stopped.', buttons: ['Restart and install', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true });
-    if (answer.response === 0) { const result = updates.install(); if (result.status !== 'install-requested') await explain(result); }
+  const explain = (state) => dialog.showMessageBox(window(), { type: state.status === 'error' ? 'error' : 'info', message: ({ downloaded: `Rough Cut ${state.version} is ready.`, current: 'You have the latest version.', busy: 'Finish recording or exporting first.', 'install-requested': 'Restarting to update.' })[state.status] ?? 'Updates are unavailable for this build.', detail: state.reason ?? (state.status === 'busy' ? 'Rough Cut updates once recording or export has stopped.' : 'Click Update at the top of the window to install it.'), buttons: ['OK'] });
+  // Shared by the Help menu, the top bar's "Update" button and About: one click downloads, closes and reopens on the new
+  // version. Projects save as you edit, so there is nothing to confirm; it never runs while recording or exporting.
+  async function updateNow() {
+    const result = await updates.updateNow();
+    if (result.status === 'busy') await explain(result);
+    return result;
   }
   if (ipcMain && channels) {
     ipcMain.handle(channels.UPDATE_STATUS, () => updates.status());
-    ipcMain.handle(channels.UPDATE_INSTALL, async () => { await guarded(restartToInstall)(); return updates.status(); });
+    ipcMain.handle(channels.UPDATE_CHECK, () => updates.check());
+    ipcMain.handle(channels.UPDATE_INSTALL, async () => { try { await updateNow(); } catch {} return updates.status(); });
   }
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'File', submenu: [{ role: 'close' }, { role: 'quit' }] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     { role: 'help', submenu: [
+      { label: 'About Rough Cut', click: () => { if (channels) window()?.webContents.send(channels.ABOUT_OPEN); } },
       { label: 'Check for updates…', click: guarded(async () => explain(await updates.check())) },
-      { label: 'Restart to install update…', click: guarded(restartToInstall) },
+      { label: 'Update Rough Cut', click: guarded(async () => { const r = await updateNow(); if (!['busy', 'install-requested'].includes(r.status)) await explain(r); }) },
       // Windows keeps no previous-version copy (the installer replaces the app), so there is nothing to restore there.
       ...(windows ? [] : [{ label: 'Restore previous version…', click: guarded(async () => {
         if (isBusy()) return explain({ status: 'busy' });

@@ -1,5 +1,5 @@
 import { readdir, stat, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { openProjectFile, PROJECT_FILE_EXTENSION, saveProjectFile } from './project-files.mjs';
 import { toMediaUrl } from './media-protocol.mjs';
 import { buildThumbnailPath, extractThumbnail, fileExists } from './thumbnail-service.mjs';
@@ -92,7 +92,7 @@ export async function readProjectSummary(projectPath, { onError, generateMissing
     const updated = await ensureProjectThumbnail({ projectPath, document, onError });
     if (updated) document = updated;
   }
-  return buildSummary({ projectPath, document, modifiedAt: info.mtime.toISOString() });
+  return buildSummary({ projectPath, document, modifiedAt: info.mtime.toISOString(), fileModifiedAt: info.mtime.toISOString() });
 }
 
 export async function ensureProjectThumbnail({ projectPath, document, onError, extract = extractThumbnail, persist = saveProjectFile }) {
@@ -128,7 +128,7 @@ export async function ensureProjectThumbnail({ projectPath, document, onError, e
   }
 }
 
-export function buildSummary({ projectPath, document, modifiedAt }) {
+export function buildSummary({ projectPath, document, modifiedAt, fileModifiedAt = null }) {
   const assets = Array.isArray(document?.assets) ? document.assets : [];
   const recordingAsset = assets.find((asset) => asset.type === 'recording' || asset.type === 'video') ?? null;
   const cameraAsset = recordingAsset?.cameraAssetId
@@ -144,7 +144,7 @@ export function buildSummary({ projectPath, document, modifiedAt }) {
     path: projectPath,
     name: typeof document?.name === 'string' && document.name.length > 0 ? document.name : projectPath,
     createdAt: document?.createdAt ?? null,
-    modifiedAt: document?.modifiedAt ?? modifiedAt,
+    modifiedAt: latestTimestamp(document?.modifiedAt, fileModifiedAt) ?? modifiedAt,
     durationFrames,
     durationMs,
     frameRate,
@@ -155,6 +155,27 @@ export function buildSummary({ projectPath, document, modifiedAt }) {
     thumbnailUrl: thumbnailSourcePath ? toMediaUrl(thumbnailSourcePath) : null,
     recordingUrl: recordingAsset?.filePath ? toMediaUrl(recordingAsset.filePath) : null,
   };
+}
+
+// A copy made outside the app keeps its old modifiedAt inside the file; the
+// file's own time shows it is new, so the later of the two wins.
+function latestTimestamp(a, b) {
+  const left = Date.parse(a ?? '');
+  const right = Date.parse(b ?? '');
+  if (Number.isNaN(left)) return Number.isNaN(right) ? (a ?? null) : b;
+  if (Number.isNaN(right)) return a;
+  return right > left ? b : a;
+}
+
+// Several projects in one recording folder often carry the same name (copies
+// keep it). Show those by their file name so each card is findable.
+export function nameClashingProjectsByFile(summaries) {
+  const counts = new Map();
+  const keyOf = (summary) => `${dirname(summary.path)}\u0000${summary.name}`;
+  for (const summary of summaries) counts.set(keyOf(summary), (counts.get(keyOf(summary)) ?? 0) + 1);
+  return summaries.map((summary) => (counts.get(keyOf(summary)) > 1
+    ? { ...summary, name: basename(summary.path).slice(0, -PROJECT_FILE_EXTENSION.length) }
+    : summary));
 }
 
 export function deriveResolutionLabel(width, height) {
@@ -171,8 +192,7 @@ export function deriveResolutionLabel(width, height) {
 export async function listProjectSummaries({ dir, onError } = {}) {
   const paths = await listRecordingProjectPaths(dir);
   const summaries = await Promise.all(paths.map((path) => readProjectSummary(path, { onError })));
-  return summaries
-    .filter(Boolean)
+  return nameClashingProjectsByFile(summaries.filter(Boolean))
     .sort((a, b) => {
       const left = Date.parse(a.modifiedAt ?? '') || 0;
       const right = Date.parse(b.modifiedAt ?? '') || 0;

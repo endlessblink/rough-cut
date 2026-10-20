@@ -124,6 +124,10 @@ export function createUpdateController({ backend, releasePolicy, appImagePath, u
     backend.allowDowngrade = false;
     // Always download the whole installer and check its SHA512 against the signed metadata; no differential download.
     if (windows) backend.disableDifferentialDownload = true;
+    // Download progress for the "Updating… 45%" button; only while a checked download is under way.
+    backend.on('download-progress', (progress) => {
+      if (state.status === 'downloading') set({ ...state, percent: Math.max(0, Math.min(100, Math.round(progress?.percent ?? 0))) });
+    });
     backend.setFeedURL(policy.provider === 'github' ? {provider:'github',owner:policy.owner,repo:policy.repo,private:false,channel:policy.channel} : { provider: 'generic', url: policy.url, channel: policy.channel });
     backend.on('error', () => {
       downloaded = null;
@@ -140,7 +144,7 @@ export function createUpdateController({ backend, releasePolicy, appImagePath, u
     });
     state = { status: 'idle' };
   }
-  return {
+  const controller = {
     status: () => ({ ...state }),
     async check() {
       if (!policy || !supported || !backend) return { ...state };
@@ -186,5 +190,13 @@ export function createUpdateController({ backend, releasePolicy, appImagePath, u
       return restoreUpdateBackup({ appImagePath, journalPath });
     },
     canRollback: () => !windows && existsSync(journalPath),
+    // The one-click "Update" button: finish (or start) the checked download, then close and reopen on the new version.
+    async updateNow() {
+      if (isBusy()) return { status: 'busy' };
+      if (!downloaded) await controller.check();
+      if (!downloaded) return { ...state };
+      return controller.install();
+    },
   };
+  return controller;
 }

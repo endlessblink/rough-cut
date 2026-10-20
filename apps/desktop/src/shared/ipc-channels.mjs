@@ -15,6 +15,8 @@ export const IPC_CHANNELS = {
   DEV_TAKE_CHUNK: 'dev:take-chunk',
   DEV_TAKE_FINISH: 'dev:take-finish',
   DEV_TAKE_CANCEL: 'dev:take-cancel',
+  UPDATE_CHECK: 'update:check',
+  ABOUT_OPEN: 'about:open',
   // Project I/O
   PROJECT_OPEN: 'project:open',
   PROJECT_SAVE: 'project:save',
@@ -22,6 +24,7 @@ export const IPC_CHANNELS = {
   PROJECT_NEW: 'project:new',
   PROJECT_OPEN_PATH: 'project:open-path',
   PROJECT_UPDATED: 'project:updated',
+  PROJECT_CHANGED_ON_DISK: 'project:changed-on-disk',
   LIBRARY_OPEN: 'library:open',
   LIBRARY_SAVE: 'library:save',
   LIBRARY_SAVE_AS: 'library:save-as',

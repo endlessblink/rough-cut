@@ -2,6 +2,7 @@
 // Rough Cut MCP server (phase 1: watch and cut). Dependency-free stdio JSON-RPC.
 // Edits only ever touch a COPY of a project (`<name>.claude-edit.roughcut`).
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -389,7 +390,11 @@ const TOOLS = {
     async handler({ project_path }) {
       const src = resolve(project_path);
       const copy = editCopyPath(src);
-      if (copy !== src) copyFileSync(src, copy);
+      if (copy !== src) {
+        // The copy is its own project: same edits, its own id.
+        const doc = JSON.parse(readFileSync(src, 'utf8'));
+        writeFileSync(copy, JSON.stringify({ ...doc, id: randomUUID() }));
+      }
       return text({ editCopy: copy, summary: summarise(copy) });
     },
   },

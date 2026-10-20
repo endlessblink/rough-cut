@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Run locally by the owner after the exact artifact and unsigned manifest are ready.
-# Reads no Doppler value. The private key and passphrase never enter source or arguments.
+# The passphrase comes from Doppler (shared-integrations / rough-cut / PEM_PASS_PHRASE; owner decision 2026-10-20) straight
+# into a private file descriptor, or is typed when Doppler is unavailable or ROUGH_CUT_SIGN_PROMPT=1. It is never printed,
+# and the private key and passphrase never enter source or arguments.
 set +x
 set -euo pipefail
 umask 077
@@ -38,10 +40,16 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
-IFS= read -r -s -p 'Signing passphrase (local terminal only): ' rc_sign_passphrase
-printf '\n'
-exec 3< <(printf '%s' "$rc_sign_passphrase")
-unset rc_sign_passphrase
+rc_doppler=(doppler secrets get PEM_PASS_PHRASE --project shared-integrations --config rough-cut --plain --no-check-version)
+if [[ "${ROUGH_CUT_SIGN_PROMPT:-0}" != 1 ]] && command -v doppler >/dev/null && "${rc_doppler[@]}" >/dev/null 2>&1; then
+  printf 'Signing passphrase: read from Doppler (not shown).\n'
+  exec 3< <("${rc_doppler[@]}" 2>/dev/null)
+else
+  IFS= read -r -s -p 'Signing passphrase (local terminal only): ' rc_sign_passphrase
+  printf '\n'
+  exec 3< <(printf '%s' "$rc_sign_passphrase")
+  unset rc_sign_passphrase
+fi
 node "$rc_source_root/scripts/release-metadata.mjs" sign \
   --platform "$rc_platform" --metadata "$rc_manifest" "$rc_artifact_flag" "$rc_image" \
   --key "$HOME/.local/share/rough-cut-signing/private.pem" \

@@ -15,6 +15,8 @@ const IPC_CHANNELS = {
   DEV_TAKE_CHUNK: 'dev:take-chunk',
   DEV_TAKE_FINISH: 'dev:take-finish',
   DEV_TAKE_CANCEL: 'dev:take-cancel',
+  UPDATE_CHECK: 'update:check',
+  ABOUT_OPEN: 'about:open',
   APP_GET_VERSION: 'app:get-version',
   APP_GET_RUNTIME_LOG_PATH: 'app:get-runtime-log-path',
   APP_OPEN_EDITOR: 'app:open-editor',
@@ -32,6 +34,7 @@ const IPC_CHANNELS = {
   PROJECT_OPEN: 'project:open',
   PROJECT_OPEN_PATH: 'project:open-path',
   PROJECT_UPDATED: 'project:updated',
+  PROJECT_CHANGED_ON_DISK: 'project:changed-on-disk',
   PROJECT_SAVE: 'project:save',
   LIBRARY_PICK_IMPORT_FILE: 'library:pick-import-file',
   LIBRARY_CREATE_FROM_IMPORT: 'library:create-from-import',
@@ -202,6 +205,12 @@ contextBridge.exposeInMainWorld('roughCut', {
   devTakeChunk: (id, chunk) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_CHUNK, id, chunk),
   devTakeFinish: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_FINISH, payload),
   devTakeCancel: (id) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_CANCEL, id),
+  checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
+  onAboutOpen: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.ABOUT_OPEN, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ABOUT_OPEN, listener);
+  },
   generateGraphic: (payload) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_GENERATE, payload),
   cancelGraphic: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.GRAPHICS_CANCEL, requestId),
   onGraphicsProgress: (callback) => {
@@ -227,6 +236,11 @@ contextBridge.exposeInMainWorld('roughCut', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_UPDATED, listener);
   },
   saveProject: (project) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE, project),
+  onProjectChangedOnDisk: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.PROJECT_CHANGED_ON_DISK, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_CHANGED_ON_DISK, listener);
+  },
   pickImportFile: () => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_PICK_IMPORT_FILE),
   createProjectFromImport: (payload) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CREATE_FROM_IMPORT, payload),
   createBlankProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CREATE_BLANK_PROJECT, payload ?? null),
