@@ -4,7 +4,7 @@ import { runAppImageSandboxed, sandboxDisabledByArgs, shouldHandOffAppImage } fr
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -1888,6 +1888,27 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_CANCEL, () => {
   return { cancelled: true };
 });
 
+// The rough-cut MCP's export_styled: one styled export with the job's options, no
+// window, then quit. The job file names the project, output and options; the
+// result is written next to it as <job>.result.json.
+async function runAgentExportFromEnv() {
+  const jobPath = process.env.ROUGH_CUT_AGENT_EXPORT_JOB;
+  const resultPath = `${jobPath}.result.json`;
+  const startedAt = Date.now();
+  try {
+    const job = JSON.parse(await readFile(jobPath, 'utf8'));
+    const { runAgentExportJob } = await import('./agent-export-job.mjs');
+    const done = await runAgentExportJob(job, { openProjectFile, exportProjectToMp4, runCappedFfmpeg, rm });
+    await writeFile(resultPath, `${JSON.stringify({ ok: true, ...done, durationMs: Date.now() - startedAt }, null, 2)}\n`);
+  } catch (err) {
+    process.exitCode = 1;
+    await writeFile(resultPath, `${JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }, null, 2)}\n`).catch(() => undefined);
+  } finally {
+    app.quit();
+    setTimeout(() => app.exit(process.exitCode ?? 0), 1000).unref?.();
+  }
+}
+
 async function runMainProcessHeadlessExportSmoke() {
   const resultPath = process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_RESULT_PATH;
   const projectPath = process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_PROJECT_PATH;
@@ -1956,6 +1977,10 @@ app.whenReady().then(() => {
   });
   if (process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_RESULT_PATH) {
     void runMainProcessHeadlessExportSmoke();
+    return;
+  }
+  if (process.env.ROUGH_CUT_AGENT_EXPORT_JOB) {
+    void runAgentExportFromEnv();
     return;
   }
   const requestedProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;

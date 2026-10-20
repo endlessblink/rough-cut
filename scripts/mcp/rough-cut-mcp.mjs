@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Rough Cut MCP server (phase 1: watch and cut). Dependency-free stdio JSON-RPC.
 // Edits only ever touch a COPY of a project (`<name>.claude-edit.roughcut`).
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -13,6 +13,10 @@ const MODEL_URL = pathToFileURL(resolve(HERE, '../../packages/project-model/dist
 const DEFAULT_DIRS = (process.env.ROUGH_CUT_PROJECT_DIRS ?? join(homedir(), 'Documents', 'Rough Cut MVP'))
   .split(':').filter(Boolean);
 const MAX_FRAMES = 24;
+// Every ffmpeg call goes through the memory-capped wrapper (house rule), falling back to
+// a capped systemd scope when the wrapper is missing.
+const FFMPEG = process.env.ROUGH_CUT_MCP_FFMPEG ?? (existsSync(join(homedir(), '.local/bin/ffmpeg-safe')) ? join(homedir(), '.local/bin/ffmpeg-safe') : 'ffmpeg');
+const APP_DIR = resolve(HERE, '../../apps/desktop');
 
 let modelPromise;
 const model = () => (modelPromise ??= import(MODEL_URL));
@@ -80,12 +84,12 @@ function videoFileFor(args) {
 }
 
 function extractFrame(file, sec, width) {
-  return run('ffmpeg', ['-v', 'error', '-ss', String(Math.max(0, sec)), '-i', file, '-frames:v', '1',
+  return run(FFMPEG, ['-v', 'error', '-ss', String(Math.max(0, sec)), '-i', file, '-frames:v', '1',
     '-vf', `scale=${width}:-2`, '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '4', '-'], { binary: true });
 }
 
 function silenceMap(file) {
-  const r = spawnSync('ffmpeg', ['-v', 'info', '-i', file, '-af', 'silencedetect=noise=-35dB:d=0.7', '-vn', '-f', 'null', '-'],
+  const r = spawnSync(FFMPEG, ['-v', 'info', '-i', file, '-af', 'silencedetect=noise=-35dB:d=0.7', '-vn', '-f', 'null', '-'],
     { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const out = [];
   let start = null;
@@ -128,7 +132,7 @@ function digestKey(file) {
 }
 
 function sceneCuts(file, threshold) {
-  const r = spawnSync('ffmpeg', ['-v', 'info', '-i', file, '-vf', `select='gt(scene,${threshold})',showinfo`, '-an', '-f', 'null', '-'],
+  const r = spawnSync(FFMPEG, ['-v', 'info', '-i', file, '-vf', `select='gt(scene,${threshold})',showinfo`, '-an', '-f', 'null', '-'],
     { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
   return [...String(r.stderr).matchAll(/pts_time:([\d.]+)/g)].map((m) => Number(m[1]));
 }
@@ -173,7 +177,7 @@ function montage(images, cols = 3, tileWidth = 480) {
   const layout = images.map((_, i) => `${(i % cols) * tileWidth}_${Math.floor(i / cols) * tileH}`).join('|');
   const graph = images.length === 1 ? `${scaled.replace('[v0]', '[o]')}` : `${scaled};${stack}xstack=inputs=${images.length}:layout=${layout}[o]`;
   args.push('-filter_complex', graph, '-map', '[o]', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '5', '-');
-  return run('ffmpeg', args, { binary: true });
+  return run(FFMPEG, args, { binary: true });
 }
 
 function cachedTranscript(args, file) {
@@ -311,7 +315,7 @@ const TOOLS = {
             vf.push(`crop=iw*${c.w}:ih*${c.h}:iw*${c.x}:ih*${c.y}`);
           }
           vf.push(`scale=${width}:-2`);
-          const img = run('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', file, '-frames:v', '1', '-vf', vf.join(','),
+          const img = run(FFMPEG, ['-v', 'error', '-ss', String(t), '-i', file, '-frames:v', '1', '-vf', vf.join(','),
             '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '3', '-'], { binary: true });
           const p = join(tmp, `f${t}.jpg`);
           writeFileSync(p, img);
@@ -373,7 +377,7 @@ const TOOLS = {
       const tmp = mkdtempSync(join(tmpdir(), 'rc-asr-'));
       try {
         const wav = join(tmp, 'a.wav');
-        run('ffmpeg', ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', wav]);
+        run(FFMPEG, ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', wav]);
         run('whisper-cli', ['-m', model, '-f', wav, '-ojf', '-of', join(tmp, 'out')]);
         const j = JSON.parse(readFileSync(join(tmp, 'out.json'), 'utf8'));
         const words = (j.transcription ?? []).map((s) => ({ t: +(s.offsets.from / 1000).toFixed(2), w: s.text.trim() })).filter((w) => w.w);
@@ -455,8 +459,30 @@ const TOOLS = {
       return text({ ok: true, summary: summarise(copy) });
     },
   },
+  export_styled: {
+    description: 'Export a project exactly as the app\'s Export button does (styled: zooms, camera bubble as laid out, Claude graphics, background, cursor), run by the app itself without a window. Options: captions (default true; false leaves burned-in captions out), camera (default true; false leaves the camera bubble out), start_sec/end_sec (keep only that part of the timeline, e.g. one opening animation). Reads the project, never changes it. Takes about as long as an export in the app; check the result with view_video.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: { type: 'string', description: 'The .roughcut to export (the original or an edit copy).' },
+        out_path: { type: 'string', description: 'Where to write the .mp4 (default: next to the project, <name>.claude-export.mp4).' },
+        captions: { type: 'boolean', description: 'Burn in captions as set in the project (default true).' },
+        camera: { type: 'boolean', description: 'Include the camera bubble as laid out in the project (default true).' },
+        start_sec: { type: 'number', description: 'Timeline second to start at (optional).' },
+        end_sec: { type: 'number', description: 'Timeline second to end at (optional).' },
+      },
+      required: ['project_path'],
+    },
+    async handler({ project_path, out_path, captions, camera, start_sec, end_sec }) {
+      const projectPath = resolve(project_path);
+      if (!existsSync(projectPath)) throw new Error(`No project at ${projectPath}`);
+      const outPath = resolve(out_path ?? projectPath.replace(/\.roughcut$/, '.claude-export.mp4'));
+      const result = await runStyledExport({ projectPath, outPath, captions: captions !== false, camera: camera !== false, startSec: start_sec ?? null, endSec: end_sec ?? null });
+      return text({ export: result.outPath, captions: result.captions, camera: result.camera, startSec: result.startSec, endSec: result.endSec, tookSeconds: Math.round(result.durationMs / 1000), ...ffprobe(result.outPath) });
+    },
+  },
   export_draft: {
-    description: 'Render a quick draft MP4 of the edit copy (the primary video track, with its audio) so you can view_video the result. Not the styled final export.',
+    description: 'Render a quick draft MP4 of the edit copy (the primary video track, with its audio) so you can view_video the result. Not the styled final export: use export_styled for that.',
     inputSchema: { type: 'object', properties: { project_path: { type: 'string' }, out_path: { type: 'string' } }, required: ['project_path'] },
     async handler({ project_path, out_path }) {
       const copy = editCopyPath(resolve(project_path));
@@ -472,19 +498,55 @@ const TOOLS = {
         const parts = clips.map((c, i) => {
           const asset = doc.assets.find((x) => x.id === c.source.id);
           const part = join(tmp, `p${i}.mp4`);
-          run('ffmpeg', ['-v', 'error', '-y', '-ss', String(c.sourceIn / fps), '-t', String((c.sourceOut - c.sourceIn) / fps),
+          run(FFMPEG, ['-v', 'error', '-y', '-ss', String(c.sourceIn / fps), '-t', String((c.sourceOut - c.sourceIn) / fps),
             '-i', assetPath(src, asset), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-ar', '48000', '-ac', '2', part]);
           return part;
         });
         const list = join(tmp, 'list.txt');
         writeFileSync(list, parts.map((p) => `file '${p}'`).join('\n'));
         mkdirSync(dirname(out), { recursive: true });
-        run('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', out]);
+        run(FFMPEG, ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', out]);
       } finally { rmSync(tmp, { recursive: true, force: true }); }
       return text({ draft: out, ...ffprobe(out) });
     },
   },
 };
+
+/**
+ * One styled export through the app's own main process (no window, own profile, so it never
+ * touches a running Rough Cut). Resolves with the job result or rejects with its error.
+ */
+export function runStyledExport(job, { appDir = APP_DIR, timeoutMs = 3 * 60 * 60 * 1000 } = {}) {
+  const work = mkdtempSync(join(tmpdir(), 'rc-mcp-export-'));
+  const jobPath = join(work, 'job.json');
+  writeFileSync(jobPath, JSON.stringify(job));
+  const electron = join(appDir, 'node_modules/.bin/electron');
+  if (!existsSync(electron)) throw new Error('The Rough Cut app is not installed next to this tool (no electron).');
+  const display = process.env.DISPLAY && !process.env.ROUGH_CUT_MCP_FORCE_XVFB ? [] : ['xvfb-run', '-a'];
+  const command = [...display, electron, '--enable-sandbox', '--mute-audio', `--user-data-dir=${join(work, 'profile')}`, '.'];
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command[0], command.slice(1), {
+      cwd: appDir,
+      env: { ...process.env, ROUGH_CUT_AGENT_EXPORT_JOB: jobPath, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr = (stderr + chunk).slice(-4000); });
+    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
+    child.on('close', () => {
+      clearTimeout(timer);
+      try {
+        const result = JSON.parse(readFileSync(`${jobPath}.result.json`, 'utf8'));
+        if (!result.ok) throw new Error(result.error || 'Export failed');
+        resolvePromise(result);
+      } catch (err) {
+        reject(new Error(`${err.message}${stderr ? ` | ${stderr.slice(-600)}` : ''}`));
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    });
+  });
+}
 
 // ---- JSON-RPC over stdio ---------------------------------------------------
 
