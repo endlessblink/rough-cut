@@ -17,6 +17,11 @@ export { parseClaudeResult, resolveClaudeBinary, runClaudeOnce } from './claude-
 
 // Design work: the most capable model is worth the extra seconds here.
 export const GRAPHICS_MODEL = 'opus';
+// Opus designing a graphic usually answers in 1.5–2 minutes, sometimes well past 4
+// (2026-10-20: one took over 240 s and failed). Wait up to 7 minutes, and ask once
+// more if even that runs out, before telling the user.
+export const GRAPHICS_TIMEOUT_MS = 420_000;
+export const GRAPHICS_TIMEOUT_RETRIES = 1;
 
 export const DEFAULT_GRAPHICS_STYLE = Object.freeze({
   fontFamily: 'Heebo',
@@ -244,6 +249,8 @@ export async function generateGraphic({
     binary,
     runOnce,
     connectionCheck,
+    timeoutMs: GRAPHICS_TIMEOUT_MS,
+    timeoutRetries: GRAPHICS_TIMEOUT_RETRIES,
     label: existing ? 'graphic-change' : 'graphic',
     debugDir,
     onProgress,

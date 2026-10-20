@@ -15,6 +15,9 @@ import { inspectClaudeSubscription } from './claude-connection.mjs';
 
 export const DEFAULT_CLAUDE_MODEL = 'sonnet';
 export const CLAUDE_TIMEOUT_MS = 240_000;
+export const CLAUDE_TIMEOUT_REASON = 'Claude took too long to answer.';
+/** Progress reason when a slow answer is asked for again (shown as-is in the app). */
+export const CLAUDE_SLOW_RETRY_REASON = 'Claude was slow — asking again';
 const KEEP_DEBUG_RECORDS = 30;
 
 /**
@@ -134,7 +137,7 @@ export function runClaudeOnce({ binary, args, prompt, signal = null, timeoutMs =
     };
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
-      finish({ ok: false, reason: 'Claude took too long to answer.' });
+      finish({ ok: false, timedOut: true, reason: CLAUDE_TIMEOUT_REASON });
     }, timeoutMs);
     if (signal?.aborted) return onAbort();
     signal?.addEventListener?.('abort', onAbort, { once: true });
@@ -168,6 +171,10 @@ export async function askClaudeForJson({
   runOnce = runClaudeOnce,
   connectionCheck = inspectClaudeSubscription,
   attempts = 2,
+  /** Longest wait for one answer; graphics wait longer than short asks. */
+  timeoutMs = CLAUDE_TIMEOUT_MS,
+  /** How many times a timed-out answer is asked for again before giving up. */
+  timeoutRetries = 0,
   label = 'claude',
   debugDir = null,
   log = (message) => console.info(message),
@@ -184,12 +191,23 @@ export async function askClaudeForJson({
   const cwd = await mkdtemp(join(tmpdir(), 'rough-cut-claude-'));
   try {
     let errors = [];
+    let slowRetriesLeft = Math.max(0, Math.floor(Number(timeoutRetries) || 0));
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const prompt = buildPrompt(errors);
-      const startedAt = Date.now();
+      let startedAt = Date.now();
       log(`[claude:${label}] attempt ${attempt + 1} started (model ${model})`);
       onProgress({ stage: 'writing', attempt: attempt + 1, retryReason: errors[0] ?? null, startedAt });
-      const run = await runOnce({ binary, args, prompt, signal, cwd });
+      let run = await runOnce({ binary, args, prompt, signal, cwd, timeoutMs });
+      // A slow answer is not a wrong one: ask the same question again (Opus sometimes
+      // deliberates past the limit), without using up a format-fix attempt.
+      while (!run.ok && run.timedOut && slowRetriesLeft > 0 && !signal?.aborted) {
+        slowRetriesLeft -= 1;
+        log(`[claude:${label}] attempt ${attempt + 1} timed out after ${Date.now() - startedAt} ms; asking again`);
+        await writeDebugRecord(debugDir, { label, attempt: attempt + 1, ms: Date.now() - startedAt, model, prompt, outcome: 'timed-out', reason: run.reason });
+        startedAt = Date.now();
+        onProgress({ stage: 'writing', attempt: attempt + 1, retryReason: CLAUDE_SLOW_RETRY_REASON, startedAt });
+        run = await runOnce({ binary, args, prompt, signal, cwd, timeoutMs });
+      }
       const ms = Date.now() - startedAt;
       if (!run.ok) {
         log(`[claude:${label}] attempt ${attempt + 1} failed after ${ms} ms: ${run.reason}`);
