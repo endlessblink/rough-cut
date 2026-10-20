@@ -7280,6 +7280,9 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .devChoiceButton span { color: var(--muted); font-size: var(--text-xs); }
 .devChoiceButton:hover:not(:disabled), .devChoiceButton:focus-visible { border-color: rgb(122 167 255 / 0.6); }
 .devChoiceButton:disabled { cursor: default; opacity: 0.5; }
+.devChoiceButtonActive { background: rgb(122 167 255 / 0.12); border-color: rgb(122 167 255 / 0.75); }
+.devMicMeter { background: var(--surface); border: 1px solid var(--strong-line); border-radius: var(--radius-pill); height: 0.375rem; overflow: hidden; }
+.devMicMeter span { background: linear-gradient(90deg, rgb(52 211 153) 0 70%, rgb(250 204 21) 85%, var(--record)); display: block; height: 100%; transform-origin: left center; transition: transform 60ms linear; }
 .devTextButton { align-self: flex-start; background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: var(--text-sm); padding: var(--space-1) 0; }
 .devTextButton:hover:not(:disabled) { color: var(--text); }
 .devTakeHeader { align-items: center; display: flex; justify-content: space-between; }
@@ -7292,6 +7295,9 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .devTakeActions { align-items: center; justify-content: space-between; }
 .devPrimaryButton { background: var(--record); border: 0; border-radius: var(--radius-md); color: #fff; cursor: pointer; font-size: var(--text-md); font-weight: var(--weight-semibold); padding: var(--space-1-5) var(--space-4); }
 .devPrimaryButton:disabled { cursor: default; opacity: 0.45; }
+/* The global button hover would turn Record grey; keep it red, a touch brighter. */
+button.devPrimaryButton:hover:not(:disabled) { background: var(--record); filter: brightness(1.1); }
+button.devStopButton:hover:not(:disabled) { background: var(--panel-alt); filter: none; }
 .devStopButton { background: var(--panel-alt); border: 1px solid var(--record); color: var(--text); }
 .devMenuNotice { color: var(--muted); cursor: pointer; font-size: var(--text-xs); max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .devCountdown { align-items: center; display: flex; inset: 0; justify-content: center; pointer-events: none; position: fixed; z-index: 200; }
@@ -7323,6 +7329,33 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
   top: 0.28rem;
   white-space: nowrap;
   z-index: 9;
+}
+/* Voice-over takes: their own lane, green so they never read as a camera take or a clip. */
+.insertedClipBar.voiceOverBar { background: #17302a; border-color: rgb(52 211 153 / 0.75); }
+.insertedClipBar.voiceOverBar.voiceOver-over { background: #1d2a28; border-style: dashed; }
+.voiceModeChip {
+  background: rgb(0 0 0 / 0.35);
+  border: 1px solid rgb(52 211 153 / 0.6);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  cursor: pointer;
+  flex: none;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  margin-right: var(--space-2);
+  padding: 0 var(--space-1-5);
+}
+.voiceModeChip:hover { background: rgb(52 211 153 / 0.18); }
+/* On the Audio lane: where a voice-over replaces the voice, the recording's sound is muted. */
+.voiceOverMutedRange {
+  background: repeating-linear-gradient(135deg, rgb(52 211 153 / 0.18) 0 6px, rgb(12 20 18 / 0.7) 6px 12px);
+  border-left: 1px solid rgb(52 211 153 / 0.6);
+  border-right: 1px solid rgb(52 211 153 / 0.6);
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  z-index: 10;
 }
 /* A take's voice sits over the recording's sound, which stays (muted) underneath. */
 .insertedAudioRegion.takeVoiceRegion {

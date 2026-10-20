@@ -18,8 +18,13 @@ import type { Asset, AssetId, Frame, ProjectDocument } from './types.js';
  *   the recording's sound there. The recording's own camera and sound clips stay on
  *   their lanes untouched, so the old voice is only muted while a take covers it.
  *   Every take recorded for a range is kept; one is on the timeline at a time.
+ * - a voice-over take (`voice`): sound only, recorded from the mic while the timeline
+ *   plays, on its own "Voice-over" lane. Per take it either replaces the recording's
+ *   sound under it (muted, not removed) or plays over it.
  */
-export type InsertedMediaKind = 'clip' | 'pickup';
+export type InsertedMediaKind = 'clip' | 'pickup' | 'voice';
+/** A voice-over either replaces the recording's sound under it or plays over it. */
+export type VoiceOverMode = 'replace' | 'over';
 export type InsertedMediaPlacement = 'screen' | 'camera';
 /** `insert` ripples later footage along; `overwrite` replaces what was there. */
 export type InsertEditMode = 'insert' | 'overwrite';
@@ -31,6 +36,8 @@ export interface InsertedMediaInfo {
   readonly width: number | null;
   readonly height: number | null;
   readonly fps: number | null;
+  /** Voice-over takes only. */
+  readonly voiceMode?: VoiceOverMode | null;
 }
 
 export interface InsertedMediaAssetInput {
@@ -43,6 +50,7 @@ export interface InsertedMediaAssetInput {
   readonly width?: number | null;
   readonly height?: number | null;
   readonly fps?: number | null;
+  readonly voiceMode?: VoiceOverMode;
   readonly extraMetadata?: Record<string, unknown>;
 }
 
@@ -61,6 +69,8 @@ export interface InsertedClipView {
   readonly name: string;
   readonly filePath: string;
   readonly hasAudio: boolean;
+  /** Set on voice-over takes: whether it replaces the recording's sound under it. */
+  readonly voiceMode: VoiceOverMode | null;
 }
 
 export interface InsertMediaInput {
@@ -78,6 +88,8 @@ export interface InsertMediaInput {
 /** Dedicated lanes for camera takes, above the recording's lanes. */
 export const CAMERA_TAKES_TRACK_ID = 'track:camera-takes';
 export const CAMERA_TAKES_AUDIO_TRACK_ID = 'track:camera-takes-audio';
+/** The lane voice-over takes live on, below everything else. */
+export const VOICE_OVER_TRACK_ID = 'track:voice-over';
 
 export interface CameraTakeView {
   readonly assetId: string;
@@ -103,6 +115,7 @@ export function createInsertedMediaAsset(input: InsertedMediaAssetInput): Asset 
     width: finiteOrNull(input.width),
     height: finiteOrNull(input.height),
     fps: finiteOrNull(input.fps),
+    ...(input.kind === 'voice' ? { voiceMode: input.voiceMode === 'over' ? 'over' : 'replace' } : {}),
   };
   return {
     id: input.id as AssetId,
@@ -124,14 +137,15 @@ export function insertedMediaInfo(asset: Asset | null | undefined): InsertedMedi
   const raw = asset?.metadata?.['insertedMedia'];
   if (!raw || typeof raw !== 'object') return null;
   const info = raw as Partial<InsertedMediaInfo>;
-  if (info.kind !== 'clip' && info.kind !== 'pickup') return null;
+  if (info.kind !== 'clip' && info.kind !== 'pickup' && info.kind !== 'voice') return null;
   return {
     kind: info.kind,
     name: typeof info.name === 'string' ? info.name : asset?.filePath ?? '',
-    hasAudio: info.hasAudio === true,
+    hasAudio: info.kind === 'voice' || info.hasAudio === true,
     width: finiteOrNull(info.width),
     height: finiteOrNull(info.height),
     fps: finiteOrNull(info.fps),
+    ...(info.kind === 'voice' ? { voiceMode: info.voiceMode === 'over' ? 'over' as const : 'replace' as const } : {}),
   };
 }
 
@@ -172,7 +186,7 @@ export function recordingLaneTracks(timeline: Timeline, recordingAssetId: string
   const camera = (cameraSourceId ? videoTracks.find((track) => track.clips.some((clip) => clip.mediaId === cameraSourceId)) : null)
     ?? null;
   const audio = (recordingGroupId ? audioTracks.find((track) => track.clips.some((clip) => clip.linkGroupId === recordingGroupId)) : null)
-    ?? audioTracks.find((track) => track.id !== CAMERA_TAKES_AUDIO_TRACK_ID)
+    ?? audioTracks.find((track) => track.id !== CAMERA_TAKES_AUDIO_TRACK_ID && track.id !== VOICE_OVER_TRACK_ID)
     ?? null;
   const takes = timeline.tracks.find((track) => track.id === CAMERA_TAKES_TRACK_ID) ?? null;
   const takesAudio = timeline.tracks.find((track) => track.id === CAMERA_TAKES_AUDIO_TRACK_ID) ?? null;
@@ -307,6 +321,7 @@ export function listInsertedClips(document: ProjectDocument | null | undefined):
       name: info.name,
       filePath: asset.filePath,
       hasAudio: info.hasAudio,
+      voiceMode: info.kind === 'voice' ? info.voiceMode ?? 'replace' : null,
     }];
   })).sort((left, right) => left.timelineIn - right.timelineIn || left.lane.localeCompare(right.lane));
 }
@@ -347,7 +362,7 @@ export function removeInsertedClip(
   const end = target.timelineOut;
   let tracks: TimelineTrack[] = timeline.tracks.map((track) => ({ ...track, clips: track.clips.filter((clip) => !ids.has(clip.id)) }));
   let effects = timeline.effects;
-  if (view.lane === 'camera') {
+  if (view.lane === 'camera' || view.kind === 'voice') {
     // The recording's camera and sound were never touched under a take; nothing to restore.
   } else if (input.ripple !== false) {
     const stillOccupied = tracks.some((track) => track.clips.some((clip) => clip.timelineIn < end && clip.timelineOut > start));
@@ -584,6 +599,92 @@ let idCounter = 0;
 function defaultIdFactory(prefix: string): string {
   idCounter += 1;
   return `${prefix}-${Date.now().toString(36)}-${idCounter.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * Put a voice-over take on the Voice-over lane at `frame` (sound only). It covers only
+ * that lane: an older voice-over under it is cut away there, nothing else moves or changes.
+ */
+export function placeVoiceTake(
+  document: ProjectDocument,
+  input: {
+    readonly asset: Asset;
+    readonly frame: Frame;
+    readonly sourceIn?: Frame;
+    readonly sourceOut?: Frame;
+    readonly idFactory?: (prefix: string) => string;
+  },
+): ProjectDocument {
+  const info = insertedMediaInfo(input.asset);
+  if (info?.kind !== 'voice') throw new InsertedMediaError('Asset is not a voice-over take');
+  const idFactory = input.idFactory ?? defaultIdFactory;
+  const withAsset = canonicalizeProjectDocument(ensureVoiceTrack(addInsertedAsset(canonicalizeProjectDocument(document), input.asset)));
+  const sourceDuration = Math.max(1, Math.round(input.asset.duration));
+  const sourceIn = clampInt(input.sourceIn ?? 0, 0, sourceDuration - 1);
+  const sourceOut = clampInt(input.sourceOut ?? sourceDuration, sourceIn + 1, sourceDuration);
+  const start = Math.max(0, Math.round(Number(input.frame) || 0));
+  const end = start + (sourceOut - sourceIn);
+  const sourceId = insertedMediaSourceId(input.asset.id);
+  const linkGroupId = insertedMediaLinkGroupId(input.asset.id);
+  const clip: TimelineClip = {
+    id: idFactory(`clip-voice-${input.asset.id}`),
+    mediaId: sourceId,
+    trackId: VOICE_OVER_TRACK_ID,
+    linkGroupId,
+    timelineIn: start,
+    timelineOut: end,
+    sourceIn,
+    sourceOut,
+  };
+  const tracks = withAsset.timeline.tracks.map((track) => (track.id === VOICE_OVER_TRACK_ID
+    ? { ...track, clips: sortClips([...clearTrackRange(track.clips, start, end, idFactory), clip]) }
+    : track));
+  return canonicalizeProjectDocument({
+    ...withAsset,
+    timeline: {
+      ...withAsset.timeline,
+      linkedGroups: upsertLinkedGroup(withAsset.timeline.linkedGroups, {
+        id: linkGroupId,
+        kind: 'manual-sync',
+        sourceIds: [sourceId],
+        primarySourceId: sourceId,
+        syncPolicy: 'frame-locked',
+      }),
+      tracks,
+    },
+  });
+}
+
+/** Switch a voice-over take between replacing the recording's sound and playing over it. */
+export function setVoiceOverMode(
+  document: ProjectDocument,
+  input: { readonly clipId: string; readonly mode: VoiceOverMode },
+): ProjectDocument {
+  const view = listInsertedClips(document).find((item) => item.clipId === input.clipId);
+  if (!view || view.kind !== 'voice' || view.voiceMode === input.mode) return document;
+  return {
+    ...document,
+    assets: document.assets.map((asset) => {
+      if (asset.id !== view.assetId) return asset;
+      const raw = (asset.metadata?.['insertedMedia'] ?? {}) as Record<string, unknown>;
+      return { ...asset, metadata: { ...asset.metadata, insertedMedia: { ...raw, voiceMode: input.mode } } };
+    }),
+  };
+}
+
+/** Timeline spans where a voice-over replaces the recording's sound. */
+export function voiceOverReplaceRanges(document: ProjectDocument | null | undefined): Array<readonly [Frame, Frame]> {
+  return listInsertedClips(document)
+    .filter((clip) => clip.kind === 'voice' && clip.voiceMode === 'replace')
+    .map((clip) => [clip.timelineIn, clip.timelineOut] as const);
+}
+
+function ensureVoiceTrack(document: ProjectDocument): ProjectDocument {
+  const tracks = document.timeline.tracks;
+  if (tracks.some((track) => track.id === VOICE_OVER_TRACK_ID)) return document;
+  const nextIndex = Math.max(-1, ...tracks.map((track) => track.index)) + 1;
+  const track: TimelineTrack = { id: VOICE_OVER_TRACK_ID, kind: 'audio', index: nextIndex, label: 'Voice-over', enabled: true, locked: false, muted: false, clips: [] };
+  return { ...document, timeline: { ...document.timeline, tracks: [...tracks, track] } };
 }
 
 /** Split every inserted clip (picture and sound together) that crosses timeline frame `frame`. */

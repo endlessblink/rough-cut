@@ -74,6 +74,7 @@ import {
   removeInsertedClip,
   splitInsertedClipsAt,
   trimInsertedClip,
+  setVoiceOverMode,
   type InsertedClipView,
 } from '@rough-cut/project-model';
 import { DevMediaMenu, useDevFeatures, type TakeRange } from './dev-media-tools';
@@ -5829,10 +5830,11 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     const placement = frameRangeToPlacement(span.timelineIn, span.timelineOut, fps, model.durationSec);
     const selected = selectedInsertedClipId === clip.clipId;
     const isTake = clip.lane === 'camera';
+    const isVoice = clip.kind === 'voice';
     return (
       <div
         key={clip.clipId}
-        className={`insertedClipBar${isTake ? ' cameraTakeBar' : ''}${selected ? ' selectedClip' : ''}${insertedDrag?.clipId === clip.clipId ? ' dragging' : ''}`}
+        className={`insertedClipBar${isTake ? ' cameraTakeBar' : ''}${isVoice ? ` voiceOverBar voiceOver-${clip.voiceMode}` : ''}${selected ? ' selectedClip' : ''}${insertedDrag?.clipId === clip.clipId ? ' dragging' : ''}`}
         style={{ left: `${placement.left}%`, width: `${placement.width}%` }}
         data-inserted-clip-id={clip.clipId}
         data-inserted-lane={clip.lane}
@@ -5843,7 +5845,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
         <button
           type="button"
           className="clipBody insertedClipBody"
-          aria-label={`${selected ? 'Selected ' : ''}${isTake ? 'Camera take' : 'Added clip'} ${clip.name}`}
+          aria-label={`${selected ? 'Selected ' : ''}${isTake ? 'Camera take' : isVoice ? 'Voice-over' : 'Added clip'} ${clip.name}`}
           title={`${clip.name} · drag to move · Delete removes it`}
           onPointerDown={(event) => { event.currentTarget.focus(); beginInsertedDrag(clip, 'move', event); }}
           onKeyDown={(event) => {
@@ -5857,6 +5859,21 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
           <span className="insertedClipName">{clip.name}</span>
           <span className="clipDuration">{Math.max(0, (span.timelineOut - span.timelineIn) / fps).toFixed(1)}s</span>
         </button>
+        {isVoice ? (
+          <button
+            type="button"
+            className="voiceModeChip"
+            data-voice-mode={clip.voiceMode ?? 'replace'}
+            title={clip.voiceMode === 'over' ? 'Plays over the recording. Click to replace the voice here instead.' : "Replaces the recording's voice here. Click to play over it instead."}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onEditInsertedMedia?.((document) => setVoiceOverMode(document, { clipId: clip.clipId, mode: clip.voiceMode === 'over' ? 'replace' : 'over' }));
+            }}
+          >
+            {clip.voiceMode === 'over' ? 'Over' : 'Replaces'}
+          </button>
+        ) : null}
         <span role="presentation" className="trimHandle trimHandleEnd" title="Drag to trim the end" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginInsertedDrag(clip, 'tail', event)} />
       </div>
     );
@@ -7541,7 +7558,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             </TimelineLane>
             <TimelineLane label="Audio" className="audioLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
            {renderGaps('audio')}
-           {insertedClips.filter((clip) => clip.lane === 'audio').map((clip) => {
+           {insertedClips.filter((clip) => clip.lane === 'audio' && clip.kind !== 'voice').map((clip) => {
              // Sound from an added clip, or a camera take's voice (the recording's sound stays, muted under it).
              const isTakeVoice = insertedClips.some((other) => other.lane === 'camera' && other.assetId === clip.assetId);
              const placement = frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, model.durationSec);
@@ -7575,7 +7592,17 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                   <span className="srOnly">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
                 </button>; })
              : <p className="srOnly">No audio track.</p>}
+           {insertedClips.filter((clip) => clip.kind === 'voice' && clip.voiceMode === 'replace').map((clip) => {
+             // Where a voice-over replaces the voice, the recording's sound is muted (kept, not removed).
+             const placement = frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, model.durationSec);
+             return <span key={`muted-${clip.clipId}`} className="voiceOverMutedRange" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} title={`Muted here: ${clip.name} replaces the voice`} aria-hidden="true" />;
+           })}
             </TimelineLane>
+            {insertedClips.some((clip) => clip.kind === 'voice') ? (
+              <TimelineLane label="Voice" className="voiceOverLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+                {insertedClips.filter((clip) => clip.kind === 'voice').map(renderInsertedClip)}
+              </TimelineLane>
+            ) : null}
             {(() => {
               // Subtitles get their own lane, shown once captions are on or any line exists.
               const captionDocument = project.document as unknown as ProjectDocument;
@@ -7843,6 +7870,7 @@ const TIMELINE_LANE_ICONS: Record<string, PhosphorIconType> = {
   camera: PhosphorVideoCamera,
   framing: PhosphorFrameCorners,
   graphics: PhosphorTextAa,
+  voice: PhosphorMicrophone,
 };
 
 function TimelineLane({ label, className, style, children, onTrackDoubleClick, onTrackPointerDown, onTrackPointerDownCapture, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; style?: React.CSSProperties; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; onTrackPointerDownCapture?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {

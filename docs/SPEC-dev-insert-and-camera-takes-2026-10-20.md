@@ -92,6 +92,29 @@ launch video himself. Build only after he confirms this file.
   camera: insert/overwrite, undo/redo, playback through a clip, two takes on the
   marked range, take switching and its undo, Dev menu absent with the switch off).
 
+## 3. Voice-over take (added 2026-10-20, Noam via the Desk)
+
+Follows the common pattern of Final Cut "Record Voiceover", Premiere "Voice-Over Record"
+and Camtasia "Voice Narration": punch in from the playhead or a marked range, a 3-2-1
+countdown, timeline sound muted while recording unless headphones are on, the take lands as
+a new clip on its own audio lane at the exact spot.
+
+- Dev menu → "Record voice-over…". With a marked range the range plays and recording stops
+  at its end; without one it starts at the playhead and runs until Stop.
+- Mic only (no camera, no picture). A live mic level shows in the panel before recording.
+- Lands on its own "Voice" lane (track `track:voice-over`), sound only, at the frame the
+  playhead was on when playback began (the countdown lead-in is trimmed off, as for camera
+  takes). Drag and trim it like any clip; a new take over an older one cuts the older one
+  away there only.
+- Per take: **Replace** (the recording's sound is muted under it, not deleted; the Audio lane
+  shows the muted stretch) or **Play over** (both are heard). Chosen in the panel before
+  recording (remembered) and switchable later with the chip on the clip.
+- Undo covers placing, moving, trimming and switching. Export matches the preview.
+- Files: `added-media/voice-take-*.webm` beside the project.
+- Tests: `voice-over.test.ts` (model); `scripts/e2e-inserted-media-export.mjs` (replace mutes,
+  over mixes, in the exported file); `scripts/e2e-dev-voice-over-playwright.mjs <project>`
+  (real app, fake mic: from playhead, from a range, switch, drag, undo, switch off).
+
 Not done yet:
 - Zooms and captions placed on an added clip (graphics and camera takes work there).
   Both are stored in recording frames today, so an added clip has no frames for them.

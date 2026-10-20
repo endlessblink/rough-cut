@@ -1125,8 +1125,9 @@ function resolveInsertedExportSegments(timelineModel, { recording, timelineOffse
   const audioClips = (audioTrack?.clips ?? []).filter(inside);
   const recordingAudio = audioClips.filter((clip) => clip.linkGroupId === recordingGroupId && !insertedSourceIds.has(clip.mediaId)).map(shifted);
   const insertedAudio = insertedClips.filter((clip) => clip.lane === 'audio').map(insertedPart);
+  // A camera take's voice, or a voice-over set to replace, mutes the recording under it.
   const voicedTakeRanges = insertedClips
-    .filter((clip) => clip.lane === 'camera' && clip.hasAudio)
+    .filter((clip) => (clip.lane === 'camera' && clip.hasAudio) || (clip.kind === 'voice' && clip.voiceMode === 'replace'))
     .map((clip) => [clip.timelineIn - timelineOffset, clip.timelineOut - timelineOffset]);
   return {
     hasInsertedMedia: true,

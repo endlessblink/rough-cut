@@ -1,5 +1,6 @@
 // Dev-only tools for Noam's own dock copy: add a clip from outside the recording
-// at the playhead, and record a camera take while a marked range plays.
+// at the playhead, record a camera take while a marked range plays, and record a
+// voice-over (mic only) from the playhead or over a marked range.
 // Agreed spec: docs/SPEC-dev-insert-and-camera-takes-2026-10-20.md.
 // Nothing here renders unless main reports the local dev switch is on.
 import React from 'react';
@@ -9,6 +10,8 @@ import {
   insertMediaClip,
   listCameraTakes,
   pickupLanding,
+  placeVoiceTake,
+  type VoiceOverMode,
   useCameraTake as switchCameraTake,
   type InsertEditMode,
   type ProjectDocument,
@@ -19,9 +22,9 @@ type DevBridge = {
   devPickInsert?: () => Promise<{ filePath: string; kind: 'video' | 'project'; name: string } | null>;
   devPrepareInsert?: (payload: { filePath: string; projectPath: string; projectFps: number }) => Promise<PreparedMedia | null>;
   onDevInsertProgress?: (callback: (progress: { progress?: number }) => void) => () => void;
-  devTakeBegin?: (payload: { projectPath: string }) => Promise<{ id: string; path: string }>;
+  devTakeBegin?: (payload: { projectPath: string; kind?: 'camera' | 'voice' }) => Promise<{ id: string; path: string }>;
   devTakeChunk?: (id: string, chunk: ArrayBuffer) => Promise<number>;
-  devTakeFinish?: (payload: { id: string; projectFps: number }) => Promise<PreparedMedia>;
+  devTakeFinish?: (payload: { id: string; projectFps: number; kind?: 'camera' | 'voice' }) => Promise<PreparedMedia>;
   devTakeCancel?: (id: string) => Promise<boolean>;
 };
 
@@ -113,7 +116,9 @@ export function DevMediaMenu({
   onTakePlayback: (state: { playing: boolean; muted: boolean } | null) => void;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [panel, setPanel] = React.useState<'none' | 'insert-choice' | 'take'>('none');
+  const [panel, setPanel] = React.useState<'none' | 'insert-choice' | 'take' | 'voice'>('none');
+  const [voiceMode, setVoiceMode] = React.useState<VoiceOverMode>(() => (readStored('roughCut.dev.voiceMode') === 'over' ? 'over' : 'replace'));
+  const [micLevel, setMicLevel] = React.useState(0);
   const [picked, setPicked] = React.useState<{ filePath: string; kind: 'video' | 'project'; name: string } | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
@@ -141,6 +146,7 @@ export function DevMediaMenu({
   const liveRef = React.useRef<HTMLVideoElement | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const recorderRef = React.useRef<{
+    kind: 'camera' | 'voice';
     recorder: MediaRecorder;
     id: string;
     startFrame: number;
@@ -163,7 +169,7 @@ export function DevMediaMenu({
       const target = event.target as Node;
       if (menuRef.current && !menuRef.current.contains(target) && !layerRef.current?.contains(target) && !takeActive) {
         setOpen(false);
-        if (panel !== 'take') setPanel('none');
+        if (panel !== 'take' && panel !== 'voice') setPanel('none');
       }
     };
     const onKey = (event: KeyboardEvent) => {
@@ -180,17 +186,37 @@ export function DevMediaMenu({
     };
   });
 
-  // The camera is on only while the take panel is open.
+  // The camera is on only while the take panel is open; the mic only while a take or voice-over panel is.
   React.useEffect(() => {
-    if (panel !== 'take') return undefined;
+    if (panel !== 'take' && panel !== 'voice') return undefined;
     let cancelled = false;
-    const constraints: MediaStreamConstraints = {
-      video: { deviceId: cameraId ? { exact: cameraId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-      audio: { deviceId: micId ? { exact: micId } : undefined, echoCancellation: false, noiseSuppression: true, autoGainControl: false },
-    };
+    const audio = { deviceId: micId ? { exact: micId } : undefined, echoCancellation: false, noiseSuppression: true, autoGainControl: false };
+    const constraints: MediaStreamConstraints = panel === 'voice'
+      ? { audio }
+      : { video: { deviceId: cameraId ? { exact: cameraId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio };
+    let meter: { context: AudioContext; frame: number } | null = null;
     navigator.mediaDevices.getUserMedia(constraints).then(async (stream) => {
       if (cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
       streamRef.current = stream;
+      if (panel === 'voice' && typeof AudioContext !== 'undefined') {
+        // A live level so you can see the mic hears you before recording.
+        const context = new AudioContext();
+        // Created after the mic opens, outside the click, so it can start suspended.
+        void context.resume().catch(() => undefined);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        context.createMediaStreamSource(stream).connect(analyser);
+        const samples = new Float32Array(analyser.fftSize);
+        meter = { context, frame: 0 };
+        const tick = () => {
+          analyser.getFloatTimeDomainData(samples);
+          let peak = 0;
+          for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+          setMicLevel(Math.min(1, peak * 1.6));
+          if (meter) meter.frame = window.requestAnimationFrame(tick);
+        };
+        meter.frame = window.requestAnimationFrame(tick);
+      }
       if (liveRef.current) {
         liveRef.current.srcObject = stream;
         void liveRef.current.play().catch(() => undefined);
@@ -204,6 +230,8 @@ export function DevMediaMenu({
     });
     return () => {
       cancelled = true;
+      if (meter) { window.cancelAnimationFrame(meter.frame); void meter.context.close().catch(() => undefined); }
+      setMicLevel(0);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
@@ -278,19 +306,24 @@ export function DevMediaMenu({
     }
   }
 
-  async function startTake() {
-    if (!rangeReady || !projectPath || takeActive) return;
+  async function startTake(kind: 'camera' | 'voice' = 'camera') {
+    if ((kind === 'camera' && !rangeReady) || !projectPath || takeActive) return;
     const stream = streamRef.current;
-    if (!stream) { setTakeState({ phase: 'error', message: 'The camera is not ready yet.' }); return; }
-    const startFrame = takeRange.startFrame as number;
-    const endFrame = takeRange.endFrame as number;
+    if (!stream) { setTakeState({ phase: 'error', message: kind === 'voice' ? 'The mic is not ready yet.' : 'The camera is not ready yet.' }); return; }
+    // A voice-over without a marked range starts at the playhead and runs until Stop.
+    const startFrame = rangeReady ? takeRange.startFrame as number : playheadFrame;
+    const endFrame = rangeReady ? takeRange.endFrame as number : Number.POSITIVE_INFINITY;
     try {
       onSeekFrame(startFrame);
-      const { id } = await (bridge().devTakeBegin?.({ projectPath }) ?? Promise.reject(new Error('Camera takes are not available.')));
-      const mimeType = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+      const { id } = await (bridge().devTakeBegin?.({ projectPath, kind }) ?? Promise.reject(new Error('Takes are not available.')));
+      const mimeType = (kind === 'voice'
+        ? ['audio/webm;codecs=opus', 'audio/webm']
+        : ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'])
         .find((type) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) ?? '';
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined);
-      const session = { recorder, id, startFrame, endFrame, recordingStartedAtMs: null as number | null, playbackStartedAtMs: null as number | null, writes: Promise.resolve() as Promise<unknown>, stopping: false, cancelled: false };
+      const recorder = new MediaRecorder(stream, mimeType
+        ? (kind === 'voice' ? { mimeType, audioBitsPerSecond: 160_000 } : { mimeType, videoBitsPerSecond: 6_000_000 })
+        : undefined);
+      const session = { kind, recorder, id, startFrame, endFrame, recordingStartedAtMs: null as number | null, playbackStartedAtMs: null as number | null, writes: Promise.resolve() as Promise<unknown>, stopping: false, cancelled: false };
       recorderRef.current = session;
       recorder.ondataavailable = (event) => {
         if (!event.data || event.data.size === 0 || session.cancelled) return;
@@ -326,7 +359,7 @@ export function DevMediaMenu({
         if (session.recorder.state === 'inactive') resolve(); else session.recorder.stop();
       });
       await session.writes;
-      const media = await (bridge().devTakeFinish?.({ id: session.id, projectFps: fps }) ?? Promise.reject(new Error('Camera takes are not available.')));
+      const media = await (bridge().devTakeFinish?.({ id: session.id, projectFps: fps, kind: session.kind }) ?? Promise.reject(new Error('Takes are not available.')));
       const landing = pickupLanding({
         playheadFrame: session.startFrame,
         recordingStartedAtMs: session.recordingStartedAtMs ?? 0,
@@ -337,6 +370,22 @@ export function DevMediaMenu({
       if (!landing) throw new Error('The take stopped before the range began.');
       const sourceOut = Math.min(landing.sourceOut, landing.sourceIn + (session.endFrame - session.startFrame));
       const document = getDocument();
+      if (session.kind === 'voice') {
+        const voiceNumber = document.assets.filter((asset) => (asset.metadata as { insertedMedia?: { kind?: string } })?.insertedMedia?.kind === 'voice').length + 1;
+        const asset = createInsertedMediaAsset({
+          id: newId('voice'),
+          filePath: media.filePath,
+          durationFrames: media.durationFrames,
+          kind: 'voice',
+          name: `Voice-over ${voiceNumber}`,
+          voiceMode,
+          extraMetadata: { recordedAt: new Date().toISOString() },
+        });
+        await onApply(placeVoiceTake(document, { asset, frame: landing.frame, sourceIn: landing.sourceIn, sourceOut }));
+        setTakeState({ phase: 'idle' });
+        setNotice(`Voice-over ${voiceNumber} placed at ${formatTimecode(landing.frame, fps)} (${voiceMode === 'replace' ? 'replaces the voice there' : 'plays over the voice'}).`);
+        return;
+      }
       const takeNumber = document.assets.filter((asset) => (asset.metadata as { insertedMedia?: { kind?: string } })?.insertedMedia?.kind === 'pickup').length + 1;
       const asset = createInsertedMediaAsset({
         id: newId('take'),
@@ -417,6 +466,9 @@ export function DevMediaMenu({
           <button type="button" role="menuitem" className="devMenuItem" disabled={!rangeReady || takeActive} title={rangeReady ? undefined : 'Mark a start and an end first'} onClick={() => { setPanel('take'); setOpen(false); setTakeState({ phase: 'idle' }); }}>
             Record camera take…
           </button>
+          <button type="button" role="menuitem" className="devMenuItem" disabled={takeActive} onClick={() => { setPanel('voice'); setOpen(false); setTakeState({ phase: 'idle' }); }}>
+            Record voice-over…<span className="devMenuHint">{rangeReady ? `${markLabel(takeRange.startFrame)}–${markLabel(takeRange.endFrame)}` : `from ${formatTimecode(playheadFrame, fps)}`}</span>
+          </button>
           {takes.length > 0 ? (
             <>
               <div className="devMenuSeparator" role="separator" />
@@ -477,8 +529,58 @@ export function DevMediaMenu({
           <div className="devChoiceRow devTakeActions">
             {takeActive && takeState.phase !== 'saving'
               ? <button type="button" className="devPrimaryButton devStopButton" onClick={() => void stopTake()}>Stop</button>
-              : <button type="button" className="devPrimaryButton" disabled={!rangeReady || takeActive} onClick={() => void startTake()}>Record</button>}
+              : <button type="button" className="devPrimaryButton" disabled={!rangeReady || takeActive} onClick={() => void startTake('camera')}>Record</button>}
             <button type="button" className="devTextButton" disabled={takeState.phase === 'saving'} onClick={() => { if (takeActive) void cancelTake(); else setPanel('none'); }}>{takeActive ? 'Cancel take' : 'Close'}</button>
+          </div>
+        </div>
+      ) : null}
+      {panel === 'voice' ? (
+        <div className="devMenuPopover devTakePanel devVoicePanel" role="dialog" aria-label="Record voice-over">
+          <div className="devTakeHeader">
+            <p className="devPanelTitle">
+              Voice-over {rangeReady ? `${markLabel(takeRange.startFrame)}–${markLabel(takeRange.endFrame)}` : `from ${formatTimecode(playheadFrame, fps)}`}
+            </p>
+            {takeState.phase === 'recording' ? <span className="devRecDot" role="status">Recording</span> : null}
+          </div>
+          <p className="devPanelNote">
+            {rangeReady ? 'The marked range plays and recording stops at its end.' : 'Plays from the playhead; press Stop when you are done. Mark a range to stop by itself.'}
+          </p>
+          <label className="devField">
+            <span>Mic</span>
+            <select value={micId} disabled={takeActive} onChange={(event) => { setMicId(event.target.value); writeStored('roughCut.dev.takeMic', event.target.value); }}>
+              <option value="">Default mic</option>
+              {mics.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label || 'Microphone'}</option>)}
+            </select>
+          </label>
+          <div className="devMicMeter" role="meter" aria-label="Mic level" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(micLevel * 100)}>
+            <span style={{ transform: `scaleX(${micLevel})` }} />
+          </div>
+          <div className="devChoiceRow devVoiceMode" role="radiogroup" aria-label="What the voice-over does">
+            {([['replace', 'Replace voice', 'Mutes the old voice there'], ['over', 'Play over', 'Keeps the old sound too']] as const).map(([mode, title, hint]) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={voiceMode === mode}
+                className={`devChoiceButton${voiceMode === mode ? ' devChoiceButtonActive' : ''}`}
+                disabled={takeActive}
+                onClick={() => { setVoiceMode(mode); writeStored('roughCut.dev.voiceMode', mode); }}
+              >
+                <strong>{title}</strong><span>{hint}</span>
+              </button>
+            ))}
+          </div>
+          <label className="devSwitch">
+            <input type="checkbox" checked={soundOn} disabled={takeActive} onChange={(event) => { setSoundOn(event.target.checked); writeStored('roughCut.dev.takeSound', event.target.checked ? 'on' : 'off'); }} />
+            <span>Play sound while recording (headphones only)</span>
+          </label>
+          {takeState.phase === 'error' ? <p className="devPanelError" role="alert">{takeState.message}</p> : null}
+          {takeState.phase === 'saving' ? <p className="devPanelNote" role="status">Saving the voice-over…</p> : null}
+          <div className="devChoiceRow devTakeActions">
+            {takeActive && takeState.phase !== 'saving'
+              ? <button type="button" className="devPrimaryButton devStopButton" data-voice-stop="true" onClick={() => void stopTake()}>Stop</button>
+              : <button type="button" className="devPrimaryButton" data-voice-record="true" disabled={takeActive} onClick={() => void startTake('voice')}>Record</button>}
+            <button type="button" className="devTextButton" disabled={takeState.phase === 'saving'} onClick={() => { if (takeActive) void cancelTake(); else setPanel('none'); }}>{takeActive ? 'Cancel' : 'Close'}</button>
           </div>
         </div>
       ) : null}

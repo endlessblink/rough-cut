@@ -812,6 +812,22 @@ export function StyledVideoPreview({
   const insertedVideoClipsRef = React.useRef<InsertedClipView[]>(insertedVideoClips);
   insertedVideoClipsRef.current = insertedVideoClips;
   const insertedVideosRef = React.useRef(new Map<string, HTMLVideoElement>());
+  // Voice-over takes: sound only, one hidden audio decoder per take file, placed by
+  // the same canonical timeline clock. "Replace" ones mute the recording under them.
+  const voiceOverClips = React.useMemo(
+    () => listInsertedClips(canonicalDocument).filter((clip) => clip.kind === 'voice'),
+    [canonicalDocument],
+  );
+  const voiceOverClipsRef = React.useRef<InsertedClipView[]>(voiceOverClips);
+  voiceOverClipsRef.current = voiceOverClips;
+  const voiceOverSources = React.useMemo(() => {
+    const urls = new Map<string, string>();
+    for (const clip of voiceOverClips) {
+      if (!urls.has(clip.assetId)) urls.set(clip.assetId, `media://file/${encodeURIComponent(clip.filePath)}`);
+    }
+    return [...urls.entries()].map(([assetId, url]) => ({ assetId, url }));
+  }, [voiceOverClips]);
+  const voiceOverAudiosRef = React.useRef(new Map<string, HTMLAudioElement>());
   const audioMutedRef = React.useRef(audioMuted);
   audioMutedRef.current = audioMuted;
   // The project's camera style, for a camera take placed where the recording shows no bubble.
@@ -1049,6 +1065,41 @@ export function StyledVideoPreview({
    * never own the clock: an active one plays along and is re-seeked only when it
    * drifts, an upcoming one is parked on its first frame, the rest are paused.
    */
+  function voiceOverReplacesAt(timelineFrame: number) {
+    const frame = Math.max(0, Math.round(timelineFrame));
+    return voiceOverClipsRef.current.some((clip) => clip.voiceMode === 'replace' && frame >= clip.timelineIn && frame < clip.timelineOut);
+  }
+
+  /** Same rules as inserted footage: the timeline clock places each voice-over decoder. */
+  function syncVoiceOvers(timelineFrame: number, playing: boolean) {
+    const clips = voiceOverClipsRef.current;
+    if (clips.length === 0) return;
+    const frame = Math.max(0, Math.round(timelineFrame));
+    const rate = timelineRateRef.current;
+    for (const [assetId, element] of voiceOverAudiosRef.current) {
+      const active = clips.find((clip) => clip.assetId === assetId && frame >= clip.timelineIn && frame < clip.timelineOut) ?? null;
+      if (!active) {
+        if (!element.paused) element.pause();
+        const upcoming = playing
+          ? clips.find((clip) => clip.assetId === assetId && clip.timelineIn > frame && clip.timelineIn - frame <= fps * 1.5) ?? null
+          : null;
+        if (upcoming && !element.seeking && Math.abs(element.currentTime - upcoming.sourceIn / fps) > 1 / fps) element.currentTime = upcoming.sourceIn / fps;
+        continue;
+      }
+      const target = (active.sourceIn + (frame - active.timelineIn)) / fps;
+      const muted = audioMutedRef.current;
+      if (element.muted !== muted) element.muted = muted;
+      if (playing) {
+        if (element.playbackRate !== rate) element.playbackRate = rate;
+        if (!element.seeking && Math.abs(element.currentTime - target) > 0.12) element.currentTime = target;
+        if (element.paused) void element.play().catch(() => undefined);
+      } else {
+        if (!element.paused) element.pause();
+        if (!element.seeking && Math.abs(element.currentTime - target) > 0.5 / fps) element.currentTime = target;
+      }
+    }
+  }
+
   function syncInsertedMedia(timelineFrame: number, playing: boolean) {
     const clips = insertedVideoClipsRef.current;
     if (clips.length === 0) return;
@@ -2123,6 +2174,7 @@ export function StyledVideoPreview({
         ? timelineDecoded?.timelineFrame ?? playingGapFrame ?? parkedTimelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
         : sourceFrame;
       syncInsertedMedia(timeMode === 'timeline' ? currentFrame : -1, timeMode === 'timeline' && isPlaying && !scrubbing);
+      syncVoiceOvers(timeMode === 'timeline' ? currentFrame : -1, timeMode === 'timeline' && isPlaying && !scrubbing);
       if (
         timeMode === 'timeline'
         && isPlaying
@@ -2139,7 +2191,7 @@ export function StyledVideoPreview({
       setScreenGain(
         screenVideo,
         // A camera take's voice replaces the recording's sound for its range (muted, not removed).
-        timeMode === 'timeline' && insertedClipAt(currentFrame, 'camera')?.hasAudio
+        timeMode === 'timeline' && (insertedClipAt(currentFrame, 'camera')?.hasAudio || voiceOverReplacesAt(currentFrame))
           ? 0
           : timeMode === 'timeline' && timelineDecoded?.segment
           ? timelineJoinGain(
@@ -3123,6 +3175,18 @@ export function StyledVideoPreview({
           className="hiddenStandbySource"
           onLoadedData={() => { previewInteractionDirtyRef.current = true; }}
           onSeeked={() => { previewInteractionDirtyRef.current = true; }}
+        />
+      ))}
+      {voiceOverSources.map(({ assetId, url }) => (
+        <audio
+          key={`voice-${assetId}`}
+          ref={(element) => {
+            if (element) voiceOverAudiosRef.current.set(assetId, element);
+            else voiceOverAudiosRef.current.delete(assetId);
+          }}
+          data-voice-over-asset-id={assetId}
+          src={url}
+          preload="auto"
         />
       ))}
       <canvas

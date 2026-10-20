@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { exportProjectToMp4 } from '../apps/desktop/src/main/export-service.mjs';
 import { saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
-import { createInsertedMediaAsset, insertMediaClip, listInsertedClips } from '../packages/project-model/dist/index.js';
+import { createInsertedMediaAsset, insertMediaClip, listInsertedClips, placeVoiceTake } from '../packages/project-model/dist/index.js';
 
 const FFMPEG = process.env.ROUGH_CUT_FIXTURE_FFMPEG ?? 'ffmpeg-safe';
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-inserted-media-'));
@@ -26,6 +26,8 @@ const cameraPath = join(root, 'screen-camera.mp4');
 const clipPath = join(root, 'outside-clip.mp4');
 const takePath = join(root, 'take.mp4');
 const exportPath = join(root, 'export.mp4');
+const voiceReplacePath = join(root, 'voice-replace.webm');
+const voiceOverPath = join(root, 'voice-over.webm');
 
 // Screen: blue with a 440 Hz tone. Camera: green. Outside clip: red, a different
 // shape, silent. Take: yellow, silent, with a 0.5 s lead-in before the range.
@@ -33,6 +35,9 @@ fixture(screenPath, 'color=c=blue:s=1280x720:r=30', 6, 'sine=frequency=440:sampl
 fixture(cameraPath, 'color=c=green:s=640x480:r=30', 6, null);
 fixture(clipPath, 'color=c=red:s=640x360:r=30', 2, 'anullsrc=r=48000:cl=stereo');
 fixture(takePath, 'color=c=yellow:s=640x480:r=30', 2, 'anullsrc=r=48000:cl=stereo');
+// Voice-over takes are sound only (like the mic recordings): one silent, one a 1 kHz tone.
+audioFixture(voiceReplacePath, 'anullsrc=r=48000:cl=mono', 1);
+audioFixture(voiceOverPath, 'sine=frequency=1000:sample_rate=48000', 1);
 
 const saved = await saveProjectForRecording({
   startedAt: '2026-01-01T00:00:00.000Z',
@@ -56,6 +61,11 @@ document = insertMediaClip(document, { asset: take, frame: 15, mode: 'overwrite'
 // Outside clip inserted at 2.0 s (frame 60), rippling the rest 2 s later.
 const clip = createInsertedMediaAsset({ id: 'clip-1', filePath: clipPath, durationFrames: 60, kind: 'clip', hasAudio: true, width: 640, height: 360, fps });
 document = insertMediaClip(document, { asset: clip, frame: 60, mode: 'insert', placement: 'screen', idFactory });
+// After the clip ripple: 4.0-4.6 s a silent voice-over replaces the tone; 5.0-5.6 s a 1 kHz one plays over it.
+const replaceVoice = createInsertedMediaAsset({ id: 'voice-1', filePath: voiceReplacePath, durationFrames: 30, kind: 'voice', voiceMode: 'replace' });
+document = placeVoiceTake(document, { asset: replaceVoice, frame: 120, sourceIn: 6, sourceOut: 24, idFactory });
+const overVoice = createInsertedMediaAsset({ id: 'voice-2', filePath: voiceOverPath, durationFrames: 30, kind: 'voice', voiceMode: 'over' });
+document = placeVoiceTake(document, { asset: overVoice, frame: 150, sourceIn: 6, sourceOut: 24, idFactory });
 console.log('inserted:', listInsertedClips(document).map((item) => `${item.lane} ${item.timelineIn}-${item.timelineOut}`).join(', '));
 
 const result = await exportProjectToMp4({ project: document, outputPath: exportPath, mode: 'styled' });
@@ -92,7 +102,14 @@ check(loud(0.1, 0.4) > -30, `recording tone before the take (${loud(0.1, 0.4)} d
 check(loud(0.7, 1.3) < -60, `take's silent voice replaces the tone (${loud(0.7, 1.3)} dB)`);
 check(loud(1.6, 1.9) > -30, `tone back after the take (${loud(1.6, 1.9)} dB)`);
 check(loud(2.3, 3.7) < -60, `added clip's silent sound replaces the tone (${loud(2.3, 3.7)} dB)`);
-check(loud(4.3, 5.7) > -30, `tone continues after the clip (${loud(4.3, 5.7)} dB)`);
+check(loud(5.7, 5.95) > -30, `tone continues after the clip and both voice-overs (${loud(5.7, 5.95)} dB)`);
+check(loud(4.05, 4.15) < -60 && loud(4.4, 4.5) < -60, `a replace voice-over mutes the tone under it (${loud(4.05, 4.15)} / ${loud(4.4, 4.5)} dB)`);
+check(loud(4.7, 4.9) > -30, `tone back after the replace voice-over (${loud(4.7, 4.9)} dB)`);
+const over = toneLevels(exportPath, 5.1, 0.4);
+check(over.at440 > -35 && over.at1000 > -35, `a play-over voice-over is heard with the tone (440 Hz ${over.at440} dB, 1 kHz ${over.at1000} dB)`);
+const before = toneLevels(exportPath, 4.7, 0.25);
+// The band filter lets a little of the 440 Hz tone through, so compare against the voice-over itself.
+check(before.at1000 < over.at1000 - 15, `no voice-over tone before it starts (${before.at1000} dB vs ${over.at1000} dB while it plays)`);
 
 if (failures.length > 0) {
   console.error(`FAILED (${failures.length}):\n- ${failures.join('\n- ')}\nfiles: ${root}`);
@@ -112,6 +129,20 @@ function fixture(path, video, seconds, audio) {
   if (audio) args.push('-c:a', 'aac', '-shortest');
   args.push('-threads', '2', path);
   run(FFMPEG, args);
+}
+
+function audioFixture(path, source, seconds) {
+  run(FFMPEG, ['-y', '-v', 'error', '-f', 'lavfi', '-i', source, '-t', String(seconds), '-c:a', 'libopus', '-threads', '2', path]);
+}
+
+/** Level of the 440 Hz recording tone and the 1 kHz voice-over tone, each isolated by a narrow band. */
+function toneLevels(path, from, length) {
+  const band = (hz) => {
+    const result = spawnSync(FFMPEG, ['-v', 'info', '-ss', String(from), '-t', String(length), '-i', path, '-vn', '-af', `bandpass=f=${hz}:width_type=q:w=8,volumedetect`, '-f', 'null', '-'], { encoding: 'utf8' });
+    const match = String(result.stderr).match(/mean_volume:\s*(-?[\d.]+|-inf) dB/);
+    return !match || match[1] === '-inf' ? -Infinity : Number(match[1]);
+  };
+  return { at440: band(440), at1000: band(1000) };
 }
 
 function frameAt(path, sec) {

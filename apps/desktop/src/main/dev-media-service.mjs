@@ -45,8 +45,8 @@ export function devMediaDir(projectPath) {
  * Probe a picked video and describe it in the current project's frames. Timeline
  * frames are always the project's frame rate, whatever the file's own rate is.
  */
-export async function describeInsertableVideo(filePath, { projectFps = 30, probe } = {}) {
-  const info = await probe(filePath, { kind: 'video' });
+export async function describeInsertableVideo(filePath, { projectFps = 30, probe, kind = 'video' } = {}) {
+  const info = await probe(filePath, { kind });
   const seconds = Number(info?.durationSeconds);
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Could not read how long this video is.');
   const fps = Number.isFinite(projectFps) && projectFps > 0 ? projectFps : 30;
@@ -55,7 +55,7 @@ export async function describeInsertableVideo(filePath, { projectFps = 30, probe
     name: basename(filePath),
     durationFrames: Math.max(1, Math.round(seconds * fps)),
     durationSeconds: seconds,
-    hasAudio: info?.hasAudio === true,
+    hasAudio: kind === 'audio' || info?.hasAudio === true,
     width: Number.isFinite(info?.width) ? info.width : null,
     height: Number.isFinite(info?.height) ? info.height : null,
     fps: Number.isFinite(info?.fps) ? info.fps : null,
@@ -87,14 +87,16 @@ export async function exportProjectForInsert({ sourceProjectPath, targetProjectP
 export function createTakeWriter({ now = () => new Date(), uuid = randomUUID } = {}) {
   const sessions = new Map();
   return {
-    async begin({ projectPath }) {
+    async begin({ projectPath, kind = 'camera' }) {
       if (typeof projectPath !== 'string' || !projectPath.endsWith('.roughcut')) throw new Error('Save the project before recording a camera take.');
       const folder = devMediaDir(projectPath);
       await mkdir(folder, { recursive: true });
       const id = uuid();
       const stamp = now().toISOString().replace(/[:.]/g, '-');
-      const partPath = join(folder, `camera-take-${stamp}.part.webm`);
-      const finalPath = join(folder, `camera-take-${stamp}.webm`);
+      // Voice-over takes are sound only; camera takes are picture and sound.
+      const prefix = kind === 'voice' ? 'voice-take' : 'camera-take';
+      const partPath = join(folder, `${prefix}-${stamp}.part.webm`);
+      const finalPath = join(folder, `${prefix}-${stamp}.webm`);
       const handle = await open(partPath, 'w');
       sessions.set(id, { handle, partPath, finalPath, bytes: 0 });
       return { id, path: finalPath };

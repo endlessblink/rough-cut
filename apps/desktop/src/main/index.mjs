@@ -1303,7 +1303,7 @@ function registerDevMediaHandlers() {
   });
   ipcMain.handle(IPC_CHANNELS.DEV_TAKE_BEGIN, async (_event, payload) => {
     const projectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
-    return takes.begin({ projectPath });
+    return takes.begin({ projectPath, kind: payload?.kind === 'voice' ? 'voice' : 'camera' });
   });
   ipcMain.handle(IPC_CHANNELS.DEV_TAKE_CHUNK, (_event, id, chunk) => takes.append(id, chunk));
   ipcMain.handle(IPC_CHANNELS.DEV_TAKE_FINISH, async (_event, payload) => {
@@ -1313,7 +1313,7 @@ function registerDevMediaHandlers() {
         return result.code === 0;
       },
     });
-    return describeInsertableVideo(finalPath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia });
+    return describeInsertableVideo(finalPath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia, kind: payload?.kind === 'voice' ? 'audio' : 'video' });
   });
   ipcMain.handle(IPC_CHANNELS.DEV_TAKE_CANCEL, (_event, id) => takes.cancel(id));
 }
