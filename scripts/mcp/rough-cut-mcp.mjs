@@ -403,14 +403,27 @@ const TOOLS = {
     },
   },
   apply_edit: {
-    description: 'Edit the project COPY (made by make_edit_copy). ops: cut_range {startSec,endSec} removes that stretch and closes the gap on all tracks; split {clipId,sec}; delete_clip {clipId, ripple?}. Saves a one-step undo file next to the copy.',
+    description: 'Edit the project COPY (made by make_edit_copy), the same edits Noam makes in the app. ops: '
+      + 'cut_range {startSec,endSec} removes that stretch and closes the gap on all tracks; split {clipId,sec}; delete_clip {clipId, ripple?}; '
+      + 'insert_clip {file, atSec, mode: insert|overwrite, inSec?, outSec?} puts a video file on the timeline at atSec (insert pushes everything after it later; overwrite replaces what is under it), full picture, its sound replaces the recording\'s there; '
+      + 'add_voice_over {file, atSec, mode: replace|over, inSec?, outSec?} puts a sound file on the Voice lane (replace mutes the recording\'s voice under it, over plays both); '
+      + 'set_voice_over_mode {clipId, mode}; move_clip {clipId, atSec} and trim_clip {clipId, edge: head|tail, sec} for added clips and voice-overs; '
+      + 'set_layout {captions?: boolean, camera?: boolean} turns burned-in captions and the camera bubble on or off. '
+      + 'Saves a one-step undo file next to the copy. The original project is never changed.',
     inputSchema: {
       type: 'object',
       properties: {
         project_path: { type: 'string', description: 'The original or the edit-copy path' },
-        op: { type: 'string', enum: ['cut_range', 'split', 'delete_clip'] },
+        op: { type: 'string', enum: ['cut_range', 'split', 'delete_clip', 'insert_clip', 'add_voice_over', 'set_voice_over_mode', 'move_clip', 'trim_clip', 'set_layout'] },
         startSec: { type: 'number' }, endSec: { type: 'number' },
         clipId: { type: 'string' }, sec: { type: 'number' }, ripple: { type: 'boolean' },
+        file: { type: 'string', description: 'insert_clip / add_voice_over: the media file (referenced in place, never copied or changed)' },
+        atSec: { type: 'number', description: 'Timeline second it starts at' },
+        inSec: { type: 'number', description: 'Part of the file to use: start (default 0)' },
+        outSec: { type: 'number', description: 'Part of the file to use: end (default its end)' },
+        mode: { type: 'string', description: 'insert_clip: insert|overwrite. add_voice_over / set_voice_over_mode: replace|over' },
+        edge: { type: 'string', enum: ['head', 'tail'] },
+        captions: { type: 'boolean' }, camera: { type: 'boolean' },
       },
       required: ['project_path', 'op'],
     },
@@ -441,7 +454,41 @@ const TOOLS = {
       } else if (a.op === 'split') {
         doc = M.splitClip(doc, { clipId: a.clipId, frame: frame(a.sec) }).document;
       } else if (a.op === 'delete_clip') {
-        doc = M.deleteClip(doc, { clipId: a.clipId, mode: a.ripple ? 'ripple' : 'leave-gap' }).document;
+        const added = M.listInsertedClips(doc).some((clip) => clip.clipId === a.clipId);
+        doc = added
+          ? M.removeInsertedClip(doc, { clipId: a.clipId, ripple: a.ripple !== false })
+          : M.deleteClip(doc, { clipId: a.clipId, mode: a.ripple ? 'ripple' : 'leave-gap' }).document;
+      } else if (a.op === 'insert_clip' || a.op === 'add_voice_over') {
+        const file = resolve(String(a.file ?? ''));
+        if (!existsSync(file)) throw new Error(`No file at ${file}`);
+        const info = ffprobe(file);
+        if (!(info.duration > 0)) throw new Error('Could not read how long that file is');
+        const durationFrames = Math.max(1, Math.round(info.duration * fps));
+        const sourceIn = a.inSec === undefined ? 0 : frame(a.inSec);
+        const sourceOut = a.outSec === undefined ? durationFrames : frame(a.outSec);
+        const name = file.split('/').pop();
+        if (a.op === 'insert_clip') {
+          if (!info.width) throw new Error('insert_clip needs a video file; use add_voice_over for sound');
+          const asset = M.createInsertedMediaAsset({ id: `clip-${randomUUID()}`, filePath: file, durationFrames, kind: 'clip', name, hasAudio: info.hasAudio, width: info.width, height: info.height, fps });
+          doc = M.insertMediaClip(doc, { asset, frame: frame(a.atSec ?? 0), mode: a.mode === 'overwrite' ? 'overwrite' : 'insert', placement: 'screen', sourceIn, sourceOut });
+        } else {
+          if (!info.hasAudio) throw new Error('add_voice_over needs a file with sound');
+          const asset = M.createInsertedMediaAsset({ id: `voice-${randomUUID()}`, filePath: file, durationFrames, kind: 'voice', name, voiceMode: a.mode === 'over' ? 'over' : 'replace' });
+          doc = M.placeVoiceTake(doc, { asset, frame: frame(a.atSec ?? 0), sourceIn, sourceOut });
+        }
+      } else if (a.op === 'set_voice_over_mode') {
+        doc = M.setVoiceOverMode(doc, { clipId: a.clipId, mode: a.mode === 'over' ? 'over' : 'replace' });
+      } else if (a.op === 'move_clip') {
+        doc = M.moveInsertedClip(doc, { clipId: a.clipId, timelineIn: frame(a.atSec ?? 0) });
+      } else if (a.op === 'trim_clip') {
+        doc = M.trimInsertedClip(doc, { clipId: a.clipId, edge: a.edge === 'head' ? 'head' : 'tail', frame: frame(a.sec ?? 0) });
+      } else if (a.op === 'set_layout') {
+        if (typeof a.captions === 'boolean') doc = { ...doc, captions: { ...(doc.captions ?? {}), enabled: a.captions } };
+        if (typeof a.camera === 'boolean') {
+          doc = { ...doc, assets: doc.assets.map((asset) => (asset.type === 'recording'
+            ? { ...asset, presentation: { ...(asset.presentation ?? {}), camera: { ...(asset.presentation?.camera ?? {}), visible: a.camera } } }
+            : asset)) };
+        }
       } else throw new Error(`Unknown op ${a.op}`);
       writeFileSync(`${copy}.undo`, before);
       writeFileSync(copy, JSON.stringify(doc));
