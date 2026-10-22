@@ -1,6 +1,6 @@
 // @ts-check
 import { spawn } from 'node:child_process';
-import { audioInputArgs, cameraInputArgs, screenInputArgs, captureSupported } from './platform-capture.mjs';
+import { audioInputArgs, cameraInputArgs, screenInputArgs, screenOutputFilterArgs, captureSupported } from './platform-capture.mjs';
 
 /**
  * @typedef {Object} FfmpegCaptureOptions
@@ -460,7 +460,8 @@ export function buildFfmpegCameraCaptureArgs({
     // 0.7 s between frames, and the editor's drift correction (which compares the camera element's time with the
     // timeline) then seeks and changes the playback rate constantly: slow camera, voice out of step, a jittering
     // playhead. Duplicating frames to a constant rate gives the editor the regular timeline it expects.
-    ...(platform === 'win32' ? ['-fps_mode', 'cfr', '-r', String(frameRate)] : []),
+    // Mac cameras lower their rate in dim light the same way (AVFoundation hands over variable-rate frames).
+    ...(platform === 'win32' || platform === 'darwin' ? ['-fps_mode', 'cfr', '-r', String(frameRate)] : []),
     '-c:v',
     'libx264',
     '-preset',
@@ -703,6 +704,8 @@ export function buildFfmpegCaptureArgs({
     videoMaps: ['0:v'],
   });
   // No audio → no -map needed (single input, auto-mapped)
+  // Mac: AVFoundation captures the whole screen, so a region is cropped here (no-op elsewhere).
+  args.push(...screenOutputFilterArgs({ platform, width, height, display }));
 
   // --- Codecs ---
   // BUG-269 (2026-04-28): switched from libvpx (VP8) to libx264 (H.264).

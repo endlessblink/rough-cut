@@ -1,0 +1,152 @@
+name: Mac beta build
+
+# Builds the Mac (beta) app on GitHub's macOS machines for Apple Silicon and Intel, checks every build in its real UI
+# (open a project, edit, export, compare the export with the edit) and keeps the files as workflow artifacts. When both
+# builds pass, they are attached to a DRAFT pre-release labelled "Mac beta, community tested". Nothing is published,
+# nothing is notarized, no Apple account is used: the apps are ad-hoc signed. A published release is never touched.
+
+on:
+  push:
+    branches: ['feat/mac-beta']
+    paths:
+      - '.github/workflows/release-mac.yml'
+      - 'apps/desktop/src/**'
+      - 'packages/**'
+      - 'scripts/package-mac.mjs'
+      - 'scripts/prepare-mac-tools.mjs'
+      - 'scripts/build-mac-release.mjs'
+      - 'scripts/bundled-tools-mac.lock.json'
+      - 'scripts/mac/**'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and check only; touch no release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-mac-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build + check (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: The machine is the expected Mac
+        run: |
+          node -e "if (process.arch !== '${{ matrix.arch }}') { console.error('Expected ${{ matrix.arch }}, got ' + process.arch); process.exit(1) }"
+          sw_vers
+
+      - run: pnpm install --frozen-lockfile
+      # pnpm does not run Electron's download step on its own; packaging copies the Electron runtime from it.
+      - run: pnpm electron:install
+      # Builds every package and the renderer, and typechecks the desktop app.
+      - run: pnpm build
+
+      - name: Pinned FFmpeg for this Mac
+        run: node scripts/prepare-mac-tools.mjs
+
+      - name: Unit tests for the Mac paths (capture args, devices, permissions, speech device)
+        env:
+          PATH_PREFIX: ${{ github.workspace }}/build-resources/mac-tools/bin
+        run: |
+          export PATH="$PATH_PREFIX:$PATH"
+          cd apps/desktop
+          node --test src/main/recording/platform-capture.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/recording/preflight.test.mjs src/main/speech-device.test.mjs src/main/bundled-tools.test.mjs
+
+      - name: The bundled FFmpeg runs here and can capture from AVFoundation
+        run: |
+          bin=build-resources/mac-tools/bin
+          codesign --force --sign - "$bin/ffmpeg" "$bin/ffprobe"
+          "$bin/ffmpeg" -hide_banner -version | head -1
+          "$bin/ffmpeg" -hide_banner -devices 2>&1 | grep -q avfoundation
+          "$bin/ffmpeg" -hide_banner -encoders 2>&1 | grep -q libx264
+          # Lists devices without permission (the runner has no camera; a screen may or may not be listed).
+          "$bin/ffmpeg" -hide_banner -f avfoundation -list_devices true -i "" 2>&1 | tee avfoundation-devices.txt || true
+
+      - run: node scripts/package-mac.mjs
+
+      - name: UI check on the packaged app (open, edit, export, compare)
+        env:
+          FFMPEG: ${{ github.workspace }}/build-resources/mac-tools/bin/ffmpeg
+          FFPROBE: ${{ github.workspace }}/build-resources/mac-tools/bin/ffprobe
+        run: node scripts/mac/ui-e2e-editor.mjs --out "e2e-${{ matrix.arch }}"
+
+      - run: node scripts/build-mac-release.mjs
+
+      - name: The disk image opens and holds a valid, signed app
+        run: |
+          dmg=$(ls release/mac/Rough-Cut-*-mac-${{ matrix.arch }}.dmg)
+          hdiutil verify "$dmg"
+          mnt=$(mktemp -d)
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"
+          codesign --verify --deep --strict "$mnt/Rough Cut.app"
+          test -x "$mnt/Rough Cut.app/Contents/Resources/bin/ffmpeg"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mnt/Rough Cut.app/Contents/Info.plist"
+          hdiutil detach "$mnt"
+          ls -la release/mac
+
+      - name: Keep the files and the check's evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.arch }}
+          path: |
+            release/mac/
+            e2e-${{ matrix.arch }}/
+            avfoundation-devices.txt
+          retention-days: 7
+          if-no-files-found: warn
+
+  draft:
+    name: attach to the draft pre-release
+    needs: build
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mac-*
+          path: artifacts
+      - name: Create or update the DRAFT (never a published release)
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          tag="v${version}-mac"
+          if gh release view "$tag" --json isDraft >/dev/null 2>&1; then
+            if [ "$(gh release view "$tag" --json isDraft -q .isDraft)" != "true" ]; then
+              echo "$tag is already published; nothing was changed." >&2
+              exit 1
+            fi
+          else
+            gh release create "$tag" --draft --prerelease --target "$GITHUB_SHA" \
+              --title "Rough Cut ${version} for Mac (beta, community tested)" \
+              --notes-file docs/MAC-BETA-RELEASE-NOTES.md
+          fi
+          files=$(find artifacts -path '*/release/mac/*' -type f \( -name '*.dmg' -o -name '*.zip' -o -name 'SHA256SUMS-mac-*' \))
+          echo "$files"
+          gh release upload "$tag" $files --clobber
+          gh release view "$tag" --json isDraft,name,assets -q '{isDraft, name, assets: [.assets[].name]}'

@@ -5,11 +5,12 @@ import { isXinputAvailable } from './xinput-button-listener.mjs';
 import { isXdotoolAvailable } from './xdotool-cursor.mjs';
 import { isUiohookAvailable } from './uiohook-button-listener.mjs';
 import { buildInstallHint, readDistroFamily } from './missing-tools-hint.mjs';
+import { macPermissionMessage } from './mac-devices.mjs';
 
 const MIN_FREE_BYTES_30_MIN = 8 * 1024 * 1024 * 1024;
 const MIN_FREE_BYTES_60_MIN = 16 * 1024 * 1024 * 1024;
 
-export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, micSources = [], systemAudioSources = [], cameraSources = [], options = {}, platform = process.platform, isInputHookAvailable = isUiohookAvailable } = {}) {
+export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, micSources = [], systemAudioSources = [], cameraSources = [], options = {}, platform = process.platform, isInputHookAvailable = isUiohookAvailable, macPermissions = null } = {}) {
   const disk = await readDiskStatus(recordingsDir);
   const display = displayInfo ?? {};
   const selectedMic = options.recordMic ? findSource(micSources, options.micSource) : null;
@@ -21,8 +22,12 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
   const ffmpegAvailable = commandAvailable('ffmpeg');
   const ffprobeAvailable = commandAvailable('ffprobe');
   const onWindows = platform === 'win32';
-  const xdotoolAvailable = onWindows || isXdotoolAvailable();
-  const xinputAvailable = onWindows ? isInputHookAvailable() : isXinputAvailable();
+  const onMac = platform === 'darwin';
+  // Windows and the Mac take the cursor from Electron and clicks from the native hook; Linux uses xdotool/xinput.
+  const usesInputHook = onWindows || onMac;
+  const xdotoolAvailable = usesInputHook || isXdotoolAvailable();
+  const xinputAvailable = usesInputHook ? isInputHookAvailable() : isXinputAvailable();
+  const hookName = onMac ? 'Mac input hook' : 'Windows input hook';
 
   const checks = [
     createCheck('session', sessionLabel(platform), sessionSeverity(platform), sessionDetail(platform)),
@@ -30,21 +35,22 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
     createCheck('destination', 'Save destination', disk.severity, disk.detail),
     createCheck('ffmpeg', 'FFmpeg', ffmpegAvailable ? 'ok' : 'critical', ffmpegAvailable ? 'Available' : 'Missing; recording/export cannot start safely'),
     createCheck('ffprobe', 'FFprobe', ffprobeAvailable ? 'ok' : 'critical', ffprobeAvailable ? 'Available' : 'Missing; saved media cannot be verified'),
-    createCheck('xdotool', 'Cursor position', xdotoolAvailable ? 'ok' : 'warn', onWindows ? 'Windows cursor polling' : xdotoolAvailable ? 'xdotool available' : 'xdotool missing; cursor tracking may be unreliable'),
-    createCheck('xinput', 'Click telemetry', xinputAvailable ? 'ok' : 'warn', onWindows ? (xinputAvailable ? 'Windows input hook available' : 'Windows input hook unavailable; auto-zoom uses the cursor-jump heuristic') : xinputAvailable ? 'xinput available' : 'xinput missing; click telemetry may be skipped'),
+    createCheck('xdotool', 'Cursor position', xdotoolAvailable ? 'ok' : 'warn', usesInputHook ? `${onMac ? 'Mac' : 'Windows'} cursor polling` : xdotoolAvailable ? 'xdotool available' : 'xdotool missing; cursor tracking may be unreliable'),
+    createCheck('xinput', 'Click telemetry', xinputAvailable ? 'ok' : 'warn', usesInputHook ? (xinputAvailable ? `${hookName} available${onMac ? ' (clicks need Accessibility permission)' : ''}` : `${hookName} unavailable; auto-zoom uses the cursor-jump heuristic`) : xinputAvailable ? 'xinput available' : 'xinput missing; click telemetry may be skipped'),
     optionalSourceCheck('mic', 'Microphone', options.recordMic, selectedMic, micSources.length),
     optionalSourceCheck('system-audio', 'System audio', options.recordSystemAudio, selectedSystemAudio, systemAudioSources.length),
     optionalSourceCheck('camera', 'Camera', options.recordCamera, selectedCamera, cameraSources.length),
+    ...(onMac ? macPermissionChecks(macPermissions, options) : []),
   ];
 
-  const missingTools = [['ffmpeg', ffmpegAvailable], ['ffprobe', ffprobeAvailable], ...(onWindows ? [] : [['xdotool', xdotoolAvailable], ['xinput', xinputAvailable]])]
+  const missingTools = [['ffmpeg', ffmpegAvailable], ['ffprobe', ffprobeAvailable], ...(usesInputHook ? [] : [['xdotool', xdotoolAvailable], ['xinput', xinputAvailable]])]
     .filter(([, available]) => !available)
     .map(([id]) => id);
 
   return {
     status: summarizeSeverity(checks),
     missingTools,
-    installHint: onWindows ? buildWindowsInstallHint(missingTools) : buildInstallHint(missingTools, readDistroFamily()),
+    installHint: onWindows ? buildWindowsInstallHint(missingTools) : onMac ? buildMacInstallHint(missingTools) : buildInstallHint(missingTools, readDistroFamily()),
     checkedAt: new Date().toISOString(),
     recordingsDir,
     display,
@@ -58,6 +64,27 @@ export async function getRecordingPreflightStatus({ recordingsDir, displayInfo, 
 export function buildWindowsInstallHint(missingToolIds) {
   if (!missingToolIds.some((id) => id === 'ffmpeg' || id === 'ffprobe')) return null;
   return { family: 'winget', commands: [{ family: 'winget', label: 'Windows', command: 'winget install -e --id Gyan.FFmpeg' }] };
+}
+
+// The Mac app ships its own FFmpeg; this only shows up when someone runs it from source without one.
+export function buildMacInstallHint(missingToolIds) {
+  if (!missingToolIds.some((id) => id === 'ffmpeg' || id === 'ffprobe')) return null;
+  return { family: 'brew', commands: [{ family: 'brew', label: 'macOS (Homebrew)', command: 'brew install ffmpeg' }] };
+}
+
+// Screen Recording blocks a recording (the file would be black); a denied microphone or camera only drops that
+// source, like a missing device, so it warns.
+export function macPermissionChecks(permissions, options = {}) {
+  if (!permissions) return [];
+  const checks = [];
+  const screenMessage = macPermissionMessage('screen', permissions.screen);
+  checks.push(createCheck('mac-screen-permission', 'Screen Recording permission', screenMessage ? (permissions.screen === 'not-determined' ? 'warn' : 'critical') : 'ok', screenMessage ?? 'Allowed'));
+  for (const [kind, id, label, enabled] of [['microphone', 'mac-mic-permission', 'Microphone permission', options.recordMic], ['camera', 'mac-camera-permission', 'Camera permission', options.recordCamera]]) {
+    if (!enabled) continue;
+    const message = macPermissionMessage(kind, permissions[kind]);
+    checks.push(createCheck(id, label, message ? 'warn' : 'ok', message ?? 'Allowed'));
+  }
+  return checks;
 }
 
 export function classifyDiskFreeBytes(freeBytes) {
@@ -104,17 +131,19 @@ function findSource(sources, name) {
 
 function sessionLabel(platform) {
   if (platform === 'win32') return 'Windows session';
+  if (platform === 'darwin') return 'macOS session (beta)';
   return process.env.XDG_SESSION_TYPE ? `${process.env.XDG_SESSION_TYPE.toUpperCase()} session` : 'Unknown session';
 }
 
 function sessionSeverity(platform) {
-  if (platform === 'win32') return 'ok';
+  if (platform === 'win32' || platform === 'darwin') return 'ok';
   const type = String(process.env.XDG_SESSION_TYPE ?? '').toLowerCase();
   return type === 'wayland' ? 'critical' : type === 'x11' || process.env.DISPLAY ? 'ok' : 'warn';
 }
 
 function sessionDetail(platform) {
   if (platform === 'win32') return 'Desktop capture via FFmpeg gdigrab';
+  if (platform === 'darwin') return 'Screen capture via FFmpeg AVFoundation (primary display)';
   const type = String(process.env.XDG_SESSION_TYPE ?? '').toLowerCase();
   if (type === 'wayland') return 'Wayland is outside the current reliability scope; use X11 for client recordings';
   if (type === 'x11' || process.env.DISPLAY) return `DISPLAY ${process.env.DISPLAY || 'available'}`;

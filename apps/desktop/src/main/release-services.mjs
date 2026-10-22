@@ -48,6 +48,8 @@ export function installReleaseServices({ app, Menu, dialog, BrowserWindow, isBus
     ipcMain.handle(channels.UPDATE_INSTALL, async () => { try { await updateNow(); } catch {} return updates.status(); });
   }
   Menu.setApplicationMenu(Menu.buildFromTemplate([
+    // macOS puts the first menu under the app's name; give it the standard app menu (About, Hide, Quit).
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     { label: 'File', submenu: [{ role: 'close' }, { role: 'quit' }] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     { role: 'help', submenu: [

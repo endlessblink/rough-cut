@@ -1,0 +1,143 @@
+import { execFile } from 'node:child_process';
+
+// Mac (beta) device discovery via `ffmpeg -f avfoundation -list_devices true -i ""` (it prints to stderr and exits
+// non-zero, which is expected). Mirrors the shape of the Linux pactl / v4l2 and the Windows dshow listings so the
+// renderer and preflight need no Mac special cases. Devices are addressed by name; AVFoundation accepts names.
+
+// macOS has no built-in "what you hear" input. A loopback driver (BlackHole, Loopback, Soundflower) shows up as an
+// ordinary audio input, so those are offered as system audio and kept out of the microphone list.
+const LOOPBACK_NAME = /blackhole|soundflower|loopback audio|^loopback|ishowu|zoomaudiodevice|aggregate/i;
+const SCREEN_NAME = /^capture screen \d+$/i;
+
+export function parseAvfoundationDevices(text) {
+  const devices = { video: [], audio: [], screens: [] };
+  if (typeof text !== 'string') return devices;
+  let section = null;
+  for (const line of text.split(/\r?\n/)) {
+    if (/AVFoundation video devices/i.test(line)) { section = 'video'; continue; }
+    if (/AVFoundation audio devices/i.test(line)) { section = 'audio'; continue; }
+    const match = /\]\s*\[(\d+)\]\s+(.+?)\s*$/.exec(line);
+    if (!match || !section) continue;
+    const name = match[2];
+    const device = { id: name, name, label: name, state: 'RUNNING', index: Number(match[1]) };
+    if (section === 'video' && SCREEN_NAME.test(name)) devices.screens.push(device);
+    else if (!devices[section].some((existing) => existing.name === name)) devices[section].push(device);
+  }
+  return devices;
+}
+
+function runAvfoundationList(run) {
+  return new Promise((resolve) => {
+    run(
+      'ffmpeg',
+      ['-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', ''],
+      { timeout: 15_000 },
+      (_error, stdout, stderr) => resolve(`${stderr ?? ''}\n${stdout ?? ''}`),
+    );
+  });
+}
+
+const strip = ({ index: _index, ...device }) => device;
+
+export async function listAvfoundationCameraSources({ run = execFile } = {}) {
+  return parseAvfoundationDevices(await runAvfoundationList(run)).video.map(strip);
+}
+
+export async function listAvfoundationMicSources({ run = execFile } = {}) {
+  const { audio } = parseAvfoundationDevices(await runAvfoundationList(run));
+  return audio.filter((device) => !LOOPBACK_NAME.test(device.name)).map(strip);
+}
+
+export async function listAvfoundationSystemAudioSources({ run = execFile } = {}) {
+  const { audio } = parseAvfoundationDevices(await runAvfoundationList(run));
+  return audio.filter((device) => LOOPBACK_NAME.test(device.name)).map((device) => ({ ...strip(device), monitor: true }));
+}
+
+/**
+ * Mac analogue of getPrimaryX11DisplayInfo. AVFoundation records the primary display as "Capture screen 0" at its
+ * native (Retina) pixel size, so sizes are logical bounds times the scale factor, like X11. `display` keeps the
+ * `<base>+<x>,<y>` shape so region offsets work unchanged (the crop happens in screenOutputFilterArgs).
+ * Cursor and click points stay logical (Electron and uiohook both report points on a Mac) and the session scales them.
+ */
+export function getPrimaryMacDisplayInfo(screen) {
+  const primary = screen.getPrimaryDisplay();
+  const scaleFactor = primary.scaleFactor || 1;
+  const toPhysical = (bounds, factor) => ({
+    x: Math.round(bounds.x * factor),
+    y: Math.round(bounds.y * factor),
+    width: Math.round(bounds.width * factor),
+    height: Math.round(bounds.height * factor),
+  });
+  const { x, y, width, height } = toPhysical(primary.bounds, scaleFactor);
+  return {
+    display: `Capture screen 0${x >= 0 ? `+${x}` : x},${y}`,
+    originX: x,
+    originY: y,
+    scaleFactor,
+    width,
+    height,
+    displayBounds:
+      typeof screen.getAllDisplays === 'function'
+        ? screen.getAllDisplays().map((display) => toPhysical(display.bounds, display.scaleFactor || 1))
+        : [{ x, y, width, height }],
+  };
+}
+
+// --- Privacy permissions. macOS asks once per app; a denied permission can only be changed in System Settings.
+
+const SETTINGS_PANES = {
+  screen: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+  microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+  camera: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+};
+
+export function macPrivacySettingsUrl(kind) {
+  return SETTINGS_PANES[kind] ?? SETTINGS_PANES.screen;
+}
+
+/** 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown' for screen, microphone and camera. */
+export function readMacPermissions(systemPreferences) {
+  const read = (kind) => {
+    try {
+      return systemPreferences?.getMediaAccessStatus?.(kind) ?? 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  };
+  return { screen: read('screen'), microphone: read('microphone'), camera: read('camera') };
+}
+
+/**
+ * Asks for what a recording needs before it starts. Microphone and camera show the system prompt; the screen has no
+ * prompt API, so listing screens once registers the app under Screen Recording and macOS shows its own prompt.
+ * Returns the statuses afterwards.
+ */
+export async function requestMacPermissions({ systemPreferences, desktopCapturer, needMic = false, needCamera = false }) {
+  const before = readMacPermissions(systemPreferences);
+  for (const [kind, needed] of [['microphone', needMic], ['camera', needCamera]]) {
+    if (needed && before[kind] === 'not-determined') {
+      try { await systemPreferences.askForMediaAccess(kind); } catch { /* reported by the status below */ }
+    }
+  }
+  if (before.screen !== 'granted') {
+    try { await desktopCapturer?.getSources?.({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }); } catch { /* idem */ }
+  }
+  return readMacPermissions(systemPreferences);
+}
+
+const PERMISSION_LABELS = { screen: 'Screen Recording', microphone: 'Microphone', camera: 'Camera' };
+
+/** Plain words for a missing permission, or null when it is fine (or cannot be read). */
+export function macPermissionMessage(kind, status) {
+  if (status === 'granted' || status === 'unknown') return null;
+  const pane = PERMISSION_LABELS[kind] ?? kind;
+  if (status === 'not-determined') {
+    return kind === 'screen'
+      ? 'macOS will ask to allow screen recording when you start. Allow it, then quit and reopen Rough Cut.'
+      : `Rough Cut will ask for the ${pane.toLowerCase()} when you start recording.`;
+  }
+  if (kind === 'screen') {
+    return `Rough Cut is not allowed to record the screen. Open System Settings > Privacy & Security > ${pane}, turn Rough Cut on, then quit and reopen Rough Cut.`;
+  }
+  return `Rough Cut is not allowed to use the ${pane.toLowerCase()}. Open System Settings > Privacy & Security > ${pane} and turn Rough Cut on.`;
+}

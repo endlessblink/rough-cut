@@ -10,6 +10,7 @@ import { createTranscriptionJobRunner } from './transcription-job-runner.mjs';
 import { transcriptionFeatureEnabled } from './transcription-policy.mjs';
 import { createTranscriptionService } from './transcription-service.mjs';
 import { createWhisperCppProvider } from './whisper-cpp-provider.mjs';
+import { fasterWhisperDevice } from './speech-device.mjs';
 import { createSonaProvider } from './sona-provider.mjs';
 import { createFasterWhisperProvider } from './faster-whisper-provider.mjs';
 import { access } from 'node:fs/promises';
@@ -103,9 +104,7 @@ export async function createTranscriptionRuntime({
         modelPath: fasterWhisperModelPath,
         ffmpegPath: environment.ROUGH_CUT_FFMPEG_COMMAND || 'ffmpeg',
         language: environment.ROUGH_CUT_TRANSCRIPTION_LANGUAGE || 'he',
-        device: environment.ROUGH_CUT_FASTER_WHISPER_DEVICE || 'cuda',
-        computeType:
-          environment.ROUGH_CUT_FASTER_WHISPER_COMPUTE_TYPE || 'int8_float16',
+        ...fasterWhisperDevice({ env: environment }),
         libraryPath:
           environment.ROUGH_CUT_FASTER_WHISPER_LIBRARY_PATH || '',
       });

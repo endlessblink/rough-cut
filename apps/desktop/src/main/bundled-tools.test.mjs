@@ -35,3 +35,16 @@ test('on Windows only ffmpeg.exe and ffprobe.exe are required, and the existing 
     assert.equal(Object.hasOwn(env, 'PATH'), false);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
+
+test('on a Mac only ffmpeg and ffprobe are required (no xdotool, xinput or pactl)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rough-cut-tool-mac-'));
+  try {
+    mkdirSync(join(root, 'bin'));
+    writeFileSync(join(root, 'bin', 'ffmpeg'), 'fixture');
+    const env = { PATH: '/usr/bin' };
+    assert.equal(configureBundledTools({ resourcesPath: root, env, platform: 'darwin' }).bundled, false);
+    writeFileSync(join(root, 'bin', 'ffprobe'), 'fixture');
+    assert.deepEqual(configureBundledTools({ resourcesPath: root, env, platform: 'darwin' }), { bundled: true, tools: ['ffmpeg', 'ffprobe'] });
+    assert.equal(env.PATH, `${join(root, 'bin')}:/usr/bin`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

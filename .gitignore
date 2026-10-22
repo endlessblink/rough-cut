@@ -44,6 +44,9 @@ build-resources/tool-cache/
 # Windows bundled tools (fetched and verified by scripts/prepare-windows-tools.mjs)
 build-resources/windows-tools/
 build-resources/.windows-tools-cache/
+# Mac bundled tools (fetched and verified by scripts/prepare-mac-tools.mjs)
+build-resources/mac-tools/
+build-resources/.mac-tools-cache/
 release/
 
 # promo/marketing work lives in ../rough-cut-release/marketing

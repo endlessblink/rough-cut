@@ -6,6 +6,8 @@ import { join, posix, win32 } from 'node:path';
 const TOOLS = {
   linux: ['ffmpeg', 'ffprobe', 'xdotool', 'xinput', 'pactl'],
   win32: ['ffmpeg.exe', 'ffprobe.exe'],
+  // The Mac takes cursor, clicks and devices from Electron, the native hook and AVFoundation: only FFmpeg is shipped.
+  darwin: ['ffmpeg', 'ffprobe'],
 };
 
 export function configureBundledTools({ resourcesPath, env = process.env, platform = process.platform } = {}) {

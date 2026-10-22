@@ -2698,6 +2698,7 @@ function blockingCheckCopy(check: RecordingPreflightCheck): string {
     case 'ffprobe': return 'FFprobe is not installed. It comes with FFmpeg and checks your saved video.';
     case 'session': return 'You are on a Wayland desktop. Rough Cut records on X11 only: log out and choose the X11 / Xorg session at the login screen.';
     case 'destination': return `There is not enough free disk space to record safely. ${check.detail}.`;
+    case 'mac-screen-permission': return check.detail;
     default: return `${check.label}: ${check.detail}`;
   }
 }

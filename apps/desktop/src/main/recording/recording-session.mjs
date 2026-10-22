@@ -48,12 +48,15 @@ export function createRecordingSession({
   // process drags BOTH video streams down to roughly the camera's rate: the screen recorded ~9 fps instead of 30 while
   // the camera was re-encoded in the same process. Separate processes keep the screen at 30 fps, so Windows uses the
   // separate camera capture (the same path Linux falls back to).
-  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture && process.platform !== 'win32' ? startFfmpegUnifiedCapture : null,
+  // The Mac beta also records the camera in its own process: the unified graph was only ever measured on Linux.
+  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture && process.platform === 'linux' ? startFfmpegUnifiedCapture : null,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
   cameraWarmupMs = DEFAULT_CAMERA_WARMUP_MS,
-  buttonListenerFactory = process.platform === 'win32' ? createUiohookButtonListener : createXinputButtonListener,
+  // Mac: the same native hook as Windows. Without Accessibility permission it fails to start and recording carries on
+  // without click telemetry (auto-zoom then uses its cursor-jump heuristic).
+  buttonListenerFactory = process.platform === 'win32' || process.platform === 'darwin' ? createUiohookButtonListener : createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
   videoStreamStartProbe = probeVideoStreamStartOffsets,
@@ -137,7 +140,7 @@ export function createRecordingSession({
 
   async function start(options = {}) {
     if (active) throw new Error('A recording is already active.');
-    if (!isCaptureAvailable()) throw new Error(process.platform === 'win32' ? 'FFmpeg screen capture is not available on this session.' : 'FFmpeg x11grab capture is not available on this session.');
+    if (!isCaptureAvailable()) throw new Error(process.platform === 'win32' || process.platform === 'darwin' ? 'FFmpeg screen capture is not available on this session.' : 'FFmpeg x11grab capture is not available on this session.');
     const micSource = normalizeAudioSource(options.micSource);
     const micGainPercent = normalizeAudioGainPercent(options.micGainPercent);
     const systemAudioSource = normalizeAudioSource(options.systemAudioSource);

@@ -2,7 +2,7 @@ import { installReleaseServices } from './release-services.mjs';
 import { configureBundledTools } from './bundled-tools.mjs';
 import { runAppImageSandboxed, sandboxDisabledByArgs, shouldHandOffAppImage } from './linux-sandbox-permission.mjs';
 import { planTrayUpdate } from './recording-tray-policy.mjs';
-import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, systemPreferences, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -37,6 +37,7 @@ import { startFfmpegAudioLevelProbe, startFfmpegCameraPreview } from './recordin
 import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
 import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { getRecordingPreflightStatus } from './recording/preflight.mjs';
+import { getPrimaryMacDisplayInfo, listAvfoundationCameraSources, listAvfoundationMicSources, listAvfoundationSystemAudioSources, macPrivacySettingsUrl, readMacPermissions, requestMacPermissions } from './recording/mac-devices.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import {
   getPrimaryWindowsDisplayInfo,
@@ -275,6 +276,7 @@ let activeExportController = null;
 let activeCensorTrackController = null;
 const studioWindowBoundsById = new Map();
 function getPrimaryDisplayInfo() {
+  if (process.platform === 'darwin') return getPrimaryMacDisplayInfo(screen);
   return process.platform === 'win32' ? getPrimaryWindowsDisplayInfo(screen) : getPrimaryX11DisplayInfo(screen);
 }
 const recordingSession = createRecordingSession({
@@ -323,7 +325,7 @@ const recordingTranscriptionLifecycle = createRecordingTranscriptionLifecycle({
 });
 
 async function listCameraSources() {
-  const sources = process.platform === 'win32' ? await listDshowCameraSources() : await listV4l2CameraSources();
+  const sources = process.platform === 'win32' ? await listDshowCameraSources() : process.platform === 'darwin' ? await listAvfoundationCameraSources() : await listV4l2CameraSources();
   const smokeCameraPath = process.env.ROUGH_CUT_SMOKE_CAMERA_DEVICE_PATH;
   if (!smokeCameraPath) return sources;
   return [
@@ -337,7 +339,7 @@ async function listCameraSources() {
 }
 
 async function listMicSources() {
-  const sources = await (process.platform === 'win32' ? listDshowMicSources() : listPulseAudioMicSources()).catch(() => []);
+  const sources = await (process.platform === 'win32' ? listDshowMicSources() : process.platform === 'darwin' ? listAvfoundationMicSources() : listPulseAudioMicSources()).catch(() => []);
   const smokeMicSource = process.env.ROUGH_CUT_SMOKE_MIC_SOURCE;
   if (!smokeMicSource) return sources;
   return [
@@ -347,7 +349,7 @@ async function listMicSources() {
 }
 
 async function listSystemAudioSources() {
-  const sources = await (process.platform === 'win32' ? listDshowSystemAudioSources() : listPulseAudioSystemAudioSources()).catch(() => []);
+  const sources = await (process.platform === 'win32' ? listDshowSystemAudioSources() : process.platform === 'darwin' ? listAvfoundationSystemAudioSources() : listPulseAudioSystemAudioSources()).catch(() => []);
   const smokeSystemAudioSource = process.env.ROUGH_CUT_SMOKE_SYSTEM_AUDIO_SOURCE;
   if (!smokeSystemAudioSource) return sources;
   return [
@@ -1090,8 +1092,21 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, optio
     systemAudioSources,
     cameraSources,
     options,
+    macPermissions: process.platform === 'darwin' ? await checkMacPermissions(options) : null,
   });
 });
+
+// Mac: the first check asks macOS for what the recording needs (mic/camera prompts; listing screens makes macOS
+// offer Screen Recording). If screen recording is refused, System Settings opens on that page once per run.
+let macScreenSettingsOpened = false;
+async function checkMacPermissions(options = {}) {
+  const permissions = await requestMacPermissions({ systemPreferences, desktopCapturer, needMic: Boolean(options.recordMic), needCamera: Boolean(options.recordCamera) }).catch(() => readMacPermissions(systemPreferences));
+  if (permissions.screen === 'denied' && !macScreenSettingsOpened && !process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH) {
+    macScreenSettingsOpened = true;
+    void shell.openExternal(macPrivacySettingsUrl('screen')).catch(() => undefined);
+  }
+  return permissions;
+}
 ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   const { hideWindowDuringRecording, ...recordingOptions } = options ?? {};

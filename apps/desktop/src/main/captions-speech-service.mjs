@@ -6,6 +6,7 @@
 // Everything runs on this computer (GPU if it works, CPU otherwise); nothing is sent anywhere.
 
 import { spawn } from 'node:child_process';
+import { fasterWhisperDevice } from './speech-device.mjs';
 import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -112,8 +113,7 @@ export async function transcribeSpeechForCaptions({ sourcePath, sections, fps, l
   const ffmpeg = env.ROUGH_CUT_FFMPEG_COMMAND || 'ffmpeg';
   const libraryPath = env.ROUGH_CUT_FASTER_WHISPER_LIBRARY_PATH;
   const helperEnv = libraryPath ? { ...env, LD_LIBRARY_PATH: [libraryPath, env.LD_LIBRARY_PATH].filter(Boolean).join(':') } : env;
-  const device = env.ROUGH_CUT_FASTER_WHISPER_DEVICE || 'cuda';
-  const computeType = env.ROUGH_CUT_FASTER_WHISPER_COMPUTE_TYPE || 'int8_float16';
+  const { device, computeType } = fasterWhisperDevice({ env });
   const workDir = await mkdtemp(join(tmpdir(), 'rough-cut-speech-'));
   try {
     let spoken = language;
