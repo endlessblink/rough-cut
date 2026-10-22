@@ -162,7 +162,14 @@ try {
   await page.evaluate(() => window.__roughCutSetPreviewTimeSec?.(0.5));
   await wait(1500);
   const shot = join(base, 'editor-after-edit.png');
-  await page.screenshot({ path: shot });
+  // The picture is evidence for people, not the check (step 7 compares the export). GitHub's Intel Macs render
+  // without a GPU and the first full-window capture can take over 30 s, so wait longer and fall back to the
+  // window's own capture instead of failing the run.
+  await page.screenshot({ path: shot, timeout: 120000 }).catch(async (error) => {
+    console.info(`[mac-e2e] page screenshot slow (${String(error?.message ?? error).split('\n')[0]}); using the window capture`);
+    const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'));
+    writeFileSync(shot, Buffer.from(png, 'base64'));
+  });
 
   // 4. Export through the UI.
   await page.locator('[data-ui-region="export-popover-toggle"]').first().click();
