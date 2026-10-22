@@ -67,16 +67,16 @@ jobs:
         run: node scripts/prepare-mac-tools.mjs
 
       - name: Unit tests for the Mac paths (capture args, devices, permissions, speech device)
-        env:
-          PATH_PREFIX: ${{ github.workspace }}/build-resources/mac-tools/bin
         run: |
-          export PATH="$PATH_PREFIX:$PATH"
           cd apps/desktop
           node --test src/main/recording/platform-capture.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/recording/preflight.test.mjs src/main/speech-device.test.mjs src/main/bundled-tools.test.mjs
 
       - name: The bundled FFmpeg runs here and can capture from AVFoundation
         run: |
-          bin=build-resources/mac-tools/bin
+          # Work on a copy: signing changes the file, and packaging checks the pinned original's hash.
+          bin="$RUNNER_TEMP/mac-tools-check"
+          mkdir -p "$bin"
+          cp build-resources/mac-tools/bin/ffmpeg build-resources/mac-tools/bin/ffprobe "$bin/"
           codesign --force --sign - "$bin/ffmpeg" "$bin/ffprobe"
           "$bin/ffmpeg" -hide_banner -version | head -1
           "$bin/ffmpeg" -hide_banner -devices 2>&1 | grep -q avfoundation
@@ -88,8 +88,9 @@ jobs:
 
       - name: UI check on the packaged app (open, edit, export, compare)
         env:
-          FFMPEG: ${{ github.workspace }}/build-resources/mac-tools/bin/ffmpeg
-          FFPROBE: ${{ github.workspace }}/build-resources/mac-tools/bin/ffprobe
+          # The check uses the app's own (signed) copies of the tools.
+          FFMPEG: ${{ github.workspace }}/dist/rough-cut-mvp-darwin-${{ matrix.arch }}/Rough Cut.app/Contents/Resources/bin/ffmpeg
+          FFPROBE: ${{ github.workspace }}/dist/rough-cut-mvp-darwin-${{ matrix.arch }}/Rough Cut.app/Contents/Resources/bin/ffprobe
         run: node scripts/mac/ui-e2e-editor.mjs --out "e2e-${{ matrix.arch }}"
 
       - run: node scripts/build-mac-release.mjs
