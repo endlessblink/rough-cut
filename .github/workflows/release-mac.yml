@@ -96,8 +96,8 @@ jobs:
             [ -z "$archs" ] && continue
             case " $archs " in *" $want "*) ;; *) echo "WRONG CHIP ($archs): $f"; status=1 ;; esac
           done < <(find "$app/Contents/MacOS" "$app/Contents/Resources/bin" "$app/Contents/Resources/app/node_modules" -type f \( -perm -u+x -o -name '*.node' \) -print0)
-          lipo -archs "$app/Contents/MacOS/Electron" "$app/Contents/Resources/bin/ffmpeg"
-          find "$app/Contents/Resources/app/node_modules" -name '*.node' -exec lipo -archs {} \; -print
+          for f in "$app/Contents/MacOS/Electron" "$app/Contents/Resources/bin/ffmpeg" "$app/Contents/Resources/bin/ffprobe"; do echo "$(lipo -archs "$f")  $f"; done
+          find "$app/Contents/Resources/app/node_modules" -name '*.node' -exec sh -c 'echo "$(lipo -archs "$1")  $1"' _ {} \;
           exit $status
 
       - name: Opens like a person opens it (no test settings) and shows the editor, not a black window
