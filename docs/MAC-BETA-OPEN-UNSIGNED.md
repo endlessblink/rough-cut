@@ -1,7 +1,5 @@
 # Opening Rough Cut on a Mac (beta)
 
-> Draft for the download page. Not published.
-
 Rough Cut for Mac is a free beta, tested by the community. It is not signed with a paid Apple developer account, so the first time you open it macOS says it "cannot check it for malicious software". That is expected. You only have to do this once.
 
 **Which file?** Apple chip (M1, M2, M3, M4 and newer): `mac-arm64`. Older Intel Mac: `mac-x64`. Not sure? Apple menu > About This Mac: "Chip: Apple" means arm64.

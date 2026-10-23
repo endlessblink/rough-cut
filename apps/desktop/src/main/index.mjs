@@ -1,5 +1,6 @@
 import { installReleaseServices } from './release-services.mjs';
 import { configureBundledTools } from './bundled-tools.mjs';
+import { applyMacReleaseLaunchEnv } from './mac-app-bundle.mjs';
 import { runAppImageSandboxed, sandboxDisabledByArgs, shouldHandOffAppImage } from './linux-sandbox-permission.mjs';
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, systemPreferences, Tray } from 'electron';
@@ -95,6 +96,7 @@ import { translateCaptionLines } from './captions-translate-service.mjs';
 import { transcribeSpeechForCaptions } from './captions-speech-service.mjs';
 
 configureBundledTools({ resourcesPath: process.resourcesPath });
+applyMacReleaseLaunchEnv(process.env, { appPath: app.getAppPath() });
 // The AppImage launcher adds --no-sandbox on systems that block the sandbox (Ubuntu 24.04+).
 // Run the real app sandboxed instead (asking once for the system rule it needs); this never returns.
 if (shouldHandOffAppImage()) await runAppImageSandboxed();

@@ -84,7 +84,9 @@ await cp(join(toolsRoot, 'licenses'), join(resourcesRoot, 'licenses/media-tools'
 await cp(join(root, 'LICENSE'), join(resourcesRoot, 'licenses/Rough-Cut-AGPL-3.0.txt'));
 await cp(join(root, 'build-resources/font-licenses'), join(resourcesRoot, 'licenses/fonts'), { recursive: true });
 await writeFile(join(resourcesRoot, 'bundled-tools.json'), `${JSON.stringify({ version: 1, platform: `darwin-${arch}`, files: toolsLock.files[arch], source: toolsLock.source }, null, 2)}\n`);
-for (const name of ['README.md', 'INSTALL.md', 'RELEASE-NOTES.md', 'CLAUDE-SETUP.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md']) await cp(join(root, name), join(appRoot, name)).catch(() => undefined);
+for (const name of ['README.md', 'RELEASE-NOTES.md', 'CLAUDE-SETUP.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md']) await cp(join(root, name), join(appRoot, name)).catch(() => undefined);
+// The repo's INSTALL.md is the Linux guide (it says there is no macOS build); the Mac app carries the Mac one.
+await cp(join(root, 'docs/MAC-BETA-OPEN-UNSIGNED.md'), join(appRoot, 'INSTALL.md'));
 await mkdir(join(appRoot, 'docs'), { recursive: true });
 for (const name of ['RELEASE-REQUIREMENTS.md', 'MEDIA-SOURCE-BUILD.md', 'UPDATE-SIGNING.json', 'publisher-public-key.pem', 'MAC-BETA-OPEN-UNSIGNED.md']) await cp(join(root, 'docs', name), join(appRoot, 'docs', name)).catch(() => undefined);
 

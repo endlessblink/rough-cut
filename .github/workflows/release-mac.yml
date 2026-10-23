@@ -69,7 +69,7 @@ jobs:
       - name: Unit tests for the Mac paths (capture args, devices, permissions, speech device)
         run: |
           cd apps/desktop
-          node --test src/main/recording/platform-capture.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/recording/preflight.test.mjs src/main/speech-device.test.mjs src/main/bundled-tools.test.mjs
+          node --test src/main/recording/platform-capture.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/recording/preflight.test.mjs src/main/speech-device.test.mjs src/main/bundled-tools.test.mjs src/main/mac-app-bundle.test.mjs
 
       - name: The bundled FFmpeg runs here and can capture from AVFoundation
         run: |
@@ -86,6 +86,25 @@ jobs:
 
       - run: node scripts/package-mac.mjs
 
+      - name: Every program in the app is built for this Mac's chip
+        run: |
+          app="dist/rough-cut-mvp-darwin-${{ matrix.arch }}/Rough Cut.app"
+          want=$([ "${{ matrix.arch }}" = arm64 ] && echo arm64 || echo x86_64)
+          status=0
+          while IFS= read -r -d '' f; do
+            archs=$(lipo -archs "$f" 2>/dev/null || true)
+            [ -z "$archs" ] && continue
+            case " $archs " in *" $want "*) ;; *) echo "WRONG CHIP ($archs): $f"; status=1 ;; esac
+          done < <(find "$app/Contents/MacOS" "$app/Contents/Resources/bin" "$app/Contents/Resources/app/node_modules" -type f \( -perm -u+x -o -name '*.node' \) -print0)
+          lipo -archs "$app/Contents/MacOS/Electron" "$app/Contents/Resources/bin/ffmpeg"
+          find "$app/Contents/Resources/app/node_modules" -name '*.node' -exec lipo -archs {} \; -print
+          exit $status
+
+      - name: Opens like a person opens it (no test settings) and shows the editor, not a black window
+        run: |
+          env | grep '^ROUGH_CUT_' && { echo 'ROUGH_CUT_* set in this step'; exit 1; } || true
+          node scripts/mac/user-launch-check.mjs --out "e2e-${{ matrix.arch }}/user-launch"
+
       - name: UI check on the packaged app (open, edit, export, compare)
         env:
           # The check uses the app's own (signed) copies of the tools.
@@ -101,11 +120,27 @@ jobs:
           hdiutil verify "$dmg"
           mnt=$(mktemp -d)
           hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"
-          codesign --verify --deep --strict "$mnt/Rough Cut.app"
+          codesign --verify --deep --strict --verbose=2 "$mnt/Rough Cut.app"
+          codesign -dv "$mnt/Rough Cut.app" 2>&1 | grep -E 'Signature=adhoc|Identifier='
           test -x "$mnt/Rough Cut.app/Contents/Resources/bin/ffmpeg"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mnt/Rough Cut.app/Contents/Info.plist"
           hdiutil detach "$mnt"
           ls -la release/mac
+
+      - name: The zip keeps a valid signature, and a downloaded copy is only refused for not being notarized
+        run: |
+          zip=$(ls release/mac/Rough-Cut-*-mac-${{ matrix.arch }}.zip)
+          out=$(mktemp -d)
+          ditto -x -k "$zip" "$out"
+          app="$out/Rough Cut.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          # Mark it the way a browser download is marked, then ask Gatekeeper. An ad-hoc signed beta is expected to be
+          # rejected (not notarized; the person clicks Open Anyway once), but never as damaged or with a broken signature.
+          xattr -w -r com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" "$app"
+          verdict=$(spctl -a -vv "$app" 2>&1 || true)
+          echo "$verdict"
+          if echo "$verdict" | grep -qiE 'damaged|invalid|modified|a sealed resource is missing'; then echo 'Gatekeeper sees a broken signature'; exit 1; fi
+          codesign --verify --deep --strict "$app"
 
       - name: Keep the files and the check's evidence
         if: ${{ always() }}
