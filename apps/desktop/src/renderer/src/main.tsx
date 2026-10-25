@@ -2728,6 +2728,15 @@ function PreflightSummary({ status }: { status: RecordingPreflightStatus | null 
             <div key={check.id} className={`preflightCheck ${check.severity}`}>
               <strong>{check.label}</strong>
               <span>{check.detail}</span>
+              {check.id === 'mac-screen-permission' && check.severity !== 'ok' ? (
+                <button
+                  type="button"
+                  className="secondary compact"
+                  onClick={() => window.roughCut?.openPermissionSettings?.('screen').catch(() => {})}
+                >
+                  Open System Settings
+                </button>
+              ) : null}
             </div>
           ))}
         </div>

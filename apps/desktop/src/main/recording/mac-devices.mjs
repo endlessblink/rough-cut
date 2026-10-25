@@ -108,9 +108,24 @@ export function readMacPermissions(systemPreferences) {
 }
 
 /**
+ * Tests whether desktopCapturer can actually capture screen thumbnails (real proof of permission).
+ * Returns true only if at least one screen returns a non-empty thumbnail.
+ */
+export async function canCaptureScreenThumbnails({ desktopCapturer }) {
+  try {
+    const sources = await desktopCapturer?.getSources?.({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
+    if (!Array.isArray(sources) || sources.length === 0) return false;
+    // At least one source must have actual image data (not null or empty)
+    return sources.some((source) => source.thumbnail && source.thumbnail.toDataURL?.().length > 50);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Asks for what a recording needs before it starts. Microphone and camera show the system prompt; the screen has no
  * prompt API, so listing screens once registers the app under Screen Recording and macOS shows its own prompt.
- * Returns the statuses afterwards.
+ * Returns the statuses afterwards. On Mac, trusts actual thumbnail capture over the status API.
  */
 export async function requestMacPermissions({ systemPreferences, desktopCapturer, needMic = false, needCamera = false }) {
   const before = readMacPermissions(systemPreferences);
@@ -122,7 +137,16 @@ export async function requestMacPermissions({ systemPreferences, desktopCapturer
   if (before.screen !== 'granted') {
     try { await desktopCapturer?.getSources?.({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }); } catch { /* idem */ }
   }
-  return readMacPermissions(systemPreferences);
+  const after = readMacPermissions(systemPreferences);
+  // On Mac, verify the status by testing if we can actually capture thumbnails; the status API can be unreliable
+  if (after.screen === 'granted') {
+    const canCapture = await canCaptureScreenThumbnails({ desktopCapturer });
+    if (!canCapture) {
+      // Status says granted but we can't actually capture; report as not-determined so the user can retry
+      after.screen = 'not-determined';
+    }
+  }
+  return after;
 }
 
 const PERMISSION_LABELS = { screen: 'Screen Recording', microphone: 'Microphone', camera: 'Camera' };
@@ -133,11 +157,11 @@ export function macPermissionMessage(kind, status) {
   const pane = PERMISSION_LABELS[kind] ?? kind;
   if (status === 'not-determined') {
     return kind === 'screen'
-      ? 'macOS will ask to allow screen recording when you start. Allow it, then quit and reopen Rough Cut.'
+      ? 'macOS will ask to allow screen recording when you start. Allow it, then quit and reopen Rough Cut. You can also click "Open System Settings" below to allow it now.'
       : `Rough Cut will ask for the ${pane.toLowerCase()} when you start recording.`;
   }
   if (kind === 'screen') {
-    return `Rough Cut is not allowed to record the screen. Open System Settings > Privacy & Security > ${pane}, turn Rough Cut on, then quit and reopen Rough Cut.`;
+    return `Rough Cut is not allowed to record the screen. Click "Open System Settings" below, enable "Rough Cut" under Screen Recording, then quit and reopen Rough Cut.`;
   }
   return `Rough Cut is not allowed to use the ${pane.toLowerCase()}. Open System Settings > Privacy & Security > ${pane} and turn Rough Cut on.`;
 }

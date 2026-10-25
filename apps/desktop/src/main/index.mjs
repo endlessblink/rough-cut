@@ -1109,6 +1109,15 @@ async function checkMacPermissions(options = {}) {
   }
   return permissions;
 }
+
+ipcMain.handle(IPC_CHANNELS.RECORDING_OPEN_PERMISSION_SETTINGS, async (_event, permissionKind = 'screen') => {
+  if (process.platform === 'darwin') {
+    await shell.openExternal(macPrivacySettingsUrl(permissionKind)).catch(() => undefined);
+    return true;
+  }
+  return false;
+});
+
 ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   const { hideWindowDuringRecording, ...recordingOptions } = options ?? {};
