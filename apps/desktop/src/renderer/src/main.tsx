@@ -2732,7 +2732,7 @@ function PreflightSummary({ status }: { status: RecordingPreflightStatus | null 
                 <button
                   type="button"
                   className="secondary compact"
-                  onClick={() => window.roughCut?.openPermissionSettings?.('screen').catch(() => {})}
+                  onClick={() => (window.roughCut as any)?.openPermissionSettings?.('screen').catch(() => {})}
                 >
                   Open System Settings
                 </button>

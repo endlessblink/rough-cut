@@ -203,7 +203,8 @@ test('mac display info is the Retina pixel size of the primary screen', () => {
 
 test('mac permissions: screen recording refused blocks, a refused mic only warns, prompts are asked once', async () => {
   assert.equal(macPermissionMessage('screen', 'granted'), null);
-  assert.match(macPermissionMessage('screen', 'denied'), /System Settings > Privacy & Security > Screen Recording/);
+  assert.match(macPermissionMessage('screen', 'denied'), /Open System Settings/);
+  assert.match(macPermissionMessage('screen', 'denied'), /enable.*Rough Cut/);
   assert.match(macPermissionMessage('microphone', 'denied'), /Privacy & Security > Microphone/);
   const blocked = macPermissionChecks({ screen: 'denied', microphone: 'denied', camera: 'granted' }, { recordMic: true, recordCamera: true });
   assert.deepEqual(blocked.map((c) => [c.id, c.severity]), [['mac-screen-permission', 'critical'], ['mac-mic-permission', 'warn'], ['mac-camera-permission', 'ok']]);

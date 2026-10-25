@@ -90,5 +90,5 @@ test('P2: macPermissionMessage provides actionable guidance for not-determined',
 test('P2: macPermissionMessage provides actionable guidance for denied', (t) => {
   const msg = macPermissionMessage('screen', 'denied');
   assert.match(msg, /Open System Settings/);
-  assert.match(msg, /Rough Cut on/);
+  assert.match(msg, /enable.*Rough Cut/);
 });
