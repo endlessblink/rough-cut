@@ -121,14 +121,16 @@ export function audioInputArgs(source, { platform = process.platform } = {}) {
 export function cameraInputArgs({ fps, width, height, device, platform = process.platform }) {
   if (platform === 'darwin') {
     // AVFoundation opens a camera only at a size and rate inside one of its advertised ranges; 1280x720 at
-    // up to 30 fps is offered by every built-in FaceTime camera. uyvy422 is the format they all list.
+    // 30 fps is the supported rate on every built-in FaceTime camera. Cameras refuse rates below 30 (e.g., 15 fps
+    // from preview) and do not support higher rates; use 30 regardless of what was requested.
+    // uyvy422 is the format they all list.
     return [
       '-f',
       'avfoundation',
       '-pixel_format',
       'uyvy422',
       '-framerate',
-      String(Math.min(30, Number(fps) || 30)),
+      '30',
       '-video_size',
       `${width}x${height}`,
       '-i',

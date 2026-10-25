@@ -224,3 +224,22 @@ test('mac permissions: screen recording refused blocks, a refused mic only warns
   assert.equal(listed, 1);
   assert.deepEqual(after, { screen: 'denied', microphone: 'granted', camera: 'granted' });
 });
+
+test('Mac: camera input args cap fps to 30 (not 15 from preview)', () => {
+  // Mac cameras don't support 15 fps; cameraInputArgs must use at least 30
+  const macCameraArgs = cameraInputArgs({ fps: 15, width: 1280, height: 720, device: 'FaceTime HD Camera', platform: 'darwin' });
+  const framerateIndex = macCameraArgs.indexOf('-framerate');
+  assert.equal(macCameraArgs[framerateIndex + 1], '30', 'Mac should use 30 fps, not 15');
+  // Also verify it stays at 30 when requested at 30
+  const macCameraArgs30 = cameraInputArgs({ fps: 30, width: 1280, height: 720, device: 'FaceTime HD Camera', platform: 'darwin' });
+  const framerateIndex30 = macCameraArgs30.indexOf('-framerate');
+  assert.equal(macCameraArgs30[framerateIndex30 + 1], '30');
+});
+
+test('Mac: camera input args accept AVFoundation device names', () => {
+  const args = cameraInputArgs({ fps: 30, width: 1280, height: 720, device: 'FaceTime HD Camera', platform: 'darwin' });
+  // AVFoundation format requires ':none' suffix for the device name
+  assert.deepEqual(args.slice(-2), ['-i', 'FaceTime HD Camera:none'], 'Mac camera device name must include :none suffix for AVFoundation');
+  const args2 = cameraInputArgs({ fps: 30, width: 1280, height: 720, device: 'OBS Virtual Camera', platform: 'darwin' });
+  assert.deepEqual(args2.slice(-2), ['-i', 'OBS Virtual Camera:none']);
+});

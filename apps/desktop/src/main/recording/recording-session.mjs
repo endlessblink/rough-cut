@@ -1016,10 +1016,13 @@ function normalizeAudioGainPercent(value) {
   return Math.max(0, Math.min(200, Math.round(number)));
 }
 
-function normalizeCameraDevicePath(value) {
+export function normalizeCameraDevicePath(value, platform = process.platform) {
   if (typeof value !== 'string') return null;
+  // Reject any string with newlines or carriage returns before trimming
+  if (/[\r\n]/.test(value)) return null;
   const trimmed = value.trim();
-  if (process.platform === 'win32') return trimmed.length > 0 && !/["\r\n]/.test(trimmed) ? trimmed : null;
+  if (platform === 'win32') return trimmed.length > 0 && !/"/.test(trimmed) ? trimmed : null;
+  if (platform === 'darwin') return trimmed.length > 0 ? trimmed : null;
   return /^\/dev\/video\d+$/.test(trimmed) ? trimmed : null;
 }
 

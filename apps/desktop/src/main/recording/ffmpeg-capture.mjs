@@ -237,13 +237,17 @@ export function startFfmpegCameraCapture({
 
 export function startFfmpegCameraPreview({
   devicePath,
-  fps = 15,
+  fps = null,
   width = 1280,
   height = 720,
   previewWidth = 320,
   onFrame = null,
+  platform = process.platform,
 }) {
-  const args = buildFfmpegCameraPreviewArgs({ devicePath, fps, width, height, previewWidth });
+  // Mac cameras don't support 15 fps; use 30 fps as default. Windows can use DirectShow mode matching; Linux uses whatever is requested.
+  const defaultFps = platform === 'darwin' ? 30 : 15;
+  const resolvedFps = fps !== null ? fps : defaultFps;
+  const args = buildFfmpegCameraPreviewArgs({ devicePath, fps: resolvedFps, width, height, previewWidth, platform });
   console.info('[ffmpeg-camera-preview] Starting:', 'ffmpeg', args.join(' '));
 
   const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
