@@ -9,7 +9,7 @@ import { createCrashReporting } from './crash-reporting.mjs';
 const require = createRequire(import.meta.url);
 
 // Native menus leave the Recording edit surface and existing renderer untouched.
-export function installReleaseServices({ app, Menu, dialog, BrowserWindow, isBusy, ipcMain = null, channels = null }) {
+export function installReleaseServices({ app, Menu, dialog, BrowserWindow, isBusy, ipcMain = null, channels = null, support = null }) {
   const window = () => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   let releasePolicy = { approved: false };
   try { releasePolicy = JSON.parse(readFileSync(join(app.getAppPath(), 'release-policy.json'), 'utf8')); } catch {}
@@ -73,6 +73,10 @@ export function installReleaseServices({ app, Menu, dialog, BrowserWindow, isBus
         if (answer.response === 0) { updates.rollback(); app.quit(); }
       }) }]),
       { type: 'separator' },
+      ...(support ? [
+        { label: 'Mac self-check…', click: () => window()?.webContents.send(channels.SUPPORT_OPEN) },
+        { label: 'Report a problem…', click: guarded(() => support.reportProblem()) },
+      ] : []),
       { label: 'Crash reports…', click: guarded(() => reports.show(window())) },
     ] },
   ]));

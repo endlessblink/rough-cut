@@ -1,5 +1,6 @@
 import { TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX, defaultTrackHeight, clampTrackHeight, readTrackHeight, persistTrackHeight, keyboardTrackHeight } from './timeline-track-height.mjs';
 import React from 'react';
+import { MacSelfCheck } from './mac-self-check';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowClockwise as PhosphorArrowClockwise,
@@ -296,6 +297,8 @@ declare global {
       onUpdateStatus?: (callback: (status: UpdateStatus) => void) => () => void;
       installUpdate?: () => Promise<UpdateStatus>;
       checkForUpdates?: () => Promise<UpdateStatus>;
+      supportStatus?: () => Promise<{ platform: string; selfCheck?: unknown[] | null }>;
+      onSupportOpen?: (callback: () => void) => () => void;
       onAboutOpen?: (callback: () => void) => () => void;
       listAiAssets: () => Promise<AiAsset[]>;
       resolveAiAsset: (payload: { id: string }) => Promise<AiAsset | null>;
@@ -544,6 +547,20 @@ async function saveProjectGuarded(payload: { path: string; document: ProjectStat
 }
 
 function App() {
+  const [selfCheckOpen, setSelfCheckOpen] = React.useState(false);
+  React.useEffect(() => {
+    const remove = window.roughCut.onSupportOpen?.(() => setSelfCheckOpen(true));
+    // First launch explains the check; permissions are requested only after an explicit click.
+    let active = true;
+    void window.roughCut.supportStatus?.().then(status => {
+      if (active && status.platform === 'darwin' && !status.selfCheck?.length) setSelfCheckOpen(true);
+    }).catch(() => {});
+    return () => { active = false; remove?.(); };
+  }, []);
+  return <><RoughCutApp />{selfCheckOpen ? <MacSelfCheck onClose={() => setSelfCheckOpen(false)} /> : null}</>;
+}
+
+function RoughCutApp() {
   const searchParams = new URLSearchParams(window.location.search);
   const isRecorderMode = searchParams.get('mode') === 'recorder';
   const requestedProjectPath = searchParams.get('projectPath');

@@ -23,6 +23,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { runMacSelfCheck } from './self-check-check.mjs';
 
 const root = resolve(import.meta.dirname, '..', '..');
 const args = process.argv.slice(2);
@@ -127,6 +128,8 @@ try {
   await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1600, 1000); window.center(); });
   await page.locator('[data-ui-region="export-popover-toggle"]').first().waitFor({ timeout: 60000 });
   step('app opened the project in Recording edit');
+  await runMacSelfCheck({ app, page, outDir: join(outCopyDir ? resolve(outCopyDir) : base, 'self-check') });
+  step('self-check setup results and private report zip verified without device prompts');
   await page.waitForFunction(() => [...document.querySelectorAll('video')].some((video) => video.readyState >= 2 && video.videoWidth > 0) || document.querySelector('canvas'), null, { timeout: 30000 });
   const screenClips = page.locator('[data-timeline-lane="screen"] .clipBody');
   await screenClips.first().waitFor({ timeout: 20000 });

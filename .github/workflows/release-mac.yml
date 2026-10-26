@@ -69,10 +69,10 @@ jobs:
       - name: Pinned FFmpeg for this Mac
         run: node scripts/prepare-mac-tools.mjs
 
-      - name: Unit tests for the Mac paths (capture args, devices, permissions, speech device)
+      - name: Unit tests for the Mac paths and private diagnostic reports
         run: |
           cd apps/desktop
-          node --test src/main/recording/platform-capture.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/recording/preflight.test.mjs src/main/speech-device.test.mjs src/main/bundled-tools.test.mjs src/main/mac-app-bundle.test.mjs src/main/mac-update-controller.test.mjs
+          node --test src/main/recording/platform-capture.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/recording/preflight.test.mjs src/main/speech-device.test.mjs src/main/bundled-tools.test.mjs src/main/mac-app-bundle.test.mjs src/main/mac-update-controller.test.mjs src/main/support-diagnostics.test.mjs src/main/support-services.test.mjs
 
       - name: The bundled FFmpeg runs here and can capture from AVFoundation
         run: |
@@ -115,11 +115,14 @@ jobs:
           env | grep '^ROUGH_CUT_' && { echo 'ROUGH_CUT_* set in this step'; exit 1; } || true
           node scripts/mac/user-launch-check.mjs --out "e2e-${{ matrix.arch }}/user-launch"
 
-      - name: UI check on the packaged app (open, edit, export, compare)
+      - name: Packaged UI check (self-check, private report, edit, export, compare)
         env:
           # The check uses the app's own (signed) copies of the tools.
           FFMPEG: ${{ github.workspace }}/dist/rough-cut-mvp-darwin-${{ matrix.arch }}/Rough Cut.app/Contents/Resources/bin/ffmpeg
           FFPROBE: ${{ github.workspace }}/dist/rough-cut-mvp-darwin-${{ matrix.arch }}/Rough Cut.app/Contents/Resources/bin/ffprobe
+        # Self-check covers real status observations and report creation/persistence without asking for hardware
+        # permissions. Missing camera/mic/Claude login is reported truthfully, never counted as a hardware pass.
+        # A runner that already has screen permission must also produce a real, nonempty thumbnail.
         run: node scripts/mac/ui-e2e-editor.mjs --out "e2e-${{ matrix.arch }}"
 
       - run: node scripts/build-mac-release.mjs

@@ -1,3 +1,4 @@
+import { installSupportServices } from './support-services.mjs';
 import { installReleaseServices } from './release-services.mjs';
 import { configureBundledTools } from './bundled-tools.mjs';
 import { applyMacReleaseLaunchEnv } from './mac-app-bundle.mjs';
@@ -301,6 +302,7 @@ const recordingSession = createRecordingSession({
       ? screen.dipToScreenPoint(screen.getCursorScreenPoint())
       : (process.platform === 'linux' ? readCursorViaXdotool() : null) ?? screen.getCursorScreenPoint(),
 });
+let transcriptionDiagnostics = { available: false, engine: null };
 const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
   environment: process.env,
   userDataDir: app.getPath('userData'),
@@ -314,6 +316,7 @@ const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
     }
   },
 }).then(async (runtime) => {
+  transcriptionDiagnostics = { available: runtime.available, engine: runtime.engine ?? null };
   const bridge = createRecordingTranscriptionBridge({
     service: runtime.service,
     fixtureDurationMs: runtime.fixtureDurationMs,
@@ -1917,7 +1920,13 @@ async function resolveDockStartupProject(explicitProjectPath) {
 }
 
 app.whenReady().then(() => {
-  installReleaseServices({ app, Menu, dialog, BrowserWindow, ipcMain, channels: IPC_CHANNELS, isBusy: () => Boolean(activeRecordingFinalizePromise || activeExportController || ['recording', 'paused', 'starting', 'stopping', 'finishing'].includes(recordingSession.status().state)) });
+  const support = installSupportServices({ app, ipcMain, channels: IPC_CHANNELS, desktopCapturer,
+    getPermissions: () => process.platform === 'darwin' ? readMacPermissions(systemPreferences, isUiohookAvailable) : { screen: 'not-applicable', microphone: 'unknown', camera: 'unknown', accessibility: 'not-applicable' },
+    getDevices: async () => { const [cameras, microphones] = await Promise.all([listCameraSources(), listMicSources()]); return { cameras, microphones }; },
+    getClaude: () => inspectClaudeSubscription({ binary: resolveClaudeBinary() }),
+    getTranscription: async () => { await recordingTranscriptionBridgePromise; return transcriptionDiagnostics; },
+    getRecording: () => recordingSession.status(), recordingsDir, runtimeLogPath, shell, dialog, BrowserWindow });
+  installReleaseServices({ app, Menu, dialog, BrowserWindow, ipcMain, support, channels: IPC_CHANNELS, isBusy: () => Boolean(activeRecordingFinalizePromise || activeExportController || ['recording', 'paused', 'starting', 'stopping', 'finishing'].includes(recordingSession.status().state)) });
   recordDockProvenance();
   registerMediaProtocol();
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {

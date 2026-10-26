@@ -1,6 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const IPC_CHANNELS = {
+  SUPPORT_STATUS: 'support:status',
+  SUPPORT_SCREEN_THUMBNAIL: 'support:screen-thumbnail',
+  SUPPORT_SAVE_SELF_CHECK: 'support:save-self-check',
+  SUPPORT_CREATE_REPORT: 'support:create-report',
+  SUPPORT_REPORT_PROBLEM: 'support:report-problem',
+  SUPPORT_OPEN: 'support:open',
   CLAUDE_CONNECTION_STATUS: 'claude:connection-status',
   CLAUDE_CONNECTION_SETUP: 'claude:connection-setup',
   UPDATE_STATUS: 'update:status',
@@ -97,6 +103,16 @@ const IPC_CHANNELS = {
 };
 
 contextBridge.exposeInMainWorld('roughCut', {
+  supportStatus: () => ipcRenderer.invoke(IPC_CHANNELS.SUPPORT_STATUS),
+  supportScreenThumbnail: () => ipcRenderer.invoke(IPC_CHANNELS.SUPPORT_SCREEN_THUMBNAIL),
+  saveSelfCheck: (checks) => ipcRenderer.invoke(IPC_CHANNELS.SUPPORT_SAVE_SELF_CHECK, checks),
+  supportCreateReport: () => ipcRenderer.invoke(IPC_CHANNELS.SUPPORT_CREATE_REPORT),
+  reportProblem: () => ipcRenderer.invoke(IPC_CHANNELS.SUPPORT_REPORT_PROBLEM),
+  onSupportOpen: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.SUPPORT_OPEN, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SUPPORT_OPEN, listener);
+  },
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
   getRuntimeLogPath: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_RUNTIME_LOG_PATH),
   openEditor: (projectPath) => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_EDITOR, projectPath),

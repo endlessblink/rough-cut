@@ -174,6 +174,7 @@ export async function createTranscriptionRuntime({
   return {
     enabled: true,
     available: Boolean(localProvider),
+    engine: localProvider?.descriptor?.id ?? null,
     fixtureDurationMs: fixtureProvider?.durationMs ?? null,
     incrementalDuringCapture: localProvider?.incrementalDuringCapture !== false,
     service,
