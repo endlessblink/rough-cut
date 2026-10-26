@@ -10,6 +10,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { captureLaunchScreenshot } from './capture-launch-screenshot.mjs';
 
 const root = resolve(import.meta.dirname, '..', '..');
 const args = process.argv.slice(2);
@@ -68,8 +69,9 @@ try {
 
   if (outDir) {
     mkdirSync(outDir, { recursive: true });
-    const shot = await cdp(page.webSocketDebuggerUrl, 'Page.captureScreenshot', { format: 'png' });
-    writeFileSync(join(outDir, 'user-launch.png'), Buffer.from(shot.data, 'base64'));
+    const method = await captureLaunchScreenshot({ path: join(outDir, 'user-launch.png'),
+      capturePage: () => cdp(page.webSocketDebuggerUrl, 'Page.captureScreenshot', { format: 'png' }) });
+    log(`launch screenshot captured with ${method}`);
     writeFileSync(join(outDir, 'user-launch.json'), `${JSON.stringify({ url: page.url, ...content }, null, 2)}\n`);
   }
   console.info('USER LAUNCH CHECK PASSED');

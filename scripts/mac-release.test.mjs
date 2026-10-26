@@ -3,8 +3,33 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { macReleaseVersion, macReleaseManifest } from './lib/mac-release-metadata.mjs';
+import { captureLaunchScreenshot } from './mac/capture-launch-screenshot.mjs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { gt } = createRequire(require.resolve('electron-updater'))('semver');
+
+test('Mac launch capture falls back after a browser timeout and still fails without visual evidence', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'rc-mac-launch-capture-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, 'launch.png');
+  const png = Buffer.alloc(1200);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
+  png.writeUInt32BE(900, 16); png.writeUInt32BE(600, 20);
+  let nativeCalls = 0;
+  const timeout = async () => { throw new Error('Page.captureScreenshot timed out'); };
+  assert.equal(await captureLaunchScreenshot({ path, capturePage: timeout, nativeCapture: async output => {
+    nativeCalls++; await writeFile(output, png);
+  } }), 'native-macos');
+  assert.equal(nativeCalls, 1);
+  assert.equal(await captureLaunchScreenshot({ path, capturePage: async () => ({ data: png.toString('base64') }),
+    nativeCapture: () => { throw new Error('must not run'); } }), 'browser');
+  await assert.rejects(captureLaunchScreenshot({ path: join(root, 'missing.png'), capturePage: timeout,
+    nativeCapture: async () => {} }), /ENOENT/);
+  await assert.rejects(captureLaunchScreenshot({ path, capturePage: timeout,
+    nativeCapture: async output => writeFile(output, 'invalid') }), /invalid/);
+});
 
 test('Mac build versions increase without changing the shared base version', () => {
   const base = '0.1.0-beta.12';
