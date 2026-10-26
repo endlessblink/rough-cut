@@ -63,7 +63,7 @@ test('P2: requestMacPermissions verifies thumbnails when status is granted', asy
       ];
     },
   };
-  const result = await requestMacPermissions({ systemPreferences, desktopCapturer });
+  const result = await requestMacPermissions({ systemPreferences, desktopCapturer, isHookAvailable: () => true });
   assert.strictEqual(result.screen, 'granted');
   assert.strictEqual(captureVerified, true);
 });
@@ -78,7 +78,7 @@ test('P2: requestMacPermissions marks as not-determined when status says granted
       return [];
     },
   };
-  const result = await requestMacPermissions({ systemPreferences, desktopCapturer });
+  const result = await requestMacPermissions({ systemPreferences, desktopCapturer, isHookAvailable: () => true });
   assert.strictEqual(result.screen, 'not-determined');
 });
 
@@ -91,4 +91,27 @@ test('P2: macPermissionMessage provides actionable guidance for denied', (t) => 
   const msg = macPermissionMessage('screen', 'denied');
   assert.match(msg, /Open System Settings/);
   assert.match(msg, /enable.*Rough Cut/);
+});
+
+// Hardware availability is injected so these permission tests never load the native input hook.
+test('requestMacPermissions keeps unavailable click telemetry visible with mocked permission reads', async () => {
+  let hookChecks = 0;
+  const result = await requestMacPermissions({
+    systemPreferences: { getMediaAccessStatus: () => 'denied' },
+    desktopCapturer: { getSources: async () => [] },
+    isHookAvailable: () => { hookChecks += 1; return false; },
+  });
+  assert.strictEqual(hookChecks, 2);
+  assert.strictEqual(result.accessibility, 'not-determined');
+  assert.strictEqual(result.screen, 'denied');
+});
+
+test('requestMacPermissions retains the Accessibility warning when the hook check throws', async () => {
+  const result = await requestMacPermissions({
+    systemPreferences: { getMediaAccessStatus: () => 'denied' },
+    desktopCapturer: { getSources: async () => [] },
+    isHookAvailable: () => { throw new Error('Native input hook unavailable'); },
+  });
+  assert.strictEqual(result.accessibility, 'not-determined');
+  assert.match(macPermissionMessage('accessibility', result.accessibility), /Accessibility/);
 });

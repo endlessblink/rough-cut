@@ -142,8 +142,8 @@ export async function canCaptureScreenThumbnails({ desktopCapturer }) {
  * prompt API, so listing screens once registers the app under Screen Recording and macOS shows its own prompt.
  * Returns the statuses afterwards. On Mac, trusts actual thumbnail capture over the status API.
  */
-export async function requestMacPermissions({ systemPreferences, desktopCapturer, needMic = false, needCamera = false }) {
-  const before = readMacPermissions(systemPreferences, isUiohookAvailable);
+export async function requestMacPermissions({ systemPreferences, desktopCapturer, needMic = false, needCamera = false, isHookAvailable = isUiohookAvailable }) {
+  const before = readMacPermissions(systemPreferences, isHookAvailable);
   for (const [kind, needed] of [['microphone', needMic], ['camera', needCamera]]) {
     if (needed && before[kind] === 'not-determined') {
       try { await systemPreferences.askForMediaAccess(kind); } catch { /* reported by the status below */ }
@@ -152,7 +152,7 @@ export async function requestMacPermissions({ systemPreferences, desktopCapturer
   if (before.screen !== 'granted') {
     try { await desktopCapturer?.getSources?.({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }); } catch { /* idem */ }
   }
-  const after = readMacPermissions(systemPreferences, isUiohookAvailable);
+  const after = readMacPermissions(systemPreferences, isHookAvailable);
   // On Mac, verify the status by testing if we can actually capture thumbnails; the status API can be unreliable
   if (after.screen === 'granted') {
     const canCapture = await canCaptureScreenThumbnails({ desktopCapturer });

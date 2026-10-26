@@ -13,12 +13,13 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { releaseSourceIdentity } from './lib/release-source-identity.mjs';
+import { macReleaseVersion } from './lib/mac-release-metadata.mjs';
 
 if (process.platform !== 'darwin') throw new Error('package-mac.mjs builds the Mac app on a Mac.');
 
 const root = resolve(import.meta.dirname, '..');
 const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-const desktopVersion = JSON.parse(await readFile(join(root, 'apps/desktop/package.json'), 'utf8')).version ?? '0.0.0';
+const desktopVersion = macReleaseVersion(JSON.parse(await readFile(join(root, 'apps/desktop/package.json'), 'utf8')).version);
 const productName = 'Rough Cut';
 const artifactRoot = join(root, 'dist', `rough-cut-mvp-darwin-${arch}`);
 const appBundle = join(artifactRoot, `${productName}.app`);
@@ -90,13 +91,13 @@ await cp(join(root, 'docs/MAC-BETA-OPEN-UNSIGNED.md'), join(appRoot, 'INSTALL.md
 await mkdir(join(appRoot, 'docs'), { recursive: true });
 for (const name of ['RELEASE-REQUIREMENTS.md', 'MEDIA-SOURCE-BUILD.md', 'UPDATE-SIGNING.json', 'publisher-public-key.pem', 'MAC-BETA-OPEN-UNSIGNED.md']) await cp(join(root, 'docs', name), join(appRoot, 'docs', name)).catch(() => undefined);
 
-// 5. App metadata (the updater stays disabled: an unsigned Mac app cannot update itself).
+// 5. App metadata: Mac checks offer a download notice, never Squirrel.Mac installation.
 await writeFile(join(appRoot, 'app-update.yml'), 'updaterCacheDirName: rough-cut-updater\n');
 await cp(join(root, 'release-policy.json'), join(appRoot, 'release-policy.json'));
 const rendererAssetsRoot = join(appRoot, 'apps/desktop/dist/renderer/assets');
 const rendererBundleNames = (await readdir(rendererAssetsRoot)).filter((name) => /^index-.*\.js$/.test(name)).sort();
 if (rendererBundleNames.length !== 1) throw new Error(`Expected exactly one packaged renderer bundle, found ${rendererBundleNames.length}`);
-const sourceIdentity = await releaseSourceIdentity(root, { extraFiles: ['scripts/package-mac.mjs', 'scripts/prepare-mac-tools.mjs', 'scripts/bundled-tools-mac.lock.json'] });
+const sourceIdentity = await releaseSourceIdentity(root, { extraFiles: ['scripts/package-mac.mjs', 'scripts/prepare-mac-tools.mjs', 'scripts/bundled-tools-mac.lock.json', 'scripts/lib/mac-release-metadata.mjs'] });
 const electronVersion = JSON.parse(await readFile(join(root, 'apps/desktop/node_modules/electron/package.json'), 'utf8')).version;
 await writeFile(join(appRoot, 'package-identity.json'), `${JSON.stringify({
   version: 1,

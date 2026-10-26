@@ -11,10 +11,13 @@ on:
     paths:
       - '.github/workflows/release-mac.yml'
       - 'apps/desktop/src/**'
+      - 'apps/desktop/package.json'
       - 'packages/**'
       - 'scripts/package-mac.mjs'
       - 'scripts/prepare-mac-tools.mjs'
       - 'scripts/build-mac-release.mjs'
+      - 'scripts/lib/mac-release-metadata.mjs'
+      - 'scripts/mac-release.test.mjs'
       - 'scripts/bundled-tools-mac.lock.json'
       - 'scripts/mac/**'
   workflow_dispatch:
@@ -69,7 +72,7 @@ jobs:
       - name: Unit tests for the Mac paths (capture args, devices, permissions, speech device)
         run: |
           cd apps/desktop
-          node --test src/main/recording/platform-capture.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/recording/preflight.test.mjs src/main/speech-device.test.mjs src/main/bundled-tools.test.mjs src/main/mac-app-bundle.test.mjs
+          node --test src/main/recording/platform-capture.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/recording/preflight.test.mjs src/main/speech-device.test.mjs src/main/bundled-tools.test.mjs src/main/mac-app-bundle.test.mjs src/main/mac-update-controller.test.mjs
 
       - name: The bundled FFmpeg runs here and can capture from AVFoundation
         run: |
@@ -84,7 +87,14 @@ jobs:
           # Lists devices without permission (the runner has no camera; a screen may or may not be listed).
           "$bin/ffmpeg" -hide_banner -f avfoundation -list_devices true -i "" 2>&1 | tee avfoundation-devices.txt || true
 
+      - run: node --test scripts/mac-release.test.mjs
+
       - run: node scripts/package-mac.mjs
+        env:
+          ROUGH_CUT_MAC_BUILD: ${{ github.run_number }}
+
+      - name: Native Mac update notice with mocked release data
+        run: node scripts/mac/update-notice-check.mjs --out "e2e-${{ matrix.arch }}/update-notice"
 
       - name: Every program in the app is built for this Mac's chip
         run: |
@@ -182,7 +192,11 @@ jobs:
               --title "Rough Cut ${version} for Mac (beta, community tested)" \
               --notes-file docs/MAC-BETA-RELEASE-NOTES.md
           fi
-          files=$(find artifacts -path '*/release/mac/*' -type f \( -name '*.dmg' -o -name '*.zip' -o -name 'SHA256SUMS-mac-*' \))
+          files=$(find artifacts -path '*/release/mac/*' -type f \( -name '*.dmg' -o -name '*.zip' -o -name 'SHA256SUMS-mac-*' -o -name 'mac-latest.json' \))
           echo "$files"
-          gh release upload "$tag" $files --clobber
+          manifest=$(find artifacts -path '*/release/mac/mac-latest.json' -type f | head -1)
+          other=$(find artifacts -path '*/release/mac/mac-latest.json' -type f | tail -1)
+          cmp "$manifest" "$other"
+          files=$(echo "$files" | grep -v '/mac-latest.json$')
+          gh release upload "$tag" $files "$manifest" --clobber
           gh release view "$tag" --json isDraft,name,assets -q '{isDraft, name, assets: [.assets[].name]}'

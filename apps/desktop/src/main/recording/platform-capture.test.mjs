@@ -220,7 +220,7 @@ test('mac permissions: screen recording refused blocks, a refused mic only warns
     askForMediaAccess: async (kind) => { asked.push(kind); statuses[kind] = 'granted'; return true; },
   };
   const desktopCapturer = { getSources: async () => { listed += 1; return []; } };
-  const after = await requestMacPermissions({ systemPreferences, desktopCapturer, needMic: true, needCamera: true });
+  const after = await requestMacPermissions({ systemPreferences, desktopCapturer, needMic: true, needCamera: true, isHookAvailable: () => true });
   assert.deepEqual(asked, ['microphone']);
   assert.equal(listed, 1);
   assert.deepEqual(after, { screen: 'denied', microphone: 'granted', camera: 'granted', accessibility: 'granted' });

@@ -30,7 +30,7 @@ If you clicked "Don't Allow" by mistake: System Settings > Privacy & Security > 
 - Recording the main display, microphone and camera; editing; export.
 - Recording what the Mac plays (system audio) needs a free audio loopback driver such as BlackHole; it then appears as a system-audio source.
 - Captions transcription runs on the Mac's processor: it works, but slower than on a PC with an Nvidia card.
-- Not yet: choosing a second display, automatic updates.
+- Not yet: choosing a second display, automatic installation of updates.
 
 Found a problem? Please report it on GitHub Issues with your Mac model and macOS version.
 
@@ -41,3 +41,15 @@ Instead of steps 2-3 you can remove the download quarantine flag:
 ```
 xattr -dr com.apple.quarantine "/Applications/Rough Cut.app"
 ```
+
+## Updating the free Mac beta
+
+Rough Cut checks for newer Mac builds at startup and from **Help > Check for updates**. When one is available, choose **Download**. Open it, drag Rough Cut to Applications and choose Replace. The download matches your Mac's Apple Silicon or Intel chip. The free beta does not install updates automatically.
+
+### Publishing the next Mac build
+
+The Mac workflow appends its increasing GitHub run number to the shared version, for example `0.1.0-beta.12.mac.41`. This version is embedded only in the Mac package; Linux and Windows keep their existing version and update feeds. A local package uses a timestamp unless `ROUGH_CUT_MAC_BUILD` is explicitly set to a positive integer. For a release, use CI's run number consistently for both architectures.
+
+Each Mac build emits `mac-latest.json`, containing the Mac version, the shared release tag, and the DMG/ZIP names for both chips. After both architecture checks pass, attach both builds, their SHA256SUMS files, and exactly one identical copy of this manifest to the shared release named by `releaseTag`. The workflow continues to upload to its draft only; publishing or replacing files on the approved shared release is a separate explicit release action.
+
+The next update is detected when a newer Mac version is present in the beta channel's Mac manifest. When reusing the same shared release, replace its `mac-latest.json` after uploading both new architectures so the notice never points to files that are not uploaded yet. Keep the Linux and Windows assets and metadata unchanged.

@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { macReleaseManifest } from './lib/mac-release-metadata.mjs';
 
 if (process.platform !== 'darwin') throw new Error('build-mac-release.mjs runs on a Mac.');
 
@@ -42,10 +43,13 @@ await symlink('/Applications', join(staging, 'Applications'));
 run('hdiutil', ['create', '-volname', `Rough Cut ${version}`, '-srcfolder', staging, '-ov', '-format', 'UDZO', dmgPath]);
 await rm(staging, { recursive: true, force: true });
 
+const baseVersion = JSON.parse(await readFile(join(root, 'apps/desktop/package.json'), 'utf8')).version;
+const manifestPath = join(outDir, 'mac-latest.json');
+await writeFile(manifestPath, `${JSON.stringify(macReleaseManifest(version, `v${baseVersion}`), null, 2)}\n`);
 const lines = [];
-for (const file of [dmgPath, zipPath]) {
+for (const file of [dmgPath, zipPath, manifestPath]) {
   lines.push(`${createHash('sha256').update(await readFile(file)).digest('hex')} *${file.split('/').pop()}`);
 }
 const sums = join(outDir, `SHA256SUMS-mac-${arch}-${version.replace(/^.*-/, '')}.txt`);
 await writeFile(sums, `${lines.join('\n')}\n`);
-console.info(JSON.stringify({ ok: true, arch, files: [dmgPath, zipPath, sums] }, null, 2));
+console.info(JSON.stringify({ ok: true, arch, files: [dmgPath, zipPath, manifestPath, sums] }, null, 2));
