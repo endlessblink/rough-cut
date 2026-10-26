@@ -2,8 +2,9 @@
 // No Claude messages, credential values, media permission prompts, or issue submission.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { captureLaunchScreenshot } from './capture-launch-screenshot.mjs';
 
 const ids = ['opens', 'screen', 'mic', 'camera', 'claude', 'transcription'];
 const files = ['README.txt', 'app-runtime.log', 'self-check.json', 'summary.json'];
@@ -15,12 +16,15 @@ function unzip(path, args) {
 }
 
 async function screenshot(app, page, path) {
-  await page.screenshot({ path, timeout: 120000 }).catch(async () => {
-    const png = await app.evaluate(async ({ BrowserWindow }) =>
-      (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'));
-    writeFileSync(path, Buffer.from(png, 'base64'));
-  });
+  await captureLaunchScreenshot({ path,
+    capturePage: async () => ({ data: (await page.screenshot({ timeout: 20000 })).toString('base64') }) });
   assert.ok(readFileSync(path).length > 1000, 'Support screenshot is empty.');
+}
+
+async function requireVisibleInDialog(locator, dialog, page) {
+  const [bounds, frame, height] = await Promise.all([locator.boundingBox(), dialog.boundingBox(), page.evaluate(() => innerHeight)]);
+  assert.ok(bounds && frame && bounds.y >= Math.max(0, frame.y) && bounds.y + bounds.height <= Math.min(height, frame.y + frame.height),
+    'Required support evidence is outside the visible dialog; do not accept a clipped screenshot.');
 }
 
 export async function runMacSelfCheck({ app, page, outDir }) {
@@ -84,6 +88,11 @@ export async function runMacSelfCheck({ app, page, outDir }) {
   const savedChecks = Array.isArray(saved.selfCheck) ? saved.selfCheck : saved.selfCheck?.checks;
   assert.deepEqual(savedChecks?.map(({ id, status }) => ({ id, status })), rows.map(({ id, status }) => ({ id, status })),
     'Displayed self-check results were not persisted.');
+  // macOS may cap the real window to 1024x656. Review the current scroll position,
+  // not merely the DOM: clicking the footer can leave the title/results offscreen.
+  await dialog.evaluate(element => { element.scrollTop = 0; });
+  await requireVisibleInDialog(dialog.getByRole('heading', { name: 'Mac self-check', exact: true }), dialog, page);
+  for (const id of ids) await requireVisibleInDialog(dialog.locator(`li[data-check="${id}"]`), dialog, page);
   await screenshot(app, page, join(outDir, 'mac-self-check.png'));
 
   await dialog.getByRole('button', { name: 'Save report zip', exact: true }).click();
@@ -110,6 +119,8 @@ export async function runMacSelfCheck({ app, page, outDir }) {
   assert.deepEqual(checks.checks.map(({ id, status }) => ({ id, status })), rows.map(({ id, status }) => ({ id, status })),
     'Report zip does not contain the displayed self-check results.');
   assert.deepEqual(summary.selfCheck, checks, 'Report summary and self-check results disagree.');
+  await contents.scrollIntoViewIfNeeded();
+  for (let index = 0; index < files.length; index++) await requireVisibleInDialog(contents.locator('li').nth(index), dialog, page);
   await screenshot(app, page, join(outDir, 'mac-report-contents.png'));
   await dialog.getByRole('button', { name: 'Close Mac self-check', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
