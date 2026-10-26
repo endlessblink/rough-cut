@@ -73,7 +73,7 @@ export function buildMacInstallHint(missingToolIds) {
 }
 
 // Screen Recording blocks a recording (the file would be black); a denied microphone or camera only drops that
-// source, like a missing device, so it warns.
+// source, like a missing device, so it warns. Accessibility is needed for click highlighting.
 export function macPermissionChecks(permissions, options = {}) {
   if (!permissions) return [];
   const checks = [];
@@ -84,6 +84,9 @@ export function macPermissionChecks(permissions, options = {}) {
     const message = macPermissionMessage(kind, permissions[kind]);
     checks.push(createCheck(id, label, message ? 'warn' : 'ok', message ?? 'Allowed'));
   }
+  // Accessibility is needed for click highlighting. Check if uiohook can be initialized.
+  const accessibilityMessage = macPermissionMessage('accessibility', permissions.accessibility);
+  checks.push(createCheck('mac-accessibility-permission', 'Accessibility (click highlights)', accessibilityMessage ? 'warn' : 'ok', accessibilityMessage ?? 'Allowed'));
   return checks;
 }
 

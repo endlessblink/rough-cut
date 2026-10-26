@@ -1,5 +1,6 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { execSync } from 'node:child_process';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
 import { createUiohookButtonListener } from './uiohook-button-listener.mjs';
@@ -36,6 +37,50 @@ const DEFAULT_AUDIO_TAIL_GRACE_MS = Number(process.env.ROUGH_CUT_AUDIO_TAIL_GRAC
 // condition. Turn off by setting ROUGH_CUT_DEBUG_RECORDING=0.
 const DIAGNOSTIC_LOGGING_DEFAULT =
   process.env.ROUGH_CUT_DEBUG_RECORDING !== '0';
+
+// Detect and kill orphaned ffmpeg-capture processes (ppid 1) from previous crashes.
+export function killOrphanedCaptureProcesses() {
+  try {
+    if (process.platform === 'win32') {
+      execSync('tasklist /FI "IMAGENAME eq ffmpeg.exe"', { encoding: 'utf8', stdio: 'pipe' });
+      // On Windows, we'd need to parse and identify which ffmpeg instances are ours.
+      // For now, skip: the tester report is Mac-specific.
+    } else {
+      const ps = execSync('ps -o ppid,pid,comm', { encoding: 'utf8', stdio: 'pipe' });
+      const lines = ps.split('\n').slice(1);
+      const orphaned = lines
+        .map(line => {
+          const match = line.trim().match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+          return match ? { ppid: parseInt(match[1], 10), pid: parseInt(match[2], 10), name: match[3] } : null;
+        })
+        .filter(entry => entry && entry.name && entry.name.includes('ffmpeg') && entry.ppid === 1);
+
+      if (orphaned.length > 0) {
+        console.warn(`[recording-session] found ${orphaned.length} orphaned ffmpeg process(es)`);
+        for (const proc of orphaned) {
+          try {
+            process.kill(proc.pid, 'SIGTERM');
+            console.warn(`[recording-session] sent SIGTERM to orphaned ffmpeg (pid ${proc.pid})`);
+            // Give it a moment to exit gracefully, then force kill if needed.
+            setTimeout(() => {
+              try {
+                process.kill(proc.pid, 'SIGKILL');
+                console.warn(`[recording-session] sent SIGKILL to orphaned ffmpeg (pid ${proc.pid})`);
+              } catch (e) {
+                // Already dead, which is fine.
+              }
+            }, 2000);
+          } catch (e) {
+            // Process may have already exited.
+          }
+        }
+      }
+    }
+  } catch (error) {
+    // ps command failed or no orphans; log but continue.
+    console.warn(`[recording-session] orphan cleanup skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
 export function createRecordingSession({
   recordingsDir,

@@ -33,12 +33,13 @@ import {
   resolveReferencedVisualSource,
 } from './visual-discontinuity-service.mjs';
 import { remuxMkvSegmentsToMp4, remuxMkvToMp4 } from './remux-service.mjs';
-import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
+import { createRecordingSession, getPrimaryX11DisplayInfo, killOrphanedCaptureProcesses } from './recording/recording-session.mjs';
 import { startFfmpegAudioLevelProbe, startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
 import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
 import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { getRecordingPreflightStatus } from './recording/preflight.mjs';
 import { getPrimaryMacDisplayInfo, listAvfoundationCameraSources, listAvfoundationMicSources, listAvfoundationSystemAudioSources, macPrivacySettingsUrl, readMacPermissions, requestMacPermissions } from './recording/mac-devices.mjs';
+import { isUiohookAvailable } from './recording/uiohook-button-listener.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import {
   getPrimaryWindowsDisplayInfo,
@@ -281,6 +282,10 @@ function getPrimaryDisplayInfo() {
   if (process.platform === 'darwin') return getPrimaryMacDisplayInfo(screen);
   return process.platform === 'win32' ? getPrimaryWindowsDisplayInfo(screen) : getPrimaryX11DisplayInfo(screen);
 }
+
+// Clean up any orphaned ffmpeg-capture processes from previous crashes (Bug 3).
+killOrphanedCaptureProcesses();
+
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
@@ -1102,7 +1107,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, optio
 // offer Screen Recording). If screen recording is refused, System Settings opens on that page once per run.
 let macScreenSettingsOpened = false;
 async function checkMacPermissions(options = {}) {
-  const permissions = await requestMacPermissions({ systemPreferences, desktopCapturer, needMic: Boolean(options.recordMic), needCamera: Boolean(options.recordCamera) }).catch(() => readMacPermissions(systemPreferences));
+  const permissions = await requestMacPermissions({ systemPreferences, desktopCapturer, needMic: Boolean(options.recordMic), needCamera: Boolean(options.recordCamera) }).catch(() => readMacPermissions(systemPreferences, isUiohookAvailable));
   if (permissions.screen === 'denied' && !macScreenSettingsOpened && !process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH) {
     macScreenSettingsOpened = true;
     void shell.openExternal(macPrivacySettingsUrl('screen')).catch(() => undefined);

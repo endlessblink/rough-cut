@@ -206,14 +206,15 @@ test('mac permissions: screen recording refused blocks, a refused mic only warns
   assert.match(macPermissionMessage('screen', 'denied'), /Open System Settings/);
   assert.match(macPermissionMessage('screen', 'denied'), /enable.*Rough Cut/);
   assert.match(macPermissionMessage('microphone', 'denied'), /Privacy & Security > Microphone/);
-  const blocked = macPermissionChecks({ screen: 'denied', microphone: 'denied', camera: 'granted' }, { recordMic: true, recordCamera: true });
-  assert.deepEqual(blocked.map((c) => [c.id, c.severity]), [['mac-screen-permission', 'critical'], ['mac-mic-permission', 'warn'], ['mac-camera-permission', 'ok']]);
-  assert.deepEqual(macPermissionChecks({ screen: 'granted', microphone: 'denied', camera: 'denied' }, {}).map((c) => c.id), ['mac-screen-permission']);
+  assert.match(macPermissionMessage('accessibility', 'not-determined'), /Accessibility/);
+  const blocked = macPermissionChecks({ screen: 'denied', microphone: 'denied', camera: 'granted', accessibility: 'not-determined' }, { recordMic: true, recordCamera: true });
+  assert.deepEqual(blocked.map((c) => [c.id, c.severity]), [['mac-screen-permission', 'critical'], ['mac-mic-permission', 'warn'], ['mac-camera-permission', 'ok'], ['mac-accessibility-permission', 'warn']]);
+  assert.deepEqual(macPermissionChecks({ screen: 'granted', microphone: 'denied', camera: 'denied', accessibility: 'granted' }, {}).map((c) => c.id), ['mac-screen-permission', 'mac-accessibility-permission']);
   assert.deepEqual(macPermissionChecks(null), []);
 
   const asked = [];
   let listed = 0;
-  const statuses = { screen: 'denied', microphone: 'not-determined', camera: 'granted' };
+  const statuses = { screen: 'denied', microphone: 'not-determined', camera: 'granted', accessibility: 'granted' };
   const systemPreferences = {
     getMediaAccessStatus: (kind) => statuses[kind],
     askForMediaAccess: async (kind) => { asked.push(kind); statuses[kind] = 'granted'; return true; },
@@ -222,7 +223,7 @@ test('mac permissions: screen recording refused blocks, a refused mic only warns
   const after = await requestMacPermissions({ systemPreferences, desktopCapturer, needMic: true, needCamera: true });
   assert.deepEqual(asked, ['microphone']);
   assert.equal(listed, 1);
-  assert.deepEqual(after, { screen: 'denied', microphone: 'granted', camera: 'granted' });
+  assert.deepEqual(after, { screen: 'denied', microphone: 'granted', camera: 'granted', accessibility: 'granted' });
 });
 
 test('Mac: camera input args cap fps to 30 (not 15 from preview)', () => {

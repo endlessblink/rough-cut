@@ -2,7 +2,7 @@
 
 ## 0.1.0-beta.12 — not yet published
 
-- New: one-click updates. When a newer version is ready, an Update button appears at the top; one click downloads it, closes Rough Cut and opens it again on the new version (never while recording or exporting). Updating from beta.11 uses Help, Update Rough Cut once.
+- New: one-click updates on Windows and Linux. When a newer version is ready, an Update button appears at the top; one click downloads it, closes Rough Cut and opens it again on the new version (never while recording or exporting). Updating from beta.11 uses Help, Update Rough Cut once. Mac: download new versions manually until auto-update support arrives.
 - New: About window (the i button at the top, or Help, About Rough Cut) with the version, update status and Check for updates.
 - Timeline: with the magnet on, trimming a clip's left edge moves that edge while you drag and then closes the gap, like CapCut.
 - Graphics: changing Entrance, its length or Animate replays the entrance in the viewer so you can see the change.
@@ -12,7 +12,7 @@
 
 - New: in-app updates on Windows (Help, Check for updates), checked against the owner's signature before anything installs; the updater is now switched on for Linux and Windows. Windows users on beta.10 or earlier update once by running the new installer.
 - New: a welcome screen on the empty Projects page, with three first steps (record, edit, export).
-- New: one-click Claude connection in the Graphics panel (Sign in with Claude, Update Claude Code, Get Claude Code) instead of typing commands in a terminal.
+- New: one-click Claude connection in the Graphics panel (Connect Claude, Update Claude Code, Get Claude Code) instead of typing commands in a terminal.
 - Timeline: trim handles on every clip, video and audio, with no need to select the clip first; plain trim is the default (the edge you drag follows the mouse and leaves a gap), and closing gaps stays available as an option.
 
 ## 0.1.0-beta.10 — 2026-10-18

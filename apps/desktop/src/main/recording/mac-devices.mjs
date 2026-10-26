@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { isUiohookAvailable } from './uiohook-button-listener.mjs';
 
 // Mac (beta) device discovery via `ffmpeg -f avfoundation -list_devices true -i ""` (it prints to stderr and exits
 // non-zero, which is expected). Mirrors the shape of the Linux pactl / v4l2 and the Windows dshow listings so the
@@ -89,14 +90,15 @@ const SETTINGS_PANES = {
   screen: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
   microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
   camera: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+  accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
 };
 
 export function macPrivacySettingsUrl(kind) {
   return SETTINGS_PANES[kind] ?? SETTINGS_PANES.screen;
 }
 
-/** 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown' for screen, microphone and camera. */
-export function readMacPermissions(systemPreferences) {
+/** 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown' for screen, microphone, camera and accessibility. */
+export function readMacPermissions(systemPreferences, isUiohookAvailable = null) {
   const read = (kind) => {
     try {
       return systemPreferences?.getMediaAccessStatus?.(kind) ?? 'unknown';
@@ -104,7 +106,20 @@ export function readMacPermissions(systemPreferences) {
       return 'unknown';
     }
   };
-  return { screen: read('screen'), microphone: read('microphone'), camera: read('camera') };
+  const perms = { screen: read('screen'), microphone: read('microphone'), camera: read('camera') };
+
+  // Accessibility permission: check if uiohook can load (no API available on Mac, so test it)
+  if (typeof isUiohookAvailable === 'function') {
+    try {
+      perms.accessibility = isUiohookAvailable() ? 'granted' : 'not-determined';
+    } catch {
+      perms.accessibility = 'not-determined';
+    }
+  } else {
+    perms.accessibility = 'unknown';
+  }
+
+  return perms;
 }
 
 /**
@@ -128,7 +143,7 @@ export async function canCaptureScreenThumbnails({ desktopCapturer }) {
  * Returns the statuses afterwards. On Mac, trusts actual thumbnail capture over the status API.
  */
 export async function requestMacPermissions({ systemPreferences, desktopCapturer, needMic = false, needCamera = false }) {
-  const before = readMacPermissions(systemPreferences);
+  const before = readMacPermissions(systemPreferences, isUiohookAvailable);
   for (const [kind, needed] of [['microphone', needMic], ['camera', needCamera]]) {
     if (needed && before[kind] === 'not-determined') {
       try { await systemPreferences.askForMediaAccess(kind); } catch { /* reported by the status below */ }
@@ -137,7 +152,7 @@ export async function requestMacPermissions({ systemPreferences, desktopCapturer
   if (before.screen !== 'granted') {
     try { await desktopCapturer?.getSources?.({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }); } catch { /* idem */ }
   }
-  const after = readMacPermissions(systemPreferences);
+  const after = readMacPermissions(systemPreferences, isUiohookAvailable);
   // On Mac, verify the status by testing if we can actually capture thumbnails; the status API can be unreliable
   if (after.screen === 'granted') {
     const canCapture = await canCaptureScreenThumbnails({ desktopCapturer });
@@ -149,7 +164,7 @@ export async function requestMacPermissions({ systemPreferences, desktopCapturer
   return after;
 }
 
-const PERMISSION_LABELS = { screen: 'Screen Recording', microphone: 'Microphone', camera: 'Camera' };
+const PERMISSION_LABELS = { screen: 'Screen Recording', microphone: 'Microphone', camera: 'Camera', accessibility: 'Accessibility' };
 
 /** Plain words for a missing permission, or null when it is fine (or cannot be read). */
 export function macPermissionMessage(kind, status) {
@@ -158,10 +173,15 @@ export function macPermissionMessage(kind, status) {
   if (status === 'not-determined') {
     return kind === 'screen'
       ? 'macOS will ask to allow screen recording when you start. Allow it, then quit and reopen Rough Cut. You can also click "Open System Settings" below to allow it now.'
+      : kind === 'accessibility'
+      ? 'Rough Cut needs Accessibility permission to highlight clicks during recording. Open System Settings > Privacy & Security > Accessibility and turn Rough Cut on.'
       : `Rough Cut will ask for the ${pane.toLowerCase()} when you start recording.`;
   }
   if (kind === 'screen') {
     return `Rough Cut is not allowed to record the screen. Click "Open System Settings" below, enable "Rough Cut" under Screen Recording, then quit and reopen Rough Cut.`;
+  }
+  if (kind === 'accessibility') {
+    return `Rough Cut is not allowed to highlight clicks. Open System Settings > Privacy & Security > Accessibility and turn Rough Cut on.`;
   }
   return `Rough Cut is not allowed to use the ${pane.toLowerCase()}. Open System Settings > Privacy & Security > ${pane} and turn Rough Cut on.`;
 }

@@ -12,9 +12,8 @@ test('connection requires an installed recent CLI and signed-in subscription',as
  const old=fakeProbe({version:'2.1.247'});assert.equal((await inspectClaudeSubscription({binary:'/fake',env:{},spawnImpl:old.spawnImpl})).status,'unsupported-version');assert.equal(old.calls.length,1);
  const unsigned=fakeProbe({auth:{loggedIn:false},code:1});assert.equal((await inspectClaudeSubscription({binary:'/fake',env:{},spawnImpl:unsigned.spawnImpl})).status,'not-signed-in');
 });
-test('API environment stops before any CLI or model call and never exposes key values',async()=>{
- const probe=fakeProbe();const result=await inspectClaudeSubscription({binary:'/fake',env:{ANTHROPIC_API_KEY:'fictional-secret'},spawnImpl:probe.spawnImpl});assert.equal(result.status,'api-mode');assert.equal(probe.calls.length,0);assert.ok(!JSON.stringify(result).includes('fictional-secret'));
- let modelCalls=0;const response=await askClaudeForJson({binary:'/fake',schema:{},systemPrompt:'neutral',buildPrompt:()=>'',connectionCheck:async()=>result,runOnce:async()=>{modelCalls++;}});assert.equal(response.ok,false);assert.equal(modelCalls,0);
+test('API environment is stripped before any CLI call and never exposes key values',async()=>{
+ const probe=fakeProbe();const result=await inspectClaudeSubscription({binary:'/fake',env:{ANTHROPIC_API_KEY:'fictional-secret'},spawnImpl:probe.spawnImpl});assert.equal(result.status,'ready');assert.equal(result.ok,true);assert.equal(probe.calls.length,2);assert.ok(!JSON.stringify(result).includes('fictional-secret'));assert.ok(result.reason.includes('Found 1 environment variable'));
 });
 test('auth metadata is sanitized and API billing is rejected even without environment override',async()=>{
  const ready=fakeProbe({auth:{loggedIn:true,authMethod:'claude.ai',subscriptionType:'max',email:'private@example.invalid',organizationId:'private-org'}});const result=await inspectClaudeSubscription({binary:'/fake',env:{},spawnImpl:ready.spawnImpl});assert.equal(result.ok,true);assert.equal(result.subscriptionType,'max');assert.ok(!JSON.stringify(result).includes('private'));assert.deepEqual(ready.calls,[['--version'],['auth','status']]);

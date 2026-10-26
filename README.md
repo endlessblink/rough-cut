@@ -14,9 +14,9 @@ Rough Cut is a free screen recorder and editor for tutorials, demos and product 
 
 Get the latest build from [GitHub Releases](https://github.com/endlessblink/rough-cut/releases).
 
-| Linux (x86_64, X11) | Windows 10 / 11 (preview) |
-| --- | --- |
-| Unpack and run. Exact file names, checksums and steps: [INSTALL.md](INSTALL.md). | Run the installer, or unzip the portable build. The build is not code-signed yet: [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md). |
+| Linux (x86_64, X11) | Windows 10 / 11 (preview) | macOS 14+ (beta) |
+| --- | --- | --- |
+| Unpack and run. Exact file names, checksums and steps: [INSTALL.md](INSTALL.md). | Run the installer, or unzip the portable build. The build is not code-signed yet: [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md). | Download and unzip. [INSTALL-MAC.md](INSTALL-MAC.md). |
 
 Then:
 
@@ -49,11 +49,11 @@ More on the [website](https://endlessblink.github.io/rough-cut/).
 
 ## Requirements
 
-| | Linux | Windows |
-| --- | --- | --- |
-| System | x86_64, **X11** session, glibc 2.35+ (Wayland not yet) | Windows 10 version 2004 or Windows 11, 64-bit |
-| Bundled | FFmpeg, FFprobe, xdotool, xinput, pactl | FFmpeg, FFprobe |
-| Tested on | KDE Plasma, NVIDIA GPU | One Windows 11 laptop |
+| | Linux | Windows | macOS |
+| --- | --- | --- | --- |
+| System | x86_64, **X11** session, glibc 2.35+ (Wayland not yet) | Windows 10 version 2004 or Windows 11, 64-bit | macOS 14 or later, Intel or Apple Silicon |
+| Bundled | FFmpeg, FFprobe, xdotool, xinput, pactl | FFmpeg, FFprobe | FFmpeg, FFprobe |
+| Tested on | KDE Plasma, NVIDIA GPU | One Windows 11 laptop | MacBook Air M4, macOS 15.6.1 |
 
 Optional for both:
 
@@ -75,7 +75,7 @@ Planned, no dates:
 - **Automatic zoom** that follows the cursor and clicks.
 - **Describe an edit** and let an agent cut, zoom and caption a take, on the same timeline you keep editing.
 - **More AI models for graphics**, beyond one subscription.
-- **Wayland**, then **macOS**. A Mac and Windows waitlist is on the [website](https://endlessblink.github.io/rough-cut/).
+- **Wayland**. macOS is in beta (see Download). A Windows improvements roadmap is on the [website](https://endlessblink.github.io/rough-cut/).
 
 ## How it works
 
