@@ -1,0 +1,35 @@
+name: Mac alpha bug
+description: Report a Mac problem with the app's diagnostic zip.
+title: "[Mac alpha] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        In Rough Cut, choose **Help → Report a problem**. Review the zip saved on your Desktop, then attach it below. Nothing is sent automatically. The report includes device and permission details, self-check results, and a redacted log; it does not include screen or camera images.
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostic zip
+      description: Drag the Desktop zip here. If Rough Cut cannot open, say that here instead.
+      placeholder: Attach the Rough Cut report zip, or explain why it could not be created.
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: What were you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repeat
+    attributes:
+      label: How can we repeat it?
+      description: A few steps are enough. Say if it happened only once.
+    validations:
+      required: true
