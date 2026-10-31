@@ -88,7 +88,13 @@ function extractFrame(file, sec, width) {
     '-vf', `scale=${width}:-2`, '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '4', '-'], { binary: true });
 }
 
+const silenceCache = new Map();
 function silenceMap(file) {
+  const key = `${file}:${statSync(file).mtimeMs}`;
+  if (!silenceCache.has(key)) silenceCache.set(key, silenceMapUncached(file));
+  return silenceCache.get(key);
+}
+function silenceMapUncached(file) {
   const r = spawnSync(FFMPEG, ['-v', 'info', '-i', file, '-af', 'silencedetect=noise=-35dB:d=0.7', '-vn', '-f', 'null', '-'],
     { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const out = [];
@@ -574,7 +580,7 @@ const TOOLS = {
       type: 'object',
       properties: {
         project_path: { type: 'string' }, video_path: { type: 'string' },
-        kinds: { type: 'array', items: { type: 'string', enum: ['retake', 'silence', 'privacy'] }, description: 'Default: all three' },
+        kinds: { type: 'array', items: { type: 'string', enum: ['retake', 'silence', 'privacy', 'filler'] }, description: 'Default: retake, silence, privacy. Add filler to also cut um/uh/אה/אמ words' },
         min_silence: { type: 'number', description: 'Shortest silence to propose, seconds (default 3)' },
         breath: { type: 'number', description: 'Seconds of quiet kept each side of a silence cut (default 0.4)' },
         similarity: { type: 'number', description: 'Retake match 0-1, word overlap (default 0.6)' },
@@ -639,6 +645,16 @@ const TOOLS = {
               break;
             }
           }
+        }
+      }
+      if (kinds.has('filler') && args.project_path) {
+        const dd = loadProject(resolve(args.project_path));
+        const fps = dd.settings?.frameRate ?? 30;
+        const rxFiller = /^(u+h+m*|u+m+|e+r+m*|h+m+|אה+|אמ+|אההה*|אממ+|הממ+|ארר*)$/i;
+        for (const w of dd.transcript?.words ?? []) {
+          const word = String(w.text ?? w.word ?? '').replace(/[^\p{L}]/gu, '');
+          if (!rxFiller.test(word)) continue;
+          out.push({ startSec: +(w.startFrame / fps).toFixed(2), endSec: +(w.endFrame / fps).toFixed(2), kind: 'filler', reason: `filler word "${word}"` });
         }
       }
       out.sort((x, y) => x.startSec - y.startSec);
@@ -707,7 +723,14 @@ const TOOLS = {
         cur.e = w.e; cur.t.push(w.w);
       }
       if (cur) lines.push(cur);
-      return text(lines.map((l) => `[${l.s.toFixed(1)}-${l.e.toFixed(1)}] ${l.t.join(' ')}`).join('\n') || 'No words in that range.');
+      let silences = [];
+      try { silences = silenceMap(videoFileFor(args)); } catch { /* no audio file: no flags */ }
+      // A line that sits (almost) entirely inside measured silence is words the speech model invented.
+      const doubtful = (l) => {
+        const covered = silences.reduce((n, st) => n + Math.max(0, Math.min(st.to, l.e) - Math.max(st.from, l.s)), 0);
+        return l.e > l.s && covered / (l.e - l.s) >= 0.8;
+      };
+      return text(lines.map((l) => `[${l.s.toFixed(1)}-${l.e.toFixed(1)}]${doubtful(l) ? ' (?silent: probably not real speech)' : ''} ${l.t.join(' ')}`).join('\n') || 'No words in that range.');
     },
   },
   undo_edit: {
