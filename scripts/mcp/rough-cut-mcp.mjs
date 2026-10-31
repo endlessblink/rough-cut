@@ -863,7 +863,21 @@ async function handle(req) {
       }
     }
     if (method === 'prompts/list') {
-      return send({ jsonrpc: '2.0', id, result: { prompts: [{ name: 'watch_and_discuss', description: 'Watch a video, then talk it through with the user and suggest or make edits.', arguments: [{ name: 'path', description: 'Project (.roughcut) or video file', required: true }] }] } });
+      return send({ jsonrpc: '2.0', id, result: { prompts: [{ name: 'watch_and_discuss', description: 'Watch a video, then talk it through with the user and suggest or make edits.', arguments: [{ name: 'path', description: 'Project (.roughcut) or video file', required: true }] }, { name: 'edit_recording', description: 'Edit a raw recording end to end: remove retakes, silences and private screens, check it, hand it over for one-click review.', arguments: [{ name: 'path', description: 'Project (.roughcut)', required: true }] }] } });
+    }
+    if (method === 'prompts/get' && params?.name === 'edit_recording') {
+      const p = params?.arguments?.path ?? '';
+      const steps = [
+        `Edit this recording end to end: ${p}`,
+        'Edits go only to the edit copy and the Agent edits list; the original never changes.',
+        '1. video_digest (project_path), then transcribe if there is no transcript.',
+        '2. suggest_cuts with kinds retake, silence, privacy (add filler only if I ask). Proposals only.',
+        '3. Check retakes and any line marked "?silent" with get_transcript (from/to); drop proposals you doubt. Privacy cuts: confirm with look_at.',
+        '4. make_edit_copy, then ONE apply_edits with the cuts you trust (source seconds; overlaps are merged).',
+        '5. review_edit (render:true). Fix anything it reports (stray clips, black frames) and re-check.',
+        '6. Tell me in 2-3 plain sentences what was cut and the new length. I take the edits in from Dev menu > Agent edits.',
+      ];
+      return send({ jsonrpc: '2.0', id, result: { messages: [{ role: 'user', content: { type: 'text', text: steps.join('\n') } }] } });
     }
     if (method === 'prompts/get') {
       const p = params?.arguments?.path ?? '';
