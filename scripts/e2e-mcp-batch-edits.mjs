@@ -90,6 +90,9 @@ try {
   const minAfter = Math.min(...doc.timeline.tracks.flatMap((t) => t.clips.map((c) => c.timelineOut - c.timelineIn)));
   check(minAfter > 3, `no stray clip after the batch (smallest ${minAfter} frames)`);
   check(JSON.stringify(batch).length < 300, 'batch reply is short');
+
+  const rev = await call('review_edit', { project_path: projectPath, render: true });
+  check(rev.pass === true && rev.joins.length === 2 && rev.draftChecked === true, `review_edit passes a clean edit and lists the joins (${JSON.stringify(rev)})`);
 } finally {
   server.kill();
 }

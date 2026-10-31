@@ -646,6 +646,39 @@ const TOOLS = {
       return text({ suggestions: out.length, totalSec: +total.toFixed(1), note: 'Proposals only. Overlaps are fine: apply_edits merges them. Check retakes against get_transcript before applying.', cuts: out });
     },
   },
+  review_edit: {
+    description: 'Check an edit copy before showing it to the user. Structure: slivers under 4 frames, gaps or overlaps between clips on a track, tracks of different length. With render:true also renders a draft and looks for black frames. Returns pass/fail lines and the join times (seconds in the edit) so you can look_at each join. Short reply.',
+    inputSchema: { type: 'object', properties: { project_path: { type: 'string' }, render: { type: 'boolean', description: 'Also render a draft and scan it for black frames (slower)' } }, required: ['project_path'] },
+    async handler({ project_path, render }) {
+      const copy = editCopyPath(resolve(project_path));
+      const src = existsSync(copy) ? copy : resolve(project_path);
+      const s = summarise(src);
+      const problems = [];
+      const joins = new Set();
+      for (const t of s.tracks) {
+        const clips = [...t.clips].sort((a, b) => a.timelineIn - b.timelineIn);
+        clips.forEach((c, i) => {
+          if (c.timelineOut - c.timelineIn < 4) problems.push(`${t.name ?? t.id}: sliver of ${c.timelineOut - c.timelineIn} frames at ${c.startSec}s`);
+          const next = clips[i + 1];
+          if (next) {
+            if (next.timelineIn > c.timelineOut) problems.push(`${t.name ?? t.id}: gap ${((next.timelineIn - c.timelineOut) / s.fps).toFixed(2)}s at ${c.endSec}s`);
+            if (next.timelineIn < c.timelineOut) problems.push(`${t.name ?? t.id}: overlap at ${next.startSec}s`);
+            if (next.sourceIn !== c.sourceOut || next.mediaId !== c.mediaId) joins.add(+c.endSec.toFixed(2));
+          }
+        });
+      }
+      const ends = s.tracks.filter((t) => t.clips.length).map((t) => Math.max(...t.clips.map((c) => c.timelineOut)));
+      if (ends.length && Math.max(...ends) - Math.min(...ends) > 2) problems.push(`tracks end at different times (${ends.map((e) => (e / s.fps).toFixed(1)).join(', ')}s)`);
+      let black = null;
+      if (render) {
+        const made = JSON.parse((await TOOLS.export_draft.handler({ project_path: src })).content[0].text);
+        const r = spawnSync(FFMPEG, ['-v', 'info', '-i', made.draft, '-an', '-vf', 'blackdetect=d=0.1:pix_th=0.05', '-f', 'null', '-'], { encoding: 'utf8' });
+        black = [...(r.stderr ?? '').matchAll(/black_start:([\d.]+) black_end:([\d.]+)/g)].map((m) => ({ from: +m[1], to: +m[2] }));
+        if (black.length) problems.push(`black frames: ${black.map((b) => `${b.from}-${b.to}s`).join(', ')}`);
+      }
+      return text({ pass: problems.length === 0, durationSec: s.durationSec, joins: [...joins].sort((a, b) => a - b), problems, ...(black ? { draftChecked: true } : {}) });
+    },
+  },
   get_transcript: {
     description: 'The spoken words as short lines "[start-end] text" in seconds of the ORIGINAL recording, from the project transcript (or the cache). Optional from/to (seconds) to read one stretch. Lines split at pauses over 0.6s. Text over a stretch that is really silent can be wrong (the local speech model sometimes invents words over quiet parts): compare with video_digest silentStretches before trusting a short line.',
     inputSchema: {
