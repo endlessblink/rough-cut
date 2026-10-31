@@ -1,0 +1,91 @@
+// Gate for the AI-editing helpers of the rough-cut MCP, over JSON-RPC to the real server:
+//   get_transcript (short lines), apply_edit (short receipt), apply_edits (batch, merged, back to front),
+//   and no stray 1-3 frame clip left when a cut stops a hair short of the end.
+// Generated project: 20 s blue screen with a tone and a transcript injected into the project file.
+// Usage: node scripts/e2e-mcp-batch-edits.mjs   (no display needed)
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
+
+const FFMPEG = process.env.ROUGH_CUT_FIXTURE_FFMPEG ?? 'ffmpeg-safe';
+const root = await mkdtemp(join(tmpdir(), 'rough-cut-mcp-batch-'));
+const screenPath = join(root, 'screen.mp4');
+const fx = spawnSync(FFMPEG, ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=1280x720:r=30', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+  '-t', '20', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '15', '-c:a', 'aac', '-shortest', '-threads', '2', screenPath], { encoding: 'utf8' });
+if (fx.status !== 0) throw new Error(fx.stderr);
+
+const saved = await saveProjectForRecording({
+  startedAt: '2026-01-01T00:00:00.000Z', stoppedAt: '2026-01-01T00:00:20.000Z',
+  rawPath: screenPath, outputPath: screenPath, width: 1280, height: 720, fps: 30,
+  audio: { micSource: 'test' }, camera: null, cursorEvents: [],
+});
+const projectPath = saved.path;
+const doc0 = JSON.parse(await readFile(projectPath, 'utf8'));
+const w = (word, a, b) => ({ word, startFrame: Math.round(a * 30), endFrame: Math.round(b * 30), confidence: 0.9 });
+doc0.transcript = { words: [w('hello', 1, 1.4), w('there', 1.5, 1.9), w('again', 5, 5.4), w('hello', 5.5, 5.9), w('world', 6, 6.4)], paragraphs: [], nonSpeech: [] };
+await writeFile(projectPath, JSON.stringify(doc0));
+
+const failures = [];
+const check = (ok, label) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}`); if (!ok) failures.push(label); };
+
+const server = spawn(process.execPath, ['scripts/mcp/rough-cut-mcp.mjs'], { stdio: ['pipe', 'pipe', 'inherit'] });
+let buffer = '';
+const pending = new Map();
+server.stdout.on('data', (chunk) => {
+  buffer += chunk;
+  let index;
+  while ((index = buffer.indexOf('\n')) >= 0) {
+    const line = buffer.slice(0, index);
+    buffer = buffer.slice(index + 1);
+    if (line.trim()) { const message = JSON.parse(line); pending.get(message.id)?.(message); pending.delete(message.id); }
+  }
+});
+let nextId = 1;
+const rpc = (method, params) => new Promise((resolve) => {
+  const id = nextId++;
+  pending.set(id, resolve);
+  server.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+});
+const callRaw = async (name, args) => {
+  const reply = await rpc('tools/call', { name, arguments: args });
+  if (reply.error || reply.result?.isError) throw new Error(`${name}: ${JSON.stringify(reply.error ?? reply.result)}`);
+  return reply.result.content.find((item) => item.type === 'text').text;
+};
+const call = async (name, args) => JSON.parse(await callRaw(name, args));
+const copyDoc = async () => JSON.parse(await readFile(projectPath.replace(/\.roughcut$/, '.claude-edit.roughcut'), 'utf8'));
+
+try {
+  await rpc('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
+
+  const lines = await callRaw('get_transcript', { project_path: projectPath });
+  check(lines.split('\n').length === 2 && lines.startsWith('[1.0-1.9] hello there'), `get_transcript gives short lines split at pauses (${JSON.stringify(lines)})`);
+  const part = await callRaw('get_transcript', { project_path: projectPath, from: 4, to: 10 });
+  check(part === '[5.0-6.4] again hello world', `get_transcript from/to reads one stretch (${part})`);
+
+  await call('make_edit_copy', { project_path: projectPath });
+  const one = await call('apply_edit', { project_path: projectPath, op: 'cut_range', startSec: 18, endSec: 19.95 });
+  check(one.ok === true && !one.summary && JSON.stringify(one).length < 300, `apply_edit returns a short receipt (${JSON.stringify(one).length} chars)`);
+  check(Math.abs(one.durationSec - 18) < 0.01, `a cut that stops 0.05 s short of the end is widened to the end (duration ${one.durationSec})`);
+  let doc = await copyDoc();
+  const minClip = Math.min(...doc.timeline.tracks.flatMap((t) => t.clips.map((c) => c.timelineOut - c.timelineIn)));
+  check(minClip > 3, `no stray 1-3 frame clip left (smallest clip ${minClip} frames)`);
+
+  const batch = await call('apply_edits', { project_path: projectPath, ops: [
+    { op: 'cut_range', startSec: 10, endSec: 12 },
+    { op: 'cut_range', startSec: 2, endSec: 4 },
+    { op: 'cut_range', startSec: 11.5, endSec: 13 },
+    { op: 'cut_range', startSec: 0, endSec: 0.05 },
+  ] });
+  check(batch.cuts === 3 && Math.abs(batch.removedSec - (0.05 + 2 + 3)) < 0.01, `batch merges overlapping cuts (${batch.cuts} cuts, ${batch.removedSec} s removed)`);
+  check(Math.abs(batch.durationAfterSec - (18 - 5.05)) < 0.02, `batch result is the right length (${batch.durationAfterSec} s)`);
+  doc = await copyDoc();
+  const minAfter = Math.min(...doc.timeline.tracks.flatMap((t) => t.clips.map((c) => c.timelineOut - c.timelineIn)));
+  check(minAfter > 3, `no stray clip after the batch (smallest ${minAfter} frames)`);
+  check(JSON.stringify(batch).length < 300, 'batch reply is short');
+} finally {
+  server.kill();
+}
+if (failures.length) { console.error(`\n${failures.length} check(s) failed`); process.exit(1); }
+console.log('\nall checks passed');

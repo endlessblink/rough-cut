@@ -440,6 +440,7 @@ const TOOLS = {
         mode: { type: 'string', description: 'insert_clip: insert|overwrite. add_voice_over / set_voice_over_mode: replace|over' },
         edge: { type: 'string', enum: ['head', 'tail'] },
         captions: { type: 'boolean' }, camera: { type: 'boolean' },
+        verbose: { type: 'boolean', description: 'Return the whole timeline instead of a one-line receipt (large).' },
       },
       required: ['project_path', 'op'],
     },
@@ -460,8 +461,12 @@ const TOOLS = {
       };
       let edit;
       if (a.op === 'cut_range') {
-        const s = frame(a.startSec), e = frame(a.endSec);
+        let s = frame(a.startSec), e = frame(a.endSec);
         if (!(e > s)) throw new Error('endSec must be after startSec');
+        // A cut that stops a hair short of the start or end would leave a stray 1-3 frame clip: widen it to the edge.
+        const endFrame = Math.max(0, ...doc.timeline.tracks.flatMap((t) => t.clips.map((c) => c.timelineOut)));
+        if (s <= 3) s = 0;
+        if (e >= endFrame - 3) e = endFrame;
         edit = { op: 'cut_range', startFrame: s, endFrame: e };
       } else if (a.op === 'split') {
         const track = doc.timeline.tracks.find((item) => item.clips.some((clip) => clip.id === a.clipId));
@@ -505,7 +510,76 @@ const TOOLS = {
       const journal = readJournal(copy);
       journal.entries.push({ id: randomUUID(), at: new Date().toISOString(), edit, label: M.describeAgentEdit(edit, fps) });
       writeJournal(copy, journal);
-      return text({ ok: true, summary: summarise(copy) });
+      // A short receipt by default: the full timeline is thousands of tokens and grows with every edit.
+      if (a.verbose) return text({ ok: true, summary: summarise(copy) });
+      const s = summarise(copy);
+      return text({ ok: true, op: a.op, edit: journal.entries.at(-1).label, durationSec: s.durationSec, clips: s.tracks.reduce((n, t) => n + t.clips.length, 0) });
+    },
+  },
+  apply_edits: {
+    description: 'Apply many edits to the project COPY in one call. Give ops (same fields as apply_edit). All cut_range ops use seconds of the copy as it is NOW (before this call); the server merges overlapping or touching cuts and applies them from the end backwards so nothing shifts, then applies any other ops in the order given. Returns one short receipt. Cuts that would leave under 0.1s at the very start or end are widened to the edge.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: { type: 'string' },
+        ops: { type: 'array', items: { type: 'object', description: 'An apply_edit op: {op, startSec, endSec, ...}' } },
+      },
+      required: ['project_path', 'ops'],
+    },
+    async handler({ project_path, ops }) {
+      if (!Array.isArray(ops) || !ops.length) throw new Error('ops must be a non-empty list');
+      const cuts = ops.filter((o) => o.op === 'cut_range').map((o) => ({ s: o.startSec, e: o.endSec }))
+        .sort((x, y) => x.s - y.s);
+      const merged = [];
+      for (const c of cuts) {
+        if (!(c.e > c.s)) throw new Error(`Bad cut ${c.s}-${c.e}: endSec must be after startSec`);
+        const last = merged.at(-1);
+        if (last && c.s <= last.e) last.e = Math.max(last.e, c.e); else merged.push({ ...c });
+      }
+      const before = summarise(editCopyPath(resolve(project_path))).durationSec;
+      let removed = 0;
+      for (const c of merged.reverse()) {
+        await TOOLS.apply_edit.handler({ project_path, op: 'cut_range', startSec: c.s, endSec: c.e });
+        removed += c.e - c.s;
+      }
+      let others = 0;
+      for (const o of ops.filter((x) => x.op !== 'cut_range')) {
+        await TOOLS.apply_edit.handler({ ...o, project_path });
+        others += 1;
+      }
+      const after = summarise(editCopyPath(resolve(project_path))).durationSec;
+      return text({ ok: true, cuts: merged.length, otherOps: others, removedSec: +removed.toFixed(2), durationBeforeSec: before, durationAfterSec: after });
+    },
+  },
+  get_transcript: {
+    description: 'The spoken words as short lines "[start-end] text" in seconds of the ORIGINAL recording, from the project transcript (or the cache). Optional from/to (seconds) to read one stretch. Lines split at pauses over 0.6s. Text over a stretch that is really silent can be wrong (the local speech model sometimes invents words over quiet parts): compare with video_digest silentStretches before trusting a short line.',
+    inputSchema: {
+      type: 'object',
+      properties: { project_path: { type: 'string' }, video_path: { type: 'string' }, from: { type: 'number' }, to: { type: 'number' } },
+    },
+    async handler(args) {
+      let words;
+      if (args.project_path) {
+        const d = loadProject(resolve(args.project_path));
+        const fps = d.settings?.frameRate ?? 30;
+        words = (d.transcript?.words ?? []).map((w) => ({ s: w.startFrame / fps, e: w.endFrame / fps, w: w.text ?? w.word }));
+      }
+      if (!words?.length) {
+        const have = cachedTranscript(args, videoFileFor(args));
+        if (!have) return text('No transcript yet. Run transcribe first.');
+        words = have.words.map((w, i, all) => ({ s: w.t, e: all[i + 1]?.t ?? w.t + 0.4, w: w.w }));
+      }
+      const from = args.from ?? 0, to = args.to ?? Infinity;
+      const lines = [];
+      let cur = null;
+      for (const w of words) {
+        if (w.s < from || w.s >= to) continue;
+        if (cur && w.s - cur.e > 0.6) { lines.push(cur); cur = null; }
+        if (!cur) cur = { s: w.s, e: w.e, t: [] };
+        cur.e = w.e; cur.t.push(w.w);
+      }
+      if (cur) lines.push(cur);
+      return text(lines.map((l) => `[${l.s.toFixed(1)}-${l.e.toFixed(1)}] ${l.t.join(' ')}`).join('\n') || 'No words in that range.');
     },
   },
   undo_edit: {
