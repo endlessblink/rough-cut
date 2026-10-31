@@ -24,7 +24,9 @@ const saved = await saveProjectForRecording({
 const projectPath = saved.path;
 const doc0 = JSON.parse(await readFile(projectPath, 'utf8'));
 const w = (word, a, b) => ({ word, startFrame: Math.round(a * 30), endFrame: Math.round(b * 30), confidence: 0.9 });
-doc0.transcript = { words: [w('hello', 1, 1.4), w('there', 1.5, 1.9), w('again', 5, 5.4), w('hello', 5.5, 5.9), w('world', 6, 6.4)], paragraphs: [], nonSpeech: [] };
+doc0.transcript = { words: [w('hello', 1, 1.4), w('there', 1.5, 1.9), w('again', 5, 5.4), w('hello', 5.5, 5.9), w('world', 6, 6.4),
+  ...'we are going to test this thing today'.split(' ').map((x, i) => w(x, 14 + i * 0.25, 14.2 + i * 0.25)),
+  ...'we are going to test this thing today'.split(' ').map((x, i) => w(x, 17 + i * 0.25, 17.2 + i * 0.25))], paragraphs: [], nonSpeech: [] };
 await writeFile(projectPath, JSON.stringify(doc0));
 
 const failures = [];
@@ -60,9 +62,13 @@ try {
   await rpc('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
 
   const lines = await callRaw('get_transcript', { project_path: projectPath });
-  check(lines.split('\n').length === 2 && lines.startsWith('[1.0-1.9] hello there'), `get_transcript gives short lines split at pauses (${JSON.stringify(lines)})`);
+  check(lines.split('\n').length === 4 && lines.startsWith('[1.0-1.9] hello there'), `get_transcript gives short lines split at pauses (${JSON.stringify(lines)})`);
   const part = await callRaw('get_transcript', { project_path: projectPath, from: 4, to: 10 });
   check(part === '[5.0-6.4] again hello world', `get_transcript from/to reads one stretch (${part})`);
+
+  const sug = await call('suggest_cuts', { project_path: projectPath, kinds: ['retake'] });
+  const rt = sug.cuts.find((c) => c.kind === 'retake');
+  check(sug.suggestions === 1 && rt && rt.startSec === 14 && rt.keepFrom === 17, `suggest_cuts finds the earlier of two identical takes (${JSON.stringify(sug.cuts)})`);
 
   await call('make_edit_copy', { project_path: projectPath });
   const one = await call('apply_edit', { project_path: projectPath, op: 'cut_range', startSec: 18, endSec: 19.95 });

@@ -275,24 +275,41 @@ const TOOLS = {
         project_path: { type: 'string' }, video_path: { type: 'string' },
         sensitivity: { type: 'number', description: 'Scene-change threshold 0.05-0.6 (default 0.2; lower finds more scenes)' },
         rebuild: { type: 'boolean' }, sheet: { type: 'boolean', description: 'Include the contact sheet image (default true)' },
+        scene_from: { type: 'number', description: 'First scene to show (default 0). The reply shows 20 scenes at a time; use scene_from/scene_to to page.' },
+        scene_to: { type: 'number', description: 'Scene index to stop before (default scene_from + 20)' },
+        ocr_chars: { type: 'number', description: 'Max on-screen text characters per scene (default 160)' },
+        min_silence: { type: 'number', description: 'Only list silences of at least this many seconds (default 1.0); nearby ones are merged' },
       },
     },
     async handler(args) {
       const file = videoFileFor(args);
       const d = buildDigest(file, { threshold: args.sensitivity ?? 0.2, force: !!args.rebuild });
       const tr = cachedTranscript(args, file);
-      const lines = d.scenes.map((s) => `#${s.index} ${s.from}s–${s.to}s${s.onScreenText ? `  screen: ${s.onScreenText}` : ''}`);
+      // Keep the reply small: a page of scenes, short on-screen text, and silences merged and over a minimum length.
+      const from = Math.max(0, args.scene_from ?? 0);
+      const to = Math.min(d.scenes.length, args.scene_to ?? from + 20);
+      const page = d.scenes.slice(from, to);
+      const ocrChars = args.ocr_chars ?? 160;
+      const lines = page.map((s) => `#${s.index} ${s.from}s–${s.to}s${s.onScreenText ? `  screen: ${s.onScreenText.slice(0, ocrChars)}` : ''}`);
+      const minSilence = args.min_silence ?? 1.0;
+      const silences = [];
+      for (const st of d.silentStretches) {
+        const last = silences.at(-1);
+        if (last && st.from - last.to <= 0.3) last.to = st.to; else silences.push({ from: st.from, to: st.to });
+      }
+      const longSilences = silences.filter((st) => st.to - st.from >= minSilence);
       const content = [{ type: 'text', text: JSON.stringify({
         file: d.file, duration: d.duration, width: d.width, height: d.height, hasAudio: d.hasAudio,
-        cached: d.cached, sceneCount: d.sceneCount, silentStretches: d.silentStretches,
+        cached: d.cached, sceneCount: d.sceneCount, scenesShown: `${from}-${to - 1}`,
+        silentStretches: longSilences, silenceNote: `merged, only stretches of ${minSilence}s or more (${longSilences.length} of ${silences.length}); set min_silence to change`,
         transcript: tr ? `${tr.source} (${tr.words?.length ?? 0} words, use get_transcript)` : 'none yet (see transcribe)',
-      }) + `\n\nScenes:\n${lines.join('\n')}` }];
+      }) + `\n\nScenes${to < d.scenes.length ? ` (more: call again with scene_from=${to})` : ''}:\n${lines.join('\n')}` }];
       if (args.sheet !== false) {
-        const imgs = d.scenes.map((s) => s.image);
+        const imgs = page.map((s) => s.image);
         for (let i = 0; i < imgs.length; i += 12) {
           const jpg = montage(imgs.slice(i, i + 12));
           if (jpg) {
-            content.push({ type: 'text', text: `Contact sheet, scenes #${i}–#${Math.min(i + 11, imgs.length - 1)} (left to right, top to bottom)` });
+            content.push({ type: 'text', text: `Contact sheet, scenes #${from + i}–#${from + Math.min(i + 11, imgs.length - 1)} (left to right, top to bottom)` });
             content.push({ type: 'image', data: jpg.toString('base64'), mimeType: 'image/jpeg' });
           }
         }
@@ -549,6 +566,84 @@ const TOOLS = {
       }
       const after = summarise(editCopyPath(resolve(project_path))).durationSec;
       return text({ ok: true, cuts: merged.length, otherOps: others, removedSec: +removed.toFixed(2), durationBeforeSec: before, durationAfterSec: after });
+    },
+  },
+  suggest_cuts: {
+    description: 'PROPOSE cuts (nothing is changed): repeated takes, long silences and screens that show private things. Returns a short list [{startSec,endSec,kind,reason}] in seconds of the ORIGINAL recording, sorted, ready to pass as cut_range ops to apply_edits after you check them. kinds: retake (an earlier version of a sentence that is said again later; the LAST take is kept), silence (a quiet stretch over min_silence, trimmed to keep a short breath each side), privacy (a scene whose on-screen text looks like an email address, inbox, account chooser or password field; cut or blur it). Silences are only proposed where the picture is also still (no scene change inside), so a silent demo is kept. Needs a project transcript for retakes (see get_transcript).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: { type: 'string' }, video_path: { type: 'string' },
+        kinds: { type: 'array', items: { type: 'string', enum: ['retake', 'silence', 'privacy'] }, description: 'Default: all three' },
+        min_silence: { type: 'number', description: 'Shortest silence to propose, seconds (default 3)' },
+        breath: { type: 'number', description: 'Seconds of quiet kept each side of a silence cut (default 0.4)' },
+        similarity: { type: 'number', description: 'Retake match 0-1, word overlap (default 0.6)' },
+      },
+    },
+    async handler(args) {
+      const kinds = new Set(args.kinds ?? ['retake', 'silence', 'privacy']);
+      const file = videoFileFor(args);
+      const d = buildDigest(file, {});
+      const out = [];
+      if (kinds.has('privacy')) {
+        const rx = [/[\w.+-]+@[\w-]+\.[\w.]+/i, /choose an account/i, /\binbox\b/i, /gmail/i, /\bpassword\b/i, /confirmation (link|instructions)/i];
+        for (const s of d.scenes) {
+          const hit = rx.find((r) => r.test(s.onScreenText ?? ''));
+          if (hit) out.push({ startSec: s.from, endSec: s.to, kind: 'privacy', reason: `on-screen text matches ${hit}` });
+        }
+      }
+      if (kinds.has('silence')) {
+        const minSil = args.min_silence ?? 3, breath = args.breath ?? 0.4;
+        const sil = [];
+        for (const st of d.silentStretches) {
+          const last = sil.at(-1);
+          if (last && st.from - last.to <= 0.3) last.to = st.to; else sil.push({ from: st.from, to: st.to });
+        }
+        // Is the picture frozen for (nearly) the whole stretch? If anything moves (an animation playing, a video), keep it.
+        const pictureStill = (a, b) => {
+          const r = spawnSync(FFMPEG, ['-v', 'info', '-ss', String(a), '-t', String(b - a), '-i', file, '-an', '-vf', `scale=320:-2,freezedetect=n=0.02:d=${((b - a) * 0.8).toFixed(2)}`, '-f', 'null', '-'], { encoding: 'utf8' });
+          const m = /freeze_duration: ([\d.]+)/.exec(r.stderr ?? '');
+          return Boolean(m) && Number(m[1]) >= (b - a) * 0.8;
+        };
+        for (const st of sil) {
+          if (st.to - st.from < minSil) continue;
+          if (!pictureStill(st.from, st.to)) continue;
+          out.push({ startSec: +(st.from + breath).toFixed(2), endSec: +(st.to - breath).toFixed(2), kind: 'silence', reason: `${(st.to - st.from).toFixed(1)}s of silence, picture still` });
+        }
+      }
+      if (kinds.has('retake') && args.project_path) {
+        const dd = loadProject(resolve(args.project_path));
+        const fps = dd.settings?.frameRate ?? 30;
+        const words = (dd.transcript?.words ?? []).map((w) => ({ s: w.startFrame / fps, e: w.endFrame / fps, w: String(w.text ?? w.word) }));
+        const chunks = [];
+        let cur = null;
+        for (const w of words) {
+          if (cur && w.s - cur.e > 0.6) { chunks.push(cur); cur = null; }
+          if (!cur) cur = { s: w.s, e: w.e, t: [] };
+          cur.e = w.e; cur.t.push(w.w);
+        }
+        if (cur) chunks.push(cur);
+        const norm = (c) => new Set(c.t.join(' ').replace(/[^\p{L}\p{N} ]/gu, '').split(/\s+/).filter((x) => x.length > 1));
+        const sets = chunks.map(norm);
+        const thr = args.similarity ?? 0.6;
+        const silent = (a, b) => d.silentStretches.some((st) => st.from <= a + 0.2 && st.to >= b - 0.2);
+        for (let i = 0; i < chunks.length; i += 1) {
+          if (sets[i].size < 4 || silent(chunks[i].s, chunks[i].e)) continue;
+          // Is a nearby later chunk (within 90 s) a repeat of this one? Then this is the earlier take: propose cutting just this take.
+          for (let j = i + 1; j < chunks.length && chunks[j].s - chunks[i].e < 90; j += 1) {
+            const inter = [...sets[i]].filter((x) => sets[j].has(x)).length;
+            const score = inter / Math.min(sets[i].size, sets[j].size);
+            if (score >= thr) {
+              const end = Math.min(chunks[i + 1].s - 0.05, chunks[i].e + 1.5);
+              out.push({ startSec: +chunks[i].s.toFixed(2), endSec: +Math.max(chunks[i].e, end).toFixed(2), kind: 'retake', reason: `said again at ${chunks[j].s.toFixed(1)}s (${Math.round(score * 100)}% same words); last take kept`, keepFrom: +chunks[j].s.toFixed(2) });
+              break;
+            }
+          }
+        }
+      }
+      out.sort((x, y) => x.startSec - y.startSec);
+      const total = out.reduce((n, c) => n + (c.endSec - c.startSec), 0);
+      return text({ suggestions: out.length, totalSec: +total.toFixed(1), note: 'Proposals only. Overlaps are fine: apply_edits merges them. Check retakes against get_transcript before applying.', cuts: out });
     },
   },
   get_transcript: {
