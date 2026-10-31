@@ -666,8 +666,9 @@ export function DevMediaMenu({
           )}
           {agentNote ? <p className="devPanelNote" role="status">{agentNote}</p> : null}
           <div className="devChoiceRow devTakeActions">
-            <button type="button" className="devAgentApply" data-agent-edits-apply="true" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void takeInAgentEdits()}>Take in selected</button>
-            <button type="button" className="devTextButton" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void skipAgentEdits()}>Skip</button>
+            <button type="button" className="devAgentApply" data-agent-edits-apply="true" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void takeInAgentEdits()}>{agentSelected.size === agentEdits.length && agentEdits.length > 0 ? 'Take in all' : 'Take in selected'}</button>
+            <button type="button" className="devTextButton" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void skipAgentEdits()}>{agentSelected.size === agentEdits.length && agentEdits.length > 0 ? 'Skip all' : 'Skip selected'}</button>
+            <button type="button" className="devTextButton" disabled={agentEdits.length === 0} onClick={() => setAgentSelected(agentSelected.size === agentEdits.length ? new Set() : new Set(agentEdits.map((entry) => entry.id)))}>{agentSelected.size === agentEdits.length ? 'Untick all' : 'Tick all'}</button>
             <button type="button" className="devTextButton" onClick={() => setPanel('none')}>Close</button>
           </div>
         </div>
