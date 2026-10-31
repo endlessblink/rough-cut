@@ -76,6 +76,7 @@ import {
   trimInsertedClip,
   setVoiceOverMode,
   type InsertedClipView,
+  getVoiceCleanAmount,
 } from '@rough-cut/project-model';
 import { DevMediaMenu, useDevFeatures, type TakeRange } from './dev-media-tools';
 import { getCameraLayoutRect, resolveFrame, resolveFramedCrop } from '@rough-cut/frame-resolver';
@@ -96,6 +97,7 @@ import { isBackgroundGridOn } from '../../shared/background-grid.mjs';
 import { ExportDestination } from './export-destination';
 import { addGraphic, dragGraphicRange, graphicLaneRows, listGraphics, reorderGraphic, moveGraphic, removeGraphic, replaceGraphicContent, requestMentionsTime, setGraphicAnimate, setGraphicLayout, setGraphicTiming, updateGraphicFields, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
+import { VoiceCleanContext, VoiceCleanPanel, useVoiceCleanController, type VoiceCleanBridge } from './voice-clean-panel';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
@@ -244,6 +246,10 @@ declare global {
         reused: boolean;
       }>;
       cancelStabilization: (jobId: string) => Promise<{ cancelled: boolean }>;
+      getVoiceCleanStatus: VoiceCleanBridge['getVoiceCleanStatus'];
+      startVoiceClean: VoiceCleanBridge['startVoiceClean'];
+      cancelVoiceClean: VoiceCleanBridge['cancelVoiceClean'];
+      onVoiceCleanProgress: VoiceCleanBridge['onVoiceCleanProgress'];
       getStabilizationSupport: () => Promise<{ supported: boolean; reason?: string | null }>;
       onStabilizationProgress: (
         callback: (progress: {
@@ -332,7 +338,7 @@ type ProjectState = {
     id: string;
     name: string;
     composition: { duration: number; tracks?: Array<{ clips?: Array<{ assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>> } & Record<string, unknown>> };
-    settings?: { aspectRatio?: ProjectAspectRatio };
+    settings?: { aspectRatio?: ProjectAspectRatio; voiceClean?: { amount: number } };
   assets?: Array<{ id?: string; type?: string; cameraAssetId?: string | null; presentation?: { background?: RecordingBackgroundStyle } & Record<string, unknown> } & Record<string, unknown>>;
   };
   recording: null | { filePath: string; duration: number; width: number; height: number; fps: number; audio?: unknown; camera?: { width?: number; height?: number; sourceInFrames?: number } & Record<string, unknown> };
@@ -3802,6 +3808,7 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
       <aside className="setupBoard studioPane" aria-label="Captions board">
         {project?.recording && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="captions-control-panel">
+            <VoiceCleanPanel disabled={disabled} />
             <CaptionsPanel project={project} onProjectChange={onProjectChange} />
           </div>
         ) : null}
@@ -4550,6 +4557,17 @@ function ProjectPreview({
       setIsSaving(false);
     }
   }
+
+  // Clean voice: Amount is a project setting saved (with undo) through persist;
+  // while the slider moves only the live preview mix changes.
+  const voiceClean = useVoiceCleanController({
+    sourcePath: project.recording?.filePath ?? null,
+    savedAmount: getVoiceCleanAmount(project.document.settings),
+    onCommitAmount: (amount) => {
+      const latest = latestProjectRef.current.document;
+      void persist({ ...latest, settings: { ...latest.settings, voiceClean: { amount: Math.round(amount * 100) / 100 } } });
+    },
+  });
 
   async function updateAspectRatio(nextAspectRatio: ProjectAspectRatio) {
     if (nextAspectRatio === aspectRatio) return;
@@ -5519,6 +5537,7 @@ function ProjectPreview({
 
   return (
     <CaptionSelectionContext.Provider value={captionSelectionValue}>
+    <VoiceCleanContext.Provider value={voiceClean}>
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace"  onKeyDown={handleEditorKeyDown} data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
       <ToolRail active={activeTool} onSelect={onActiveToolChange} panelOpen={setupBoardOpen} onTogglePanel={onSetupBoardToggle} />
       {activeTool === 'graphics' ? (
@@ -5541,7 +5560,7 @@ function ProjectPreview({
         <h2 className="srOnly">{project.document.name}</h2>
         {project.mediaUrl ? <GraphicsOverlay stageRef={graphicsStageRef} graphics={graphics} currentTimeSec={currentTimeSec} fps={graphicsFps} canvasWidth={graphicsCanvas.width} canvasHeight={graphicsCanvas.height} selectedGraphicId={selectedGraphicId} editable={!previewPlaying} onLayoutChange={changeGraphicLayout} onSelect={selectGraphic} /> : null}
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} isPlaying={takePlayback ? takePlayback.playing : undefined} audioMuted={Boolean(takePlayback?.muted)} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
+          <VideoPreview project={effectiveProject} isPlaying={takePlayback ? takePlayback.playing : undefined} audioMuted={Boolean(takePlayback?.muted)} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} voiceClean={voiceClean.preview} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets).
           <section className="projectPreviewEmpty" data-testid="project-preview-empty" aria-label="Blank project empty state">
@@ -5620,6 +5639,7 @@ function ProjectPreview({
         {saveError ? <p className="error">{saveError}</p> : null}
       </aside>
     </section>
+    </VoiceCleanContext.Provider>
     </CaptionSelectionContext.Provider>
   );
 }

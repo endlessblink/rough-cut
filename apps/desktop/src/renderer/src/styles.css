@@ -3064,6 +3064,16 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .capMessage { color: var(--muted); font-size: var(--text-xs); margin: 0; }
 .capMessage.error { color: #f6a6a6; }
 
+/* Clean voice sits above Captions in the same board: same flat skin; the board
+ * stack draws the divider between them. */
+.voiceClean { flex: none; gap: var(--space-2); padding-bottom: var(--space-1); }
+.voiceClean .capHead { padding-bottom: 0; }
+.voiceCleanState { color: var(--muted); font-size: var(--text-xs); }
+.voiceClean[data-voice-clean-state="ready"] .voiceCleanState { color: var(--text); }
+.voiceCleanStart { align-items: center; display: flex; gap: var(--space-3); justify-content: space-between; }
+.voiceCleanStart .capMessage { flex: 1; }
+.voiceCleanStart button { flex: none; }
+
 .capList {
   border-top: 1px solid var(--line);
   list-style: none;

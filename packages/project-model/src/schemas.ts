@@ -53,6 +53,17 @@ export const BackgroundConfigSchema = z.object({
 
 // --- Project Settings ---
 
+// Clean voice mix (0 = original only, 1 = cleaned only). Absent means 0, so
+// documents saved before this field load and play exactly as before. A bad
+// value is clamped or dropped instead of failing the whole project load.
+export const VoiceCleanSettingsSchema = z.object({
+  amount: z
+    .number()
+    .finite()
+    .catch(0)
+    .transform((value) => Math.max(0, Math.min(1, value))),
+});
+
 export const ProjectSettingsSchema = z.object({
   resolution: ResolutionSchema,
   frameRate: FrameRateSchema,
@@ -62,6 +73,7 @@ export const ProjectSettingsSchema = z.object({
   backgroundConfig: BackgroundConfigSchema.optional(),
   recordingDefaults: z.lazy(() => RecordingPresentationSchema).optional(),
   destinationPresetId: z.string().nullable().optional(),
+  voiceClean: VoiceCleanSettingsSchema.optional().catch(undefined),
 });
 
 // --- Asset ---

@@ -4,7 +4,7 @@ import { runAppImageSandboxed, sandboxDisabledByArgs, shouldHandOffAppImage } fr
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
-import { mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -51,6 +51,7 @@ import { createRecordingTemplateOverridesStore, defaultRecordingTemplateOverride
 import { createAiAssetsStore, defaultAiAssetsRoot } from './ai-assets-store.mjs';
 import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import { createStabilizationService } from './stabilization-service.mjs';
+import { createVoiceCleanService, isVoiceCleanSourcePath } from './voice-clean-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
 import { generateGraphic } from './claude-graphics-service.mjs';
 import { typicalClaudeAnswerMs, resolveClaudeBinary } from './claude-cli.mjs';
@@ -262,6 +263,9 @@ const aiAssetsStore = createAiAssetsStore({
 const stabilizationService = createStabilizationService({
   cacheRoot: join(app.getPath('userData'), 'stabilization-cache'),
 });
+// Dev/local only until the ~5 GB Python env is packaged; see voice-clean-service.mjs.
+const voiceCleanService = createVoiceCleanService();
+app.on('will-quit', () => voiceCleanService.cancelAll());
 const recordingStopShortcut = 'CommandOrControl+Shift+R';
 const recordingRestartShortcut = 'CommandOrControl+Shift+N';
 let hiddenRecorderWindow = null;
@@ -1816,6 +1820,52 @@ ipcMain.handle(IPC_CHANNELS.STABILIZATION_PREPARE, async (event, payload = {}) =
     reused: result.reused,
     proxyUrl: toMediaUrl(result.proxyPath),
   };
+});
+async function voiceCleanSourceFrom(payload) {
+  const sourcePath = payload?.sourcePath;
+  if (!isVoiceCleanSourcePath(sourcePath)) return null;
+  try {
+    return (await stat(sourcePath)).isFile() ? sourcePath : null;
+  } catch {
+    return null;
+  }
+}
+function voiceCleanStatusPayload(status) {
+  return {
+    available: status.available,
+    reason: status.reason,
+    state: status.state,
+    phase: status.phase,
+    progress: status.progress,
+    cleanedMediaUrl: status.cleanedPath ? toMediaUrl(status.cleanedPath) : null,
+  };
+}
+ipcMain.handle(IPC_CHANNELS.VOICE_CLEAN_STATUS, async (_event, payload = {}) => {
+  const sourcePath = await voiceCleanSourceFrom(payload);
+  if (!sourcePath) {
+    const { available, reason } = await voiceCleanService.availability();
+    return { available, reason, state: 'none', phase: null, progress: 0, cleanedMediaUrl: null };
+  }
+  return voiceCleanStatusPayload(await voiceCleanService.status({ sourcePath }));
+});
+ipcMain.handle(IPC_CHANNELS.VOICE_CLEAN_START, async (event, payload = {}) => {
+  const sourcePath = await voiceCleanSourceFrom(payload);
+  if (!sourcePath) return { error: { code: 'invalid-source', message: 'This project has no recording sound to clean.' } };
+  try {
+    await voiceCleanService.clean({
+      sourcePath,
+      onProgress: (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.VOICE_CLEAN_PROGRESS, progress);
+      },
+    });
+    return { status: voiceCleanStatusPayload(await voiceCleanService.status({ sourcePath })) };
+  } catch (err) {
+    return { error: { code: err?.code ?? 'failed', message: err?.message ?? String(err) } };
+  }
+});
+ipcMain.handle(IPC_CHANNELS.VOICE_CLEAN_CANCEL, async (_event, payload = {}) => {
+  const sourcePath = await voiceCleanSourceFrom(payload);
+  return { cancelled: sourcePath ? voiceCleanService.cancel({ sourcePath }) : false };
 });
 ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
   const { projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, startSec, spanSec } = payload;

@@ -47,6 +47,10 @@ const IPC_CHANNELS = {
   STABILIZATION_CANCEL: 'stabilization:cancel',
   STABILIZATION_PROGRESS: 'stabilization:progress',
   STABILIZATION_SUPPORT: 'stabilization:support',
+  VOICE_CLEAN_STATUS: 'voice-clean:status',
+  VOICE_CLEAN_START: 'voice-clean:start',
+  VOICE_CLEAN_CANCEL: 'voice-clean:cancel',
+  VOICE_CLEAN_PROGRESS: 'voice-clean:progress',
   EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
   EXPORT_START: 'export:start',
   EXPORT_CANCEL: 'export:cancel',
@@ -262,6 +266,14 @@ contextBridge.exposeInMainWorld('roughCut', {
     const listener = (_event, progress) => callback(progress);
     ipcRenderer.on(IPC_CHANNELS.STABILIZATION_PROGRESS, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.STABILIZATION_PROGRESS, listener);
+  },
+  getVoiceCleanStatus: (payload) => ipcRenderer.invoke(IPC_CHANNELS.VOICE_CLEAN_STATUS, payload),
+  startVoiceClean: (payload) => ipcRenderer.invoke(IPC_CHANNELS.VOICE_CLEAN_START, payload),
+  cancelVoiceClean: (payload) => ipcRenderer.invoke(IPC_CHANNELS.VOICE_CLEAN_CANCEL, payload),
+  onVoiceCleanProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.VOICE_CLEAN_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VOICE_CLEAN_PROGRESS, listener);
   },
   exportProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_START, payload),
   cancelExport: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_CANCEL),

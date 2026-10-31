@@ -44,6 +44,7 @@ import { moveCensorRect, resizeCensorRect } from '../../shared/censor-regions.mj
 import { timelineJoinGain } from '../../shared/timeline-audio-envelope.mjs';
 import { drawBackgroundGrid, isBackgroundGridOn } from '../../shared/background-grid.mjs';
 import { CUT_PREROLL_EARLY_FRAMES, cutPrerollKey, planCutPreroll, standbyAlignedForCut } from './timeline-cut-preroll.mjs';
+import { clampVoiceCleanAmount, createVoiceCleanMixer, type VoiceCleanMixer } from './voice-clean-mix.mjs';
 import { shouldPublishTimelinePlayhead } from './timeline-playhead-publish.mjs';
 import {
   cameraCoversSourceTime,
@@ -520,6 +521,7 @@ export function StyledVideoPreview({
   mediaUrlOverride,
   cameraMediaUrlOverride,
   audioMuted = false,
+  voiceClean = null,
 }: {
   project: StyledPreviewProject;
   seekTimeSec?: number;
@@ -569,6 +571,11 @@ export function StyledVideoPreview({
   cameraMediaUrlOverride?: string | null;
   /** Silence the program (used while recording a pickup over playback). */
   audioMuted?: boolean;
+  /**
+   * Cached clean-voice file (ch0 original voice, ch1 cleaned) and the Amount.
+   * Null, a missing url or amount 0 keeps the old audio path untouched.
+   */
+  voiceClean?: { url: string; amount: number } | null;
 }) {
   // videoRef/cameraVideoRef always point at the program (drawn, audible)
   // element. Each lane has a second, standby decoder so a cut that skips source
@@ -590,6 +597,12 @@ export function StyledVideoPreview({
     targets: Map<HTMLVideoElement, number>;
     master: GainNode;
   } | null>(null);
+  // Clean voice: one hidden <audio> per screen slot, slaved to that slot's
+  // video and mixed by gain only (voice-clean-mix.mjs). Absent unless a cleaned
+  // file exists and Amount > 0.
+  const voiceCleanMixerRef = React.useRef<{ mixer: VoiceCleanMixer; url: string } | null>(null);
+  const voiceCleanRef = React.useRef(voiceClean);
+  voiceCleanRef.current = voiceClean;
   const screenSlotRefCallbacks = React.useMemo(() => ([0, 1] as const).map((slot) => (element: HTMLVideoElement | null) => {
     screenSlotsRef.current[slot] = element;
     if (activeSlotRef.current === slot) videoRef.current = element;
@@ -1201,6 +1214,7 @@ export function StyledVideoPreview({
       }
       previewAudioRef.current = { context, gains, targets, master };
       void context.resume().catch(() => undefined);
+      syncVoiceCleanMixer();
       return previewAudioRef.current;
     } catch (err) {
       recordPlaybackDebug('preview-audio-graph-failed', { message: err instanceof Error ? err.message : String(err) });
@@ -1208,8 +1222,7 @@ export function StyledVideoPreview({
     }
   }
 
-  function setScreenGain(element: HTMLVideoElement | null | undefined, value: number) {
-    if (!element) return;
+  function applyVideoGain(element: HTMLVideoElement, value: number) {
     const audio = previewAudioRef.current;
     const gain = audio?.gains.get(element);
     if (!audio || !gain) {
@@ -1220,6 +1233,58 @@ export function StyledVideoPreview({
     audio.targets.set(element, value);
     gain.gain.setTargetAtTime(value, audio.context.currentTime, 0.004);
   }
+
+  // `value` is the slot's level (cut joins, standby = 0). With clean voice on,
+  // the mixer splits it between the video's own sound and the clean player.
+  function setScreenGain(element: HTMLVideoElement | null | undefined, value: number) {
+    if (!element) return;
+    if (voiceCleanMixerRef.current?.mixer.setSlotGain(element, value)) return;
+    applyVideoGain(element, value);
+  }
+
+  // Creates, retargets or removes the clean-voice mixer. Moving Amount only
+  // reaches setAmount (gain targets); the players are built once per file.
+  function syncVoiceCleanMixer() {
+    const wanted = voiceCleanRef.current;
+    const active = wanted?.url && clampVoiceCleanAmount(wanted.amount) > 0 ? wanted : null;
+    const current = voiceCleanMixerRef.current;
+    if (!active) {
+      if (current) {
+        voiceCleanMixerRef.current = null;
+        current.mixer.dispose();
+      }
+      return;
+    }
+    const audio = previewAudioRef.current;
+    if (!audio) return; // Built with the audio graph on first play.
+    if (current && current.url === active.url) {
+      current.mixer.setAmount(active.amount);
+      return;
+    }
+    if (current) {
+      voiceCleanMixerRef.current = null;
+      current.mixer.dispose();
+    }
+    try {
+      const mixer = createVoiceCleanMixer({
+        context: audio.context,
+        url: active.url,
+        amount: active.amount,
+        applyVideoGain,
+        onEvent: (event) => recordPlaybackDebug(`voice-clean-${event.type}`, { drift: event.drift, playing: event.playing ?? null }),
+      });
+      for (const element of screenSlotsRef.current) {
+        if (element && audio.gains.has(element)) mixer.attach(element, audio.targets.get(element) ?? 0);
+      }
+      voiceCleanMixerRef.current = { mixer, url: active.url };
+    } catch (err) {
+      recordPlaybackDebug('voice-clean-mixer-failed', { message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  React.useEffect(() => {
+    syncVoiceCleanMixer();
+  }, [voiceClean?.url, voiceClean?.amount]);
 
   function resetCutPreroll() {
     cutPrerollRef.current = null;
@@ -1240,6 +1305,8 @@ export function StyledVideoPreview({
 
   React.useEffect(() => () => {
     for (const element of insertedVideosRef.current.values()) element.pause();
+    voiceCleanMixerRef.current?.mixer.dispose();
+    voiceCleanMixerRef.current = null;
     void previewAudioRef.current?.context.close().catch(() => undefined);
     previewAudioRef.current = null;
   }, []);

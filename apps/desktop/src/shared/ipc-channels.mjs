@@ -70,6 +70,14 @@ export const IPC_CHANNELS = {
   STABILIZATION_PROGRESS: 'stabilization:progress',
   STABILIZATION_SUPPORT: 'stabilization:support',
 
+  // Clean voice (NVIDIA RE-USE). A cancellable GPU job writes a cached
+  // `<recording>.voice-clean.wav` next to the recording; the preview mixes it in
+  // at playback. Status answers { available, reason, state, progress, cleanedMediaUrl }.
+  VOICE_CLEAN_STATUS: 'voice-clean:status',
+  VOICE_CLEAN_START: 'voice-clean:start',
+  VOICE_CLEAN_CANCEL: 'voice-clean:cancel',
+  VOICE_CLEAN_PROGRESS: 'voice-clean:progress',
+
   // Export
   EXPORT_START: 'export:start',
   EXPORT_CANCEL: 'export:cancel',

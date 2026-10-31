@@ -298,6 +298,21 @@ test('saves and reopens a roughcut project file', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+test('Clean voice amount survives save and reopen; projects without it read as off', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-project-'));
+  try {
+    const outputPath = join(root, 'capture.mp4');
+    const created = await saveProjectForRecording({ ...recording, outputPath });
+    assert.equal(created.document.settings.voiceClean, undefined);
+    const document = { ...created.document, settings: { ...created.document.settings, voiceClean: { amount: 0.6 } } };
+    await saveProjectFile(created.path, document);
+    const opened = await openProjectFile(created.path);
+    assert.deepEqual(opened.document.settings.voiceClean, { amount: 0.6 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('saveProjectFile stores same-folder recording paths relative to the roughcut file', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-relative-save-'));
   const outputPath = join(root, 'capture.mp4');

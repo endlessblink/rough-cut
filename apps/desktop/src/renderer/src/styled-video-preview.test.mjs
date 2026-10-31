@@ -878,3 +878,17 @@ test('parked timeline playhead past a trimmed end holds the last visible frame, 
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
   assert.match(source, /Math\.max\(0, Math\.round\(timelineDuration \* fps\) - 1\)/);
 });
+
+test('clean voice: no mixer (old audio path) unless a cleaned file exists and Amount > 0', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const mixSource = readFileSync(join(here, 'voice-clean-mix.mjs'), 'utf8');
+
+  // Without a mixer every gain change goes through the unchanged setTargetAtTime path.
+  assert.match(source, /if \(voiceCleanMixerRef\.current\?\.mixer\.setSlotGain\(element, value\)\) return;\s*applyVideoGain\(element, value\);/);
+  assert.match(source, /const active = wanted\?\.url && clampVoiceCleanAmount\(wanted\.amount\) > 0 \? wanted : null;/);
+  // Moving Amount only retargets gains on the existing mixer.
+  assert.match(source, /current\.mixer\.setAmount\(active\.amount\);/);
+  // The clean players never touch element.volume (it stalls video ~200 ms).
+  assert.doesNotMatch(mixSource, /\.volume\s*=/);
+  assert.match(mixSource, /setTargetAtTime\(/);
+});

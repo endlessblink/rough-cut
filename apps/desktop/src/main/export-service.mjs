@@ -20,6 +20,7 @@ import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
 import { buildGraphicsOverlayArgs, planGraphicsOverlay } from './graphics-export.mjs';
 import { buildCaptionsAss, getCaptions } from '../shared/captions.mjs';
 import { levelQuietExport } from './export-leveling.mjs';
+import { buildVoiceCleanMixSourceArgs, planVoiceCleanExport, withPrimaryRecordingPath } from './voice-clean-export.mjs';
 import { buildBackgroundGridFilter, isBackgroundGridOn } from '../shared/background-grid.mjs';
 import {
   canonicalizeProjectDocument,
@@ -87,6 +88,35 @@ export function buildGraphicsFailureResult({ styledResult, error, expected }) {
  * otherwise). Exports that are already loud enough, plain file copies and cancelled exports are not touched.
  */
 export async function exportProjectToMp4(options = {}) {
+  // Clean voice: with Amount > 0 and a fresh cleaned file, every export path
+  // runs on a stand-in recording (same video stream, preview-equal mixed sound).
+  const voiceClean = await planVoiceCleanExport({ project: options.project }).catch(() => null);
+  if (!voiceClean || !options.outputPath) return exportProjectToMp4Leveled(options);
+  assertDistinctExportPath(voiceClean.sourcePath, options.outputPath);
+  const standIn = workingExportPath(options.outputPath, 'clean-voice');
+  const onProgress = options.onProgress ?? (() => undefined);
+  try {
+    onProgress({ phase: 'mixing-clean-voice', progress: 0 });
+    await mkdir(dirname(standIn), { recursive: true });
+    const mixed = await run('ffmpeg', buildVoiceCleanMixSourceArgs({ ...voiceClean, outputPath: standIn }), { signal: options.signal ?? null });
+    if (mixed.cancelled) return createCancelledExportResult({ outputPath: options.outputPath, sourcePath: voiceClean.sourcePath });
+    if (mixed.code !== 0) {
+      throw new Error(`Could not mix the clean voice into the export: ${String(mixed.stderr ?? '').trim().split('\n').slice(-2).join(' ')}`);
+    }
+    const result = await exportProjectToMp4Leveled({ ...options, project: withPrimaryRecordingPath(options.project, standIn) });
+    if (!result || typeof result !== 'object') return result;
+    return {
+      ...result,
+      sourcePath: result.sourcePath === standIn ? voiceClean.sourcePath : result.sourcePath,
+      byteEqualCandidate: false,
+      voiceCleanAmount: voiceClean.amount,
+    };
+  } finally {
+    await rm(standIn, { force: true }).catch(() => undefined);
+  }
+}
+
+async function exportProjectToMp4Leveled(options = {}) {
   const { levelQuietVoice = true, ...exportOptions } = options;
   const result = await exportProjectToMp4WithCaptions(exportOptions);
   if (!levelQuietVoice || !result || result.cancelled || result.byteEqualCandidate) return result;

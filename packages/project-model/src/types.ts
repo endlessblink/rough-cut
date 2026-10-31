@@ -67,6 +67,13 @@ export interface ProjectSettings {
   readonly backgroundConfig?: BackgroundConfig;
   readonly recordingDefaults?: RecordingPresentation;
   readonly destinationPresetId?: string | null;
+  /** Clean voice mix; absent = 0 (original sound only). */
+  readonly voiceClean?: VoiceCleanSettings;
+}
+
+export interface VoiceCleanSettings {
+  /** 0 = original voice only, 1 = cleaned voice only; mixed at playback. */
+  readonly amount: number;
 }
 
 export type ZoomMarkerId = string & { readonly __brand: 'ZoomMarkerId' };
