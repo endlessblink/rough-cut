@@ -42,6 +42,7 @@ export type VoiceCleanMixer = {
 
 export function createVoiceCleanMixer(options: {
   context: BaseAudioContext;
+  destination?: AudioNode;
   url: string;
   amount?: number;
   applyVideoGain: (video: HTMLVideoElement, gain: number) => void;

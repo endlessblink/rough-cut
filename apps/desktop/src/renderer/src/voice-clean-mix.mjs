@@ -81,6 +81,7 @@ export function planVoiceCleanSync({
  */
 export function createVoiceCleanMixer({
   context,
+  destination = context.destination,
   url,
   amount = 0,
   applyVideoGain,
@@ -158,8 +159,8 @@ export function createVoiceCleanMixer({
     source.connect(splitter);
     splitter.connect(dry, 0);
     splitter.connect(wet, 1);
-    dry.connect(context.destination);
-    wet.connect(context.destination);
+    dry.connect(destination);
+    wet.connect(destination);
     const slot = {
       video,
       audio,

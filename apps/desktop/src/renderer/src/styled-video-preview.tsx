@@ -1268,6 +1268,7 @@ export function StyledVideoPreview({
     try {
       const mixer = createVoiceCleanMixer({
         context: audio.context,
+        destination: audio.master,
         url: active.url,
         amount: active.amount,
         applyVideoGain,
