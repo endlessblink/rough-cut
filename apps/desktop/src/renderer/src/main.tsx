@@ -32,6 +32,7 @@ import {
   SlidersHorizontal as PhosphorSlidersHorizontal,
   Sparkle as PhosphorSparkle,
   SpeakerHigh as PhosphorSpeakerHigh,
+  SpeakerSlash as PhosphorSpeakerSlash,
   Stop as PhosphorStop,
   VideoCamera as PhosphorVideoCamera,
   Waveform as PhosphorWaveform,
@@ -2986,6 +2987,11 @@ function Icon({ name }: { name: IconName }) {
   return <Component size={20} weight="duotone" className="icon" aria-hidden />;
 }
 
+
+function ClipAudioIcon({ level }: { level: { volume: number; muted: boolean } }) {
+  const Glyph = level.muted ? PhosphorSpeakerSlash : PhosphorSpeakerHigh;
+  return <Glyph size={12} weight="fill" className="clipAudioIcon" aria-label={level.muted ? 'Audio muted' : 'Audio level changed'} role="img" />;
+}
 
 function ToolRail({ active, onSelect, panelOpen, onTogglePanel }: { active: ActiveTool; onSelect: (tool: ActiveTool) => void; panelOpen: boolean; onTogglePanel: () => void }) {
   const tools: Array<{ id: ActiveTool; icon: PhosphorIconType; label: string }> = [
@@ -7708,7 +7714,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                 );
               })() : null}
               {<button type="button" role="slider" className={`trimHandle trimHandleStart${(region.sourceIn ?? 0) > 0 ? ' hasHiddenFootage' : ''}`} title={(region.sourceIn ?? 0) > 0 ? `${formatClock((region.sourceIn ?? 0) / fps)} of earlier footage is hidden. Drag left to bring it back.` : 'Drag right to trim the start'} data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} />}
-              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}>Screen <span className="clipDuration">{Math.max(0, ((region.timelineOut ?? 0) - (region.timelineIn ?? 0)) / fps).toFixed(1)}s</span></button>
+              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}>Screen <span className="clipDuration">{Math.max(0, ((region.timelineOut ?? 0) - (region.timelineIn ?? 0)) / fps).toFixed(1)}s</span>{(() => { const clipLevel = getClipAudioLevel(project.document as unknown as ProjectDocument, region.id); return clipLevel.muted || clipLevel.volume !== 1 ? <ClipAudioIcon level={clipLevel} /> : null; })()}</button>
               {<button type="button" role="slider" className={`trimHandle trimHandleEnd${(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? ' hasHiddenFootage' : ''}`} title={(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? `${formatClock((sourceFrameDuration - (region.sourceOut ?? sourceFrameDuration)) / fps)} of later footage is hidden. Drag right to bring it back.` : 'Drag left to trim the end'} data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} />}
               </div>
           ))}
@@ -7760,7 +7766,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                      style={{ left: `${tile.left}px`, width: `${tile.width}px`, backgroundImage: `url("${url}")` }} /> : null;
                  })}
                  {Array.from({ length: waveformChannels }, (_, channel) => <span key={channel} className="audioSilenceGuide" aria-hidden="true" style={{ top: `${(channel + 0.5) * 100 / waveformChannels}%` }} />)}
-                  {levelChanged ? <span className="audioRegionLabel audioLevelBadge" title={level.muted ? 'This clip is muted' : `This clip plays at ${formatVolume(level)}`}>{formatVolume(level)}</span> : null}
+                  {levelChanged ? <span className="audioRegionLabel audioLevelBadge" title={level.muted ? 'This clip is muted' : `This clip plays at ${formatVolume(level)}`}><ClipAudioIcon level={level} />{formatVolume(level)}</span> : null}
                   <span className="srOnly">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
                 </button>; })
              : <p className="srOnly">No audio track.</p>}

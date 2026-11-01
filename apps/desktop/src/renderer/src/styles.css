@@ -7412,3 +7412,8 @@ button.devStopButton:hover:not(:disabled) { background: var(--panel-alt); filter
 
 /* The trim toggle is a word, not an icon: detail is lost at toolbar size (Noam 2026-11-01). */
 .timelineDock .timelineRippleButton { padding: 0; }
+
+/* Audio tab: a quiet Reset sits beside Mute; a small speaker marks clips whose sound was changed. */
+.audioLevelActions { align-items: center; display: inline-flex; gap: var(--space-3); }
+.clipAudioIcon { flex: none; margin-left: var(--space-1); opacity: 0.75; vertical-align: -2px; }
+.audioLevelBadge .clipAudioIcon { margin: 0 var(--space-0-5) 0 0; }

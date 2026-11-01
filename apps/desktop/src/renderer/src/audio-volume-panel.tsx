@@ -123,7 +123,10 @@ export function AudioVolumePanel({ disabled = false }: { disabled?: boolean }) {
       <section className="capPanel audioLevelPanel" aria-label="Track volume" data-ui-region="track-volume-panel" data-muted={track.muted || undefined}>
         <header className="capHead">
           <h2>Track volume</h2>
-          <MuteSwitch muted={track.muted} disabled={disabled} label="Mute the recording's sound" onChange={(muted) => controller.commitTrack({ muted })} />
+          <span className="audioLevelActions">
+            {(track.muted || track.volume !== 1) ? <button type="button" className="capLink" disabled={disabled} onClick={() => controller.commitTrack({ volume: 1, muted: false })}>Reset</button> : null}
+            <MuteSwitch muted={track.muted} disabled={disabled} label="Mute the recording's sound" onChange={(muted) => controller.commitTrack({ muted })} />
+          </span>
         </header>
         <VolumeSlider
           name="Track volume"
@@ -136,7 +139,10 @@ export function AudioVolumePanel({ disabled = false }: { disabled?: boolean }) {
       <section className="capPanel audioLevelPanel" aria-label="Selected clip volume" data-ui-region="clip-volume-panel" data-muted={clip?.muted || undefined} data-has-clip={clip ? 'true' : 'false'}>
         <header className="capHead">
           <h2>Selected clip</h2>
-          <MuteSwitch muted={Boolean(clip?.muted)} disabled={disabled || !clip} label="Mute the selected clip" onChange={(muted) => controller.commitClip({ muted })} />
+          <span className="audioLevelActions">
+            {clip && (clip.muted || clip.volume !== 1) ? <button type="button" className="capLink" disabled={disabled} onClick={() => controller.commitClip({ volume: 1, muted: false })}>Reset</button> : null}
+            <MuteSwitch muted={Boolean(clip?.muted)} disabled={disabled || !clip} label="Mute the selected clip" onChange={(muted) => controller.commitClip({ muted })} />
+          </span>
         </header>
         <VolumeSlider
           name="Clip volume"
