@@ -76,7 +76,11 @@ import {
   setVoiceOverMode,
   type InsertedClipView,
   getVoiceCleanAmount,
+  getClipAudioLevel,
+  withClipAudioLevel,
+  withRecordingAudioLevel,
 } from '@rough-cut/project-model';
+import { formatVolume } from '../../shared/audio-gain.mjs';
 import { DevMediaMenu, useDevFeatures, type TakeRange } from './dev-media-tools';
 import { getCameraLayoutRect, resolveFrame, resolveFramedCrop } from '@rough-cut/frame-resolver';
 import './styles.css';
@@ -97,6 +101,7 @@ import { ExportDestination } from './export-destination';
 import { addGraphic, dragGraphicRange, graphicLaneRows, listGraphics, reorderGraphic, moveGraphic, removeGraphic, replaceGraphicContent, requestMentionsTime, setGraphicAnimate, setGraphicLayout, setGraphicTiming, updateGraphicFields, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { VoiceCleanContext, VoiceCleanPanel, useVoiceCleanController, type VoiceCleanBridge } from './voice-clean-panel';
+import { AudioVolumeContext, AudioVolumePanel, useAudioVolumeController } from './audio-volume-panel';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
@@ -3855,6 +3860,8 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
       <aside className="setupBoard studioPane" aria-label="Audio board">
         {project?.recording && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="audio-control-panel">
+            {/* Not disabled while saving: that would drop keyboard focus after every step. Commits chain through the latest project. */}
+            <AudioVolumePanel />
             <VoiceCleanPanel disabled={disabled} />
           </div>
         ) : null}
@@ -4494,6 +4501,8 @@ function ProjectPreview({
   const [takeRange, setTakeRange] = React.useState<TakeRange>({ startFrame: null, endFrame: null });
   const [takePlayback, setTakePlayback] = React.useState<{ playing: boolean; muted: boolean } | null>(null);
   const [selectedInsertedClipId, setSelectedInsertedClipId] = React.useState<string | null>(null);
+  // Recording clips selected on the timeline (owned by the timeline; mirrored here for the Audio tab).
+  const [selectedScreenClipIds, setSelectedScreenClipIds] = React.useState<string[]>([]);
   const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
   const [cutModeActive, setCutModeActive] = React.useState(false);
   const [censorDrawArmed, setCensorDrawArmed] = React.useState(false);
@@ -4634,6 +4643,24 @@ function ProjectPreview({
     onCommitAmount: (amount) => {
       const latest = latestProjectRef.current.document;
       void persist({ ...latest, settings: { ...latest.settings, voiceClean: { amount: Math.round(amount * 100) / 100 } } });
+    },
+  });
+
+  // Track and clip volume: saved (with undo) through persist when a slider is
+  // let go or Mute is switched; while a slider moves only the preview changes.
+  const audioVolume = useAudioVolumeController({
+    document: project.document as unknown as ProjectDocument,
+    selectedClipIds: selectedScreenClipIds,
+    addedClipSelected: Boolean(selectedInsertedClipId),
+    onCommitTrack: (patch) => {
+      const latest = latestProjectRef.current.document as unknown as ProjectDocument;
+      const next = withRecordingAudioLevel(latest, patch);
+      if (next !== latest) void persist(next as unknown as ProjectState['document']);
+    },
+    onCommitClip: (clipIds, patch) => {
+      const latest = latestProjectRef.current.document as unknown as ProjectDocument;
+      const next = withClipAudioLevel(latest, clipIds, patch);
+      if (next !== latest) void persist(next as unknown as ProjectState['document']);
     },
   });
 
@@ -5608,6 +5635,7 @@ function ProjectPreview({
   return (
     <CaptionSelectionContext.Provider value={captionSelectionValue}>
     <VoiceCleanContext.Provider value={voiceClean}>
+    <AudioVolumeContext.Provider value={audioVolume}>
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace"  onKeyDown={handleEditorKeyDown} data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
       <ToolRail active={activeTool} onSelect={onActiveToolChange} panelOpen={setupBoardOpen} onTogglePanel={onSetupBoardToggle} />
       {activeTool === 'graphics' ? (
@@ -5630,7 +5658,7 @@ function ProjectPreview({
         <h2 className="srOnly">{project.document.name}</h2>
         {project.mediaUrl ? <GraphicsOverlay stageRef={graphicsStageRef} graphics={graphics} currentTimeSec={currentTimeSec} fps={graphicsFps} canvasWidth={graphicsCanvas.width} canvasHeight={graphicsCanvas.height} selectedGraphicId={selectedGraphicId} editable={!previewPlaying} onLayoutChange={changeGraphicLayout} onSelect={selectGraphic} /> : null}
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} isPlaying={takePlayback ? takePlayback.playing : undefined} audioMuted={Boolean(takePlayback?.muted)} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} voiceClean={voiceClean.preview} />
+          <VideoPreview project={effectiveProject} isPlaying={takePlayback ? takePlayback.playing : undefined} audioMuted={Boolean(takePlayback?.muted)} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} voiceClean={voiceClean.preview} trackGain={audioVolume.previewTrackGain} clipGainOverride={audioVolume.clipGainOverride} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets).
           <section className="projectPreviewEmpty" data-testid="project-preview-empty" aria-label="Blank project empty state">
@@ -5645,7 +5673,7 @@ function ProjectPreview({
           <p className="timelineHeaderTitle">Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onCaptionsChange={(next) => { void persist(next as unknown as ProjectState['document']); }} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} selectedInsertedClipId={selectedInsertedClipId} onSelectInsertedClip={setSelectedInsertedClipId} onEditInsertedMedia={(edit) => void editInsertedMedia(edit)} takeRange={devFeatures ? takeRange : null} devToolbar={devFeatures ? (
+           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onCaptionsChange={(next) => { void persist(next as unknown as ProjectState['document']); }} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} selectedInsertedClipId={selectedInsertedClipId} onSelectInsertedClip={setSelectedInsertedClipId} onScreenClipSelectionChange={setSelectedScreenClipIds} onEditInsertedMedia={(edit) => void editInsertedMedia(edit)} takeRange={devFeatures ? takeRange : null} devToolbar={devFeatures ? (
             <DevMediaMenu
               projectPath={project.path ?? null}
               fps={effectiveRecording.fps || 30}
@@ -5709,6 +5737,7 @@ function ProjectPreview({
         {saveError ? <p className="error">{saveError}</p> : null}
       </aside>
     </section>
+    </AudioVolumeContext.Provider>
     </VoiceCleanContext.Provider>
     </CaptionSelectionContext.Provider>
   );
@@ -5857,7 +5886,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove, onCaptionsChange, selectedInsertedClipId = null, onSelectInsertedClip, onEditInsertedMedia, takeRange = null, devToolbar = null }: { selectedInsertedClipId?: string | null; onSelectInsertedClip?: (clipId: string | null) => void; onEditInsertedMedia?: (edit: (document: ProjectDocument) => ProjectDocument) => void; takeRange?: TakeRange | null; devToolbar?: React.ReactNode; onCaptionsChange?: (next: ProjectDocument) => void; project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
+function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove, onCaptionsChange, selectedInsertedClipId = null, onSelectInsertedClip, onScreenClipSelectionChange, onEditInsertedMedia, takeRange = null, devToolbar = null }: { selectedInsertedClipId?: string | null; onSelectInsertedClip?: (clipId: string | null) => void; onScreenClipSelectionChange?: (clipIds: string[]) => void; onEditInsertedMedia?: (edit: (document: ProjectDocument) => ProjectDocument) => void; takeRange?: TakeRange | null; devToolbar?: React.ReactNode; onCaptionsChange?: (next: ProjectDocument) => void; project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -6086,6 +6115,10 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     });
   }
   const [selectedScreenClipIds, setSelectedScreenClipIds] = React.useState<string[]>([]);
+  // The Audio tab sets volume on the selected clips.
+  const onScreenClipSelectionChangeRef = React.useRef(onScreenClipSelectionChange);
+  onScreenClipSelectionChangeRef.current = onScreenClipSelectionChange;
+  React.useEffect(() => { onScreenClipSelectionChangeRef.current?.(selectedScreenClipIds); }, [selectedScreenClipIds]);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const pendingScrollLeftRef = React.useRef<number | null>(null);
@@ -7713,7 +7746,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
              );
            })}
            {model.lanes.audio.length > 0
-             ? model.lanes.audio.map((region, index) => { const linkedScreen = linkedScreenRegionForAudio(region); const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} data-recording-linked-screen-clip-id={linkedScreen?.id ?? ''} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={audioRegionStyle(region)} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
+             ? model.lanes.audio.map((region, index) => { const linkedScreen = linkedScreenRegionForAudio(region); const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); const level = getClipAudioLevel(project.document as unknown as ProjectDocument, linkedScreen?.id ?? region.id); const levelChanged = level.muted || level.volume !== 1; return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}${level.muted ? ' audioRegionMuted' : ''}`} data-recording-audio-clip-id={region.id} data-audio-level={levelChanged ? formatVolume(level) : undefined} data-recording-linked-screen-clip-id={linkedScreen?.id ?? ''} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={audioRegionStyle(region)} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
                   {index > 0 ? <span className="clipCutBoundary audioCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} aria-hidden="true" /> : null}
                   {linkedScreen ? (['head', 'tail'] as const).map((edge) => {
                     const screenIndex = model.lanes.screen.findIndex((clip) => clip.id === linkedScreen.id);
@@ -7727,6 +7760,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                      style={{ left: `${tile.left}px`, width: `${tile.width}px`, backgroundImage: `url("${url}")` }} /> : null;
                  })}
                  {Array.from({ length: waveformChannels }, (_, channel) => <span key={channel} className="audioSilenceGuide" aria-hidden="true" style={{ top: `${(channel + 0.5) * 100 / waveformChannels}%` }} />)}
+                  {levelChanged ? <span className="audioRegionLabel audioLevelBadge" title={level.muted ? 'This clip is muted' : `This clip plays at ${formatVolume(level)}`}>{formatVolume(level)}</span> : null}
                   <span className="srOnly">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
                 </button>; })
              : <p className="srOnly">No audio track.</p>}

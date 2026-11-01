@@ -22,9 +22,13 @@ import { buildCaptionsAss, getCaptions } from '../shared/captions.mjs';
 import { levelQuietExport } from './export-leveling.mjs';
 import { buildVoiceCleanMixSourceArgs, planVoiceCleanExport, withPrimaryRecordingPath } from './voice-clean-export.mjs';
 import { buildBackgroundGridFilter, isBackgroundGridOn } from '../shared/background-grid.mjs';
+import { EXPORT_BOOST_LIMITER, combineGains, exportGainFilter, needsBoostLimiter } from '../shared/audio-gain.mjs';
 import {
+  audioLevelGain,
   canonicalizeProjectDocument,
   createDefaultCameraPresentation,
+  getRecordingAudioLevel,
+  isDefaultAudioLevel,
   getRecordingBackgroundColors,
   getSourceStabilization,
   getStyledCanvasResolution,
@@ -120,6 +124,9 @@ async function exportProjectToMp4Leveled(options = {}) {
   const { levelQuietVoice = true, ...exportOptions } = options;
   const result = await exportProjectToMp4WithCaptions(exportOptions);
   if (!levelQuietVoice || !result || result.cancelled || result.byteEqualCandidate) return result;
+  // A track volume the user set is their decision about the overall level:
+  // lifting a quiet export would undo it (and the preview would not match).
+  if (!isDefaultAudioLevel(options.project?.settings?.recordingAudio)) return result;
   const outputPath = result.outputPath ?? options.outputPath;
   if (!outputPath || !existsSync(outputPath)) return result;
   const leveling = await levelQuietExport(outputPath, { signal: options.signal ?? null });
@@ -1030,6 +1037,18 @@ function createCancelledExportResult({ outputPath, sourcePath }) {
   };
 }
 
+/**
+ * Adds `audioGain` (clip volume x track volume) to a recording section's
+ * export segment when it is not 100%; leaves the segment untouched otherwise.
+ */
+function sectionAudioGain(project) {
+  const trackGain = audioLevelGain(getRecordingAudioLevel(project?.settings));
+  return (segment, clip) => {
+    const gain = combineGains(audioLevelGain(clip?.audio), trackGain);
+    return gain === 1 ? segment : { ...segment, audioGain: gain };
+  };
+}
+
 export function resolveTimelineExportRecording(project, recording, { exportScope = EXPORT_SCOPES.TIMELINE } = {}) {
   const timelineModel = selectPrimaryTimelineModel(project, recording?.assetId);
   if (!timelineModel || timelineModel.screenClips.length === 0) return null;
@@ -1052,24 +1071,31 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
   }));
   const sourceIn = screenClips[0].sourceIn;
   const sourceOut = screenClips[screenClips.length - 1].sourceOut;
-  const needsSegmentComposition = screenClips.length !== 1
+  // Sound level per section: the clip's own volume x the track volume, exactly
+  // what the preview's gain nodes play. A section not at 100% sends the export
+  // through the per-section path, the only one that can apply it (a plain copy
+  // or a single-clip pass has no per-section audio).
+  const withSectionGain = sectionAudioGain(project);
+  const hasAudioGain = screenClips.some((clip) => withSectionGain({}, clip).audioGain !== undefined);
+  const needsSegmentComposition = hasAudioGain
+    || screenClips.length !== 1
     || screenClips[0].timelineIn !== 0
     || screenClips[0].timelineOut !== timelineDurationFrames
     || cameraClips.some((clip, index) => clip.timelineIn !== screenClips[index]?.timelineIn || clip.timelineOut !== screenClips[index]?.timelineOut);
   const timelineSegments = needsSegmentComposition
-    ? screenClips.map((clip) => ({
+    ? screenClips.map((clip) => withSectionGain({
         timelineIn: clip.timelineIn,
         timelineOut: clip.timelineOut,
         sourceIn: clip.sourceIn,
         sourceOut: clip.sourceOut,
-      }))
+      }, clip))
     : [];
-  const timingSegments = screenClips.map((clip) => ({
+  const timingSegments = screenClips.map((clip) => withSectionGain({
     timelineIn: clip.timelineIn,
     timelineOut: clip.timelineOut,
     sourceIn: clip.sourceIn,
     sourceOut: clip.sourceOut,
-  }));
+  }, clip));
   const cameraTimelineSegments = needsSegmentComposition
     ? cameraClips.map((clip) => ({
         timelineIn: clip.timelineIn,
@@ -1097,6 +1123,7 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
     timelineDurationFrames,
     screenSegments: timingSegments,
     cameraSegments: cameraClips.map((clip) => ({ timelineIn: clip.timelineIn, timelineOut: clip.timelineOut, sourceIn: clip.sourceIn, sourceOut: clip.sourceOut })),
+    withSectionGain,
   });
 
   return {
@@ -1144,7 +1171,7 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
  * seeked input. Only called when the project has inserted media; otherwise the
  * recording-only plan above is used untouched.
  */
-function resolveInsertedExportSegments(timelineModel, { recording, timelineOffset, timelineDurationFrames, screenSegments, cameraSegments }) {
+function resolveInsertedExportSegments(timelineModel, { recording, timelineOffset, timelineDurationFrames, screenSegments, cameraSegments, withSectionGain = (segment) => segment }) {
   const document = timelineModel.document;
   if (!hasInsertedMedia(document)) return null;
   const inside = (clip) => clip.timelineOut - timelineOffset > 0 && clip.timelineIn - timelineOffset < timelineDurationFrames;
@@ -1176,7 +1203,7 @@ function resolveInsertedExportSegments(timelineModel, { recording, timelineOffse
     && track.clips.some((clip) => clip.linkGroupId === recordingGroupId));
   const insertedSourceIds = new Set(insertedClips.map((clip) => `source:${clip.assetId}`));
   const audioClips = (audioTrack?.clips ?? []).filter(inside);
-  const recordingAudio = audioClips.filter((clip) => clip.linkGroupId === recordingGroupId && !insertedSourceIds.has(clip.mediaId)).map(shifted);
+  const recordingAudio = audioClips.filter((clip) => clip.linkGroupId === recordingGroupId && !insertedSourceIds.has(clip.mediaId)).map((clip) => withSectionGain(shifted(clip), clip));
   const insertedAudio = insertedClips.filter((clip) => clip.lane === 'audio').map(insertedPart);
   // A camera take's voice, or a voice-over set to replace, mutes the recording under it.
   const voicedTakeRanges = insertedClips
@@ -2560,7 +2587,15 @@ function normalizeTimelineSegments(segments) {
       const sourceOut = Math.max(sourceIn + 1, Math.round(Number(segment?.sourceOut) || 0));
       const duration = Math.min(timelineOut - timelineIn, sourceOut - sourceIn);
       if (!(duration > 0)) return null;
-      const normalized = { timelineIn, timelineOut: timelineIn + duration, sourceIn, sourceOut: sourceIn + duration };
+      const gain = Number(segment?.audioGain);
+      const normalized = {
+        timelineIn,
+        timelineOut: timelineIn + duration,
+        sourceIn,
+        sourceOut: sourceIn + duration,
+        // A section's own sound level (clip x track volume); absent = as recorded.
+        ...(Number.isFinite(gain) && gain !== 1 ? { audioGain: Math.max(0, gain) } : {}),
+      };
       // Sections from another file (inserted clips, camera pickups) keep their file.
       return typeof segment?.inputPath === 'string' && segment.inputPath
         ? { ...normalized, inputPath: segment.inputPath, hasAudio: segment.hasAudio !== false }
@@ -2698,6 +2733,9 @@ function buildTimelineAudioFilters({ segments, fps, durationFrames, audioInputLa
         )}:d=${formatFilterNumber(fadeOutFrames / fps)}`,
       );
     }
+    // The section's own level (clip x track volume), same gain the preview plays.
+    const gainFilter = exportGainFilter(segment.audioGain ?? 1);
+    if (gainFilter) joinFilters.push(gainFilter);
     // A section with its own seeked input starts at its first sample.
     const ownInput = segmentInputLabels?.[index] ?? null;
     filters.push(
@@ -2707,7 +2745,10 @@ function buildTimelineAudioFilters({ segments, fps, durationFrames, audioInputLa
     );
     labels.push(`[${label}]`);
   });
-  filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=0:normalize=0[a]`);
+  // Boosted sound (over 100%) is peak-limited so it cannot clip harshly.
+  const boosted = needsBoostLimiter(segments.map((segment) => segment.audioGain ?? 1));
+  filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=0:normalize=0[${boosted ? 'a_boosted' : 'a'}]`);
+  if (boosted) filters.push(`[a_boosted]${EXPORT_BOOST_LIMITER}[a]`);
   return filters;
 }
 

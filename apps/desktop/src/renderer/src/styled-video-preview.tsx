@@ -45,6 +45,8 @@ import { timelineJoinGain } from '../../shared/timeline-audio-envelope.mjs';
 import { drawBackgroundGrid, isBackgroundGridOn } from '../../shared/background-grid.mjs';
 import { CUT_PREROLL_EARLY_FRAMES, cutPrerollKey, planCutPreroll, standbyAlignedForCut } from './timeline-cut-preroll.mjs';
 import { clampVoiceCleanAmount, createVoiceCleanMixer, type VoiceCleanMixer } from './voice-clean-mix.mjs';
+import { clipAudioGain, masterGain, previewNeedsLimiter, slotGain, type ClipGainOverride } from './audio-volume.mjs';
+import { boostLimiterCurve, MAX_COMBINED_GAIN } from '../../shared/audio-gain.mjs';
 import { shouldPublishTimelinePlayhead } from './timeline-playhead-publish.mjs';
 import { installPlayTracker, silenceAfterStop } from './preview-media-guard.mjs';
 
@@ -466,6 +468,9 @@ type TimelinePlaybackSegment = {
   sourceIn: number;
   sourceOut: number;
   trackIndex: number;
+  /** The timeline clip this segment plays, and that clip's own volume (1 = as recorded). */
+  clipId: string;
+  audioGain: number;
 };
 
 export function resolveZoomAuthoringSafety({
@@ -526,6 +531,8 @@ export function StyledVideoPreview({
   cameraMediaUrlOverride,
   audioMuted = false,
   voiceClean = null,
+  trackGain = 1,
+  clipGainOverride = null,
 }: {
   project: StyledPreviewProject;
   seekTimeSec?: number;
@@ -580,6 +587,10 @@ export function StyledVideoPreview({
    * Null, a missing url or amount 0 keeps the old audio path untouched.
    */
   voiceClean?: { url: string; amount: number } | null;
+  /** The recording's track volume (0 when muted, 1 = as recorded); applied on the master gain. */
+  trackGain?: number;
+  /** A clip volume slider being dragged: those clips play at this gain until it is saved. */
+  clipGainOverride?: ClipGainOverride | null;
 }) {
   // videoRef/cameraVideoRef always point at the program (drawn, audible)
   // element. Each lane has a second, standby decoder so a cut that skips source
@@ -600,7 +611,15 @@ export function StyledVideoPreview({
     gains: Map<HTMLVideoElement, GainNode>;
     targets: Map<HTMLVideoElement, number>;
     master: GainNode;
+    /** Peak limiter between master and the speakers; only while something plays above 100%. */
+    limiter: { pre: GainNode; shaper: WaveShaperNode } | null;
   } | null>(null);
+  // Track volume is the master gain; clip volume rides on the slot gains. Both
+  // are read through refs so moving a slider never restarts playback.
+  const trackGainRef = React.useRef(trackGain);
+  trackGainRef.current = trackGain;
+  const clipGainOverrideRef = React.useRef(clipGainOverride);
+  clipGainOverrideRef.current = clipGainOverride;
   // Clean voice: one hidden <audio> per screen slot, slaved to that slot's
   // video and mixed by gain only (voice-clean-mix.mjs). Absent unless a cleaned
   // file exists and Amount > 0.
@@ -627,6 +646,8 @@ export function StyledVideoPreview({
   // source frames back to timeline frames.
   const timelineRateRef = React.useRef(1);
   const activeTimelineSegmentRef = React.useRef<TimelinePlaybackSegment | null>(null);
+  /** The clip layout the running playback started on; null when not playing. */
+  const playbackRunRef = React.useRef<{ key: string } | null>(null);
   const timelineFrameFallbackRef = React.useRef(0);
   const cameraDragRef = React.useRef<NormalizedRect | null>(null);
   const cameraRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -1048,6 +1069,8 @@ export function StyledVideoPreview({
           sourceIn: Math.max(0, Math.round(Number(clip.sourceIn) || 0)),
           sourceOut: Math.max(0, Math.round(Number(clip.sourceOut) || 0)),
           trackIndex: Number.isFinite(Number(track.index)) ? Number(track.index) : 0,
+          clipId: String(clip.id),
+          audioGain: clipAudioGain(clip),
         }];
       }))
       .filter((segment) => segment.timelineOut > segment.timelineIn && segment.sourceOut > segment.sourceIn)
@@ -1204,7 +1227,7 @@ export function StyledVideoPreview({
       const gains = new Map<HTMLVideoElement, GainNode>();
       const targets = new Map<HTMLVideoElement, number>();
       const master = context.createGain();
-      master.gain.value = audioMutedRef.current ? 0 : 1;
+      master.gain.value = masterGain({ audioMuted: audioMutedRef.current, trackGain: trackGainRef.current });
       master.connect(context.destination);
       for (const element of screenSlotsRef.current) {
         if (!element) continue;
@@ -1216,9 +1239,16 @@ export function StyledVideoPreview({
         gains.set(element, gain);
         targets.set(element, target);
       }
-      previewAudioRef.current = { context, gains, targets, master };
+      previewAudioRef.current = { context, gains, targets, master, limiter: null };
+      // Read-only handle for audio-level harnesses (silent xvfb runs): the node
+      // that feeds the speakers, after the master and the limiter.
+      (window as unknown as Record<string, unknown>).__roughCutPreviewAudioTap = () => {
+        const current = previewAudioRef.current;
+        return current ? { context: current.context, output: current.limiter?.shaper ?? current.master } : null;
+      };
       void context.resume().catch(() => undefined);
       syncVoiceCleanMixer();
+      syncBoostLimiter();
       return previewAudioRef.current;
     } catch (err) {
       recordPlaybackDebug('preview-audio-graph-failed', { message: err instanceof Error ? err.message : String(err) });
@@ -1244,6 +1274,46 @@ export function StyledVideoPreview({
     if (!element) return;
     if (voiceCleanMixerRef.current?.mixer.setSlotGain(element, value)) return;
     applyVideoGain(element, value);
+  }
+
+  /** A slot's level while it plays `segment`: the cut-join fade times that clip's volume. */
+  function playbackSegmentGain(joinGain: number, segment: TimelinePlaybackSegment | null | undefined) {
+    return slotGain(joinGain, segment, clipGainOverrideRef.current);
+  }
+
+  // Above 100% the sound can pass full scale, so a peak limiter goes between the
+  // master and the speakers: exactly linear below about -1 dBFS, a soft bend
+  // above it (the export uses ffmpeg's alimiter at the same level). It is only
+  // in the path while something is boosted; otherwise the old path is untouched.
+  function syncBoostLimiter() {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    const wanted = previewNeedsLimiter({ trackGain: trackGainRef.current, segments: buildTimelinePlaybackSegments(), override: clipGainOverrideRef.current });
+    if (wanted === Boolean(audio.limiter)) return;
+    try {
+      audio.master.disconnect();
+      if (audio.limiter) {
+        audio.limiter.pre.disconnect();
+        audio.limiter.shaper.disconnect();
+        audio.limiter = null;
+      }
+      if (wanted) {
+        const pre = audio.context.createGain();
+        pre.gain.value = 1 / MAX_COMBINED_GAIN;
+        const shaper = audio.context.createWaveShaper();
+        shaper.curve = boostLimiterCurve();
+        shaper.oversample = 'none';
+        audio.master.connect(pre).connect(shaper).connect(audio.context.destination);
+        audio.limiter = { pre, shaper };
+      } else {
+        audio.master.connect(audio.context.destination);
+      }
+      recordPlaybackDebug('preview-boost-limiter', { on: wanted });
+    } catch (err) {
+      recordPlaybackDebug('preview-boost-limiter-failed', { message: err instanceof Error ? err.message : String(err) });
+      audio.limiter = null;
+      try { audio.master.connect(audio.context.destination); } catch { /* already connected */ }
+    }
   }
 
   // Creates, retargets or removes the clean-voice mixer. Moving Amount only
@@ -1302,11 +1372,25 @@ export function StyledVideoPreview({
 
   React.useEffect(() => {
     const audio = previewAudioRef.current;
-    if (audio) audio.master.gain.setTargetAtTime(audioMuted ? 0 : 1, audio.context.currentTime, 0.01);
+    if (audio) audio.master.gain.setTargetAtTime(masterGain({ audioMuted, trackGain: trackGainRef.current }), audio.context.currentTime, 0.01);
     for (const element of insertedVideosRef.current.values()) {
       if (audioMuted) element.muted = true;
     }
   }, [audioMuted]);
+
+  // Track volume: a short ramp on the master (no zipper noise, no reload).
+  React.useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    syncBoostLimiter();
+    audio.master.gain.setTargetAtTime(masterGain({ audioMuted: audioMutedRef.current, trackGain }), audio.context.currentTime, 0.004);
+  }, [trackGain]);
+
+  // Clip volume: the draw loop re-applies the program slot's level every frame;
+  // a boost may need the limiter switched in first.
+  React.useEffect(() => {
+    syncBoostLimiter();
+  }, [clipGainOverride, project]);
 
   React.useEffect(() => () => {
     for (const element of insertedVideosRef.current.values()) element.pause();
@@ -1470,11 +1554,15 @@ export function StyledVideoPreview({
   // decoded frames. Seeking is limited to play start, scrubs, and segment/cut
   // boundaries; the draw loop must not seek-sync every frame.
   React.useEffect(() => {
-    if (timeMode !== 'timeline') return;
+    if (timeMode !== 'timeline') {
+      playbackRunRef.current = null;
+      return;
+    }
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
     if (!video) return;
     if (scrubbing) {
+      playbackRunRef.current = null;
       pausePreviewVideo(video);
       cameraVideo?.pause();
       resetCutPreroll();
@@ -1485,6 +1573,21 @@ export function StyledVideoPreview({
     }
     if (isPlaying) {
       const segments = buildTimelinePlaybackSegments();
+      // An edit saved while playing that leaves every clip where it was (a
+      // volume, a zoom, a colour) must not restart the playing decoder: the
+      // restart re-seeks it from the published playhead, which lags, and that
+      // hitched playback ~50 ms (measured 2026-11-01 when saving a volume).
+      const structureKey = `${fps}|${segments.map((item) => `${item.timelineIn}:${item.timelineOut}:${item.sourceIn}:${item.sourceOut}:${item.trackIndex}`).join(',')}`;
+      const previousRun = playbackRunRef.current;
+      playbackRunRef.current = { key: structureKey };
+      const active = activeTimelineSegmentRef.current;
+      if (previousRun?.key === structureKey && active && !video.paused) {
+        const same = segments.find((candidate) => sameTimelinePlaybackSegment(candidate, active));
+        if (same) {
+          activeTimelineSegmentRef.current = same;
+          return;
+        }
+      }
       let timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
       console.info('[playback-start]', { sec: currentTimeRef.current, frame: timelineFrame, segments: segments.length });
       let segment = timelineSegmentAtFrame(segments, timelineFrame);
@@ -1508,6 +1611,7 @@ export function StyledVideoPreview({
       }
       startTimelineSegmentPlayback(segment, timelineFrame);
     } else {
+      playbackRunRef.current = null;
       pausePreviewVideo(video);
       cameraVideo?.pause();
       resetCutPreroll();
@@ -1529,11 +1633,11 @@ export function StyledVideoPreview({
     timelineFrameFallbackRef.current = timelineFrame;
     const sourceFrame = segment.sourceIn + (timelineFrame - segment.timelineIn);
     const sourceTime = Math.max(0, sourceFrame / fps);
-    setScreenGain(video, timelineJoinGain(
+    setScreenGain(video, playbackSegmentGain(timelineJoinGain(
       buildTimelinePlaybackSegments(),
       segment,
       timelineFrame,
-    ));
+    ), segment));
     (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
       phase: 'play-start',
       timelineFrame,
@@ -1849,7 +1953,8 @@ export function StyledVideoPreview({
         cameraVideo = standbyCamera;
       }
       cutPrerollRef.current = null;
-      setScreenGain(standby, timelineJoinGain(buildTimelinePlaybackSegments(), nextSegment, nextSegment.timelineIn));
+      // The standby takes over at the next clip's own volume (it stayed silent while pre-rolling).
+      setScreenGain(standby, playbackSegmentGain(timelineJoinGain(buildTimelinePlaybackSegments(), nextSegment, nextSegment.timelineIn), nextSegment));
       setScreenGain(previousScreen, 0);
       claimAudiblePreviewVideo(standby);
       if (standby.paused) void standby.play().catch(() => undefined);
@@ -1883,11 +1988,11 @@ export function StyledVideoPreview({
         // back to that same frame flushes decode state and causes a visible hitch.
         activeTimelineSegmentRef.current = nextSegment;
         timelineFrameFallbackRef.current = nextSegment.timelineIn;
-        setScreenGain(screenVideo, timelineJoinGain(
+        setScreenGain(screenVideo, playbackSegmentGain(timelineJoinGain(
           buildTimelinePlaybackSegments(),
           nextSegment,
           nextSegment.timelineIn,
-        ));
+        ), nextSegment));
         recordPlaybackDebug('timeline-boundary-continuous', {
           renderLoopId,
           timelineIn: nextSegment.timelineIn,
@@ -2277,11 +2382,11 @@ export function StyledVideoPreview({
         timeMode === 'timeline' && (insertedClipAt(currentFrame, 'camera')?.hasAudio || voiceOverReplacesAt(currentFrame))
           ? 0
           : timeMode === 'timeline' && timelineDecoded?.segment
-          ? timelineJoinGain(
+          ? playbackSegmentGain(timelineJoinGain(
               buildTimelinePlaybackSegments(),
               timelineDecoded.segment,
               currentFrame,
-            )
+            ), timelineDecoded.segment)
           : 1,
       );
       if (timeMode === 'timeline' && isPlaying && !acceleratedTimelinePlaybackClock && timelineDecoded?.segment) {

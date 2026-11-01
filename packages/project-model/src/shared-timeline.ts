@@ -1,6 +1,7 @@
 import type { NleClipSource, NleTrack, NleTrackClip, NleTrackKind } from './track.js';
 import { createNleTracksFromComposition } from './track.js';
-import type { AiAssetClipReference, AiAssetId, Asset, AssetId, ExportSettings, Frame, ProjectDocument, RecordingPresentation } from './types.js';
+import type { AiAssetClipReference, AiAssetId, Asset, AssetId, AudioLevel, ExportSettings, Frame, ProjectDocument, RecordingPresentation } from './types.js';
+import { audioLevelFromUnknown } from './audio-level.js';
 
 export type TimelineSourceKind =
   | 'screen'
@@ -77,6 +78,11 @@ export interface TimelineClip {
   readonly sourceOut: Frame;
   /** Transitional import adapter for existing NLE code. Do not use as canonical truth. */
   readonly source?: NleClipSource;
+  /**
+   * This clip's own volume/mute. Every linked clip of a recording section
+   * carries the same value; splits, trims and moves copy it along.
+   */
+  readonly audio?: AudioLevel;
 }
 
 export interface TimelineTrack {
@@ -392,6 +398,7 @@ function ensureRecordingAudioTracks(
         sourceIn: screenClip.sourceIn,
         sourceOut: screenClip.sourceOut,
         source: { kind: 'project-asset', id: asset.id },
+        ...(screenClip.audio ? { audio: screenClip.audio } : {}),
       })),
     });
   }
@@ -444,6 +451,7 @@ function canonicalTimelineClipFromUnknown(
   const timelineOut = nonNegativeIntValue(clip['timelineOut']) ?? timelineIn;
   const sourceIn = nonNegativeIntValue(clip['sourceIn']) ?? 0;
   const sourceOut = nonNegativeIntValue(clip['sourceOut']) ?? sourceIn + Math.max(0, timelineOut - timelineIn);
+  const audio = audioLevelFromUnknown(clip['audio']);
   return [{
     id,
     mediaId,
@@ -454,6 +462,7 @@ function canonicalTimelineClipFromUnknown(
     sourceIn,
     sourceOut,
     ...(source ? { source } : {}),
+    ...(audio ? { audio } : {}),
   }];
 }
 

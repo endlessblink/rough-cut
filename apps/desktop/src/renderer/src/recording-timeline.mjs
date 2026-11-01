@@ -148,7 +148,9 @@ export function restoreRecordingOriginalState(document, { assetId }) {
     if (track.linkedGroupId !== linkedGroupId && !track.clips?.some((clip) => sourceIds.has(clip.mediaId))) return track;
     const clips = (track.clips ?? []).filter((clip) => sourceIds.has(clip.mediaId));
     if (clips.length === 0) return track;
-    const first = clips[0];
+    // The sections go away, so do their own volumes (the track volume stays).
+    const { audio: _sectionAudio, ...first } = clips[0];
+    void _sectionAudio;
     const isCamera = first.mediaId.endsWith(':camera');
     const assetIdForClip = first.source?.id ?? (isCamera ? cameraAssetId : recording.id);
     const sourceIn = isCamera ? cameraOffset : 0;

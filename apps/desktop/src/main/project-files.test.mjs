@@ -27,6 +27,8 @@ import {
 import {
   createZoomMarker,
   createDefaultRecordingPresentation,
+  withClipAudioLevel,
+  withRecordingAudioLevel,
 } from '../../../../packages/project-model/dist/index.js';
 
 const recording = {
@@ -308,6 +310,27 @@ test('Clean voice amount survives save and reopen; projects without it read as o
     await saveProjectFile(created.path, document);
     const opened = await openProjectFile(created.path);
     assert.deepEqual(opened.document.settings.voiceClean, { amount: 0.6 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('track and clip volume survive save and reopen; projects without them read as 100%', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-project-'));
+  try {
+    const outputPath = join(root, 'capture.mp4');
+    const created = await saveProjectForRecording({ ...recording, outputPath });
+    assert.equal(created.document.settings.recordingAudio, undefined);
+    const clips = created.document.timeline.tracks.flatMap((track) => track.clips);
+    assert.equal(clips.some((clip) => 'audio' in clip), false);
+    const screen = clips.find((clip) => clip.mediaId.endsWith(':screen'));
+    const withTrack = withRecordingAudioLevel(created.document, { volume: 1.5, muted: true });
+    await saveProjectFile(created.path, withClipAudioLevel(withTrack, [screen.id], { volume: 0.25 }));
+    const opened = await openProjectFile(created.path);
+    assert.deepEqual(opened.document.settings.recordingAudio, { volume: 1.5, muted: true });
+    const section = opened.document.timeline.tracks.flatMap((track) => track.clips).filter((clip) => clip.linkGroupId === screen.linkGroupId);
+    assert.ok(section.length >= 2, 'screen and its sound');
+    assert.ok(section.every((clip) => clip.audio?.volume === 0.25));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
