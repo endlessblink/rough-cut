@@ -7403,3 +7403,9 @@ button.devStopButton:hover:not(:disabled) { background: var(--panel-alt); filter
   color: var(--text);
   z-index: 10;
 }
+
+/* Bigger timeline toolbar icons so their detail reads (Noam 2026-11-01): the row grows with them. */
+.timelineDock .timelineToolbar { min-height: 3.25rem; }
+.timelineDock .timelineToolButton { height: 2.375rem; min-width: 2.375rem; }
+.timelineDock .timelineToolButton svg { width: 24px; height: 24px; }
+.timelineDock .timelineRippleButton svg { stroke-width: 2; }
