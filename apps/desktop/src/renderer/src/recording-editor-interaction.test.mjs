@@ -244,7 +244,7 @@ test('Delete acts on the selection, empty space can be selected and closed, ripp
   assert.match(source, /const clipId = \[selectedScreenClipId, \.\.\.selectedScreenClipIds\]\.find/);
   assert.match(source, /if \(selectedGap\) \{\n\s+event\.preventDefault\(\);\n\s+onAddCutBetween\?\.\(selectedGap\.startFrame, selectedGap\.endFrame\);/);
   assert.match(source, /className=\{`timelineGap\$\{selected \? ' selectedGap' : ''\}`\}/);
-  assert.match(source, /aria-label="Close gaps when trimming" aria-pressed=\{rippleTrim\}/);
+  assert.match(source, /aria-label="Reveal cut content and push the rest" aria-pressed=\{rippleTrim\}/);
   assert.match(source, /onTrimClipEdge\(region\.id, edge, commitFrame, \{ ripple: rippleTrim \}\)/);
   assert.match(source, /if \(options\.ripple === false\) \{\n\s+await trimTimelineClipLeavingGap\(clipId, edge, frame\);/);
 });

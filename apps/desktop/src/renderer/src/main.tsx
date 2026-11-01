@@ -19,7 +19,7 @@ import {
   Check as PhosphorCheck,
   GearSix as PhosphorGearSix,
   Icon as PhosphorIconType,
-  Magnet as PhosphorMagnet,
+  ArrowsOutLineHorizontal as PhosphorArrowsOutLineHorizontal,
   MagnifyingGlassMinus as PhosphorMagnifyingGlassMinus,
   MagnifyingGlassPlus as PhosphorMagnifyingGlassPlus,
   Microphone as PhosphorMicrophone,
@@ -7438,7 +7438,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       <div className="timelineToolbar" data-ui-region="timeline-toolbar">
         <button type="button" className="timelineToolButton" aria-label="Split at playhead" title="Split at the current playhead (S)" onClick={() => void onSplitAtPlayhead?.()}><PhosphorScissors size={17} weight="regular" /></button>
         <button type="button" className="timelineToolButton" aria-label="Delete selected clip" title={selectedScreenClipId ? 'Delete the selected clip (Delete)' : 'Select a clip to delete it'} disabled={!selectedScreenClipId || cutModeActive} onClick={() => { if (selectedScreenClipId) deleteScreenClip(selectedScreenClipId); }}><PhosphorTrash size={17} weight="regular" /></button>
-        <button type="button" className={rippleTrim ? 'timelineToolButton active timelineRippleButton' : 'timelineToolButton timelineRippleButton'} aria-label="Close gaps when trimming" aria-pressed={rippleTrim} title={rippleTrim ? 'Ripple on: trimming closes the gap and the rest slides over' : 'Ripple off: trimming leaves an empty space'} onClick={toggleRippleTrim}><PhosphorMagnet size={17} weight="regular" /></button>
+        <button type="button" className={rippleTrim ? 'timelineToolButton active timelineRippleButton' : 'timelineToolButton timelineRippleButton'} aria-label="Reveal cut content and push the rest" aria-pressed={rippleTrim} title={rippleTrim ? 'On: dragging a cut edge out brings back the cut content and pushes everything after it over' : 'Off: a cut edge stops at the next piece (turn on to bring back cut content)'} onClick={toggleRippleTrim}><PhosphorArrowsOutLineHorizontal size={17} weight="regular" /></button>
         <span className="timelineToolbarDivider" aria-hidden="true" />
         <button type="button" className={cutModeActive ? 'timelineToolButton active timelineRangeButton' : 'timelineToolButton timelineRangeButton'} aria-label="Range cut mode" aria-pressed={cutModeActive} title={cutModeActive ? 'Range cut mode active - drag a range to remove it. Press Escape to cancel.' : 'Range cut mode - drag a range to remove it.'} onClick={() => onCutModeToggle?.()}>Select range</button>
         {onRestoreOriginal ? <button type="button" className="timelineToolButton timelineRestoreButton" aria-label="Restore original recording" title="Restore the untouched recording state" onClick={() => void onRestoreOriginal()}><PhosphorArrowCounterClockwise size={17} weight="regular" /></button> : null}
