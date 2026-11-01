@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option A - Version chip</title>
+<style>
+:root{--bg:#101114;--fg:#e9eaee;--mute:#80838c;--line:#23252b;--accent:#7aa2ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px}
+.name{color:var(--mute)}
+.chip{position:relative;display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border:1px solid var(--line);border-radius:99px;color:var(--fg)}
+.chip small{color:var(--mute)}
+.menu{position:absolute;top:44px;right:0;width:260px;background:#16181c;border:1px solid var(--line);border-radius:14px;padding:6px}
+.menu div{padding:10px 12px;border-radius:9px;display:flex;justify-content:space-between}
+.menu div.on{background:#1d2026}
+.menu small{color:var(--mute)}
+.menu hr{border:0;border-top:1px solid var(--line);margin:6px 0}
+.menu .add{color:var(--accent)}
+.stage{flex:1;display:flex;align-items:center;justify-content:center}
+.video{width:min(760px,80%);aspect-ratio:16/9;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;color:var(--mute)}
+.line{height:64px;margin:0 28px 28px;position:relative}
+.line i{position:absolute;top:30px;height:4px;border-radius:2px;background:#2d3036}
+.line i.on{background:var(--accent)}
+.line b{position:absolute;top:22px;width:2px;height:20px;background:var(--fg);left:41%}
+</style></head><body>
+<div class="bar"><span class="name">Mixamo motion test</span>
+  <span class="chip">AI cut <small>10:25</small> ▾
+    <span class="menu">
+      <div>Original <small>18:00</small></div>
+      <div class="on">AI cut <small>10:25</small></div>
+      <div>My edit <small>12:10</small></div>
+      <hr>
+      <div class="add">Ask AI for a new version</div>
+    </span>
+  </span>
+</div>
+<div class="stage"><div class="video">preview</div></div>
+<div class="line"><i class="on" style="left:0;width:100%"></i><b></b></div>
+</body></html>

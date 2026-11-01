@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option C2 - Versions like projects</title>
+<style>
+:root{--bg:#101114;--fg:#e9eaee;--mute:#80838c;--line:#23252b;--accent:#7aa2ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;align-items:center}
+.versions{margin-top:28px;display:flex;align-items:center;gap:4px;padding:4px;border:1px solid var(--line);border-radius:99px;max-width:94%;overflow:auto}
+.versions button{border:0;background:transparent;color:var(--mute);font:inherit;padding:6px 16px;border-radius:99px;cursor:pointer;white-space:nowrap}
+.versions button:hover{color:var(--fg)}
+.versions button.on{background:#20232a;color:var(--fg)}
+.versions button small{margin-left:8px;color:var(--mute);font-size:12px}
+.versions .plus{color:var(--accent);padding:6px 12px}
+.sub{margin-top:10px;color:var(--mute);font-size:13px;min-height:20px}
+.stage{flex:1;display:flex;align-items:center;justify-content:center;width:100%}
+.video{width:min(760px,80%);aspect-ratio:16/9;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;color:var(--mute)}
+.track{width:min(760px,80%);height:28px;position:relative;margin-bottom:6px}
+.track i{position:absolute;top:12px;height:4px;border-radius:2px}
+.keep{background:var(--accent)}
+.gone{background:#2d3036}
+.foot{width:min(760px,80%);display:flex;justify-content:space-between;color:var(--mute);margin-bottom:32px;font-size:13px}
+.foot a{color:var(--accent);cursor:pointer}
+</style></head><body>
+<div class="versions" id="tabs"></div>
+<div class="sub" id="sub"></div>
+<div class="stage"><div class="video" id="video">preview</div></div>
+<div class="track" id="track"></div>
+<div class="foot"><span id="foot"></span><a>Make another version</a></div>
+<script>
+const V=[
+  {n:'Original',len:'18:00',sub:'Your recording, untouched',keep:[[0,100]]},
+  {n:'AI cut 1',len:'10:44',sub:'First pass: repeats out, waits kept',keep:[[0,9],[14,24],[36,50],[52,61],[70,100]]},
+  {n:'AI cut 2',len:'10:25',sub:'Repeats, waits and private screens out',keep:[[0,3],[9,14],[17,24],[36,40],[50,61],[69,76],[82,100]]},
+  {n:'AI short',len:'6:10',sub:'Only the best 6 minutes',keep:[[9,14],[36,40],[50,61],[82,100]]}
+];
+let cur=2;
+const tabs=document.getElementById('tabs');
+function draw(){
+  tabs.innerHTML=V.map((v,i)=>`<button class="${i===cur?'on':''}" data-i="${i}">${v.n}<small>${v.len}</small></button>`).join('')+'<button class="plus" data-i="+">+</button>';
+  const v=V[cur];
+  document.getElementById('sub').textContent=v.sub;
+  document.getElementById('video').textContent='preview · '+v.n;
+  document.getElementById('track').innerHTML='<i class="gone" style="left:0;width:100%"></i>'+v.keep.map(k=>`<i class="keep" style="left:${k[0]}%;width:${k[1]-k[0]}%"></i>`).join('');
+  document.getElementById('foot').textContent=cur===0?'18:00 · always kept':'Grey is what the AI removed · '+v.len+' of 18:00';
+}
+tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.dataset.i==='+')return;cur=+b.dataset.i;draw();});
+addEventListener('keydown',e=>{if(e.key==='['&&cur>0){cur--;draw();}if(e.key===']'&&cur<V.length-1){cur++;draw();}});
+draw();
+</script>
+</body></html>

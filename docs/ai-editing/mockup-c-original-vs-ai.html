@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option C - Original / AI switch</title>
+<style>
+:root{--bg:#101114;--fg:#e9eaee;--mute:#80838c;--line:#23252b;--accent:#7aa2ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;align-items:center}
+.switch{margin-top:28px;display:inline-flex;padding:4px;border:1px solid var(--line);border-radius:99px}
+.switch span{padding:6px 18px;border-radius:99px;color:var(--mute)}
+.switch span.on{background:#20232a;color:var(--fg)}
+.stage{flex:1;display:flex;align-items:center;justify-content:center;width:100%}
+.video{width:min(760px,80%);aspect-ratio:16/9;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;color:var(--mute)}
+.times{color:var(--mute);margin-bottom:10px}
+.track{width:min(760px,80%);height:28px;position:relative;margin-bottom:6px}
+.track i{position:absolute;top:12px;height:4px;border-radius:2px}
+.track .keep{background:var(--accent)}
+.track .gone{background:#2d3036}
+.foot{width:min(760px,80%);display:flex;justify-content:space-between;color:var(--mute);margin-bottom:32px}
+.foot a{color:var(--accent)}
+</style></head><body>
+<div class="switch"><span>Original</span><span class="on">AI cut</span></div>
+<div class="stage"><div class="video">preview</div></div>
+<div class="track">
+  <i class="gone" style="left:0;width:100%"></i>
+  <i class="keep" style="left:0;width:3%"></i><i class="keep" style="left:9%;width:5%"></i><i class="keep" style="left:17%;width:7%"></i><i class="keep" style="left:36%;width:4%"></i><i class="keep" style="left:50%;width:11%"></i><i class="keep" style="left:69%;width:7%"></i><i class="keep" style="left:82%;width:18%"></i>
+</div>
+<div class="foot"><span>Grey is what the AI removed. 10:25 of 18:00</span><a>Make another version</a></div>
+</body></html>
