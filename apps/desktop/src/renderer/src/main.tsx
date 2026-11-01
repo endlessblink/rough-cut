@@ -4479,6 +4479,16 @@ function ProjectPreview({
     };
   }, []);
   const [previewPlaying, setPreviewPlaying] = React.useState(false);
+  // After a refresh the saved playhead is restored in app state, but the preview's own seek position
+  // and the video stay at 0: the playhead shows the saved spot and Play starts from the beginning.
+  // Once per project, when the playhead is clearly past 0 while the seek position is still 0, move the video to it.
+  const restoredSeekProjectRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (restoredSeekProjectRef.current === project.path) return;
+    if (previewPlaying || currentTimeSec <= 0.25 || timelineSeekSec >= 0.05) return;
+    restoredSeekProjectRef.current = project.path;
+    setTimelineSeekSec(currentTimeSec);
+  }, [project.path, currentTimeSec, timelineSeekSec, previewPlaying]);
   // Dev-only (dock copy): added clips and camera takes.
   const devFeatures = useDevFeatures();
   const [takeRange, setTakeRange] = React.useState<TakeRange>({ startFrame: null, endFrame: null });

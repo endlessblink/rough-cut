@@ -1352,6 +1352,7 @@ export function StyledVideoPreview({
   React.useEffect(() => {
     setSourceMediaDuration(null);
     setCameraMediaDuration(null);
+    console.warn('[playback-reset] source changed, time forced to 0', { was: currentTimeRef.current, src });
     updateCurrentTime(0, { immediate: true });
     setInternalPlaying(false);
     setCursorOffscreen(null);
@@ -1485,6 +1486,7 @@ export function StyledVideoPreview({
     if (isPlaying) {
       const segments = buildTimelinePlaybackSegments();
       let timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
+      console.info('[playback-start]', { sec: currentTimeRef.current, frame: timelineFrame, segments: segments.length });
       let segment = timelineSegmentAtFrame(segments, timelineFrame);
       if (!segment) {
         if (!nextTimelineSegmentAfterFrame(segments, timelineFrame) && !insertedContentAfter(timelineFrame)) {
@@ -3084,6 +3086,7 @@ export function StyledVideoPreview({
         return;
       }
       if (currentTimeRef.current >= timelineDuration - 1 / fps) {
+        console.warn('[playback-reset] play pressed at/after the end, time forced to 0', { was: currentTimeRef.current, timelineDuration });
         updateCurrentTime(0, { immediate: true });
       }
       setInternalPlaying(true);
@@ -3095,6 +3098,7 @@ export function StyledVideoPreview({
       try {
         const atEnd = video.ended || sourceTimeToVisibleTime(video.currentTime) >= visibleDuration - 1 / fps;
         if (atEnd) {
+          console.warn('[playback-reset] play pressed at the end, time forced to 0', { was: currentTimeRef.current });
           const startTime = visibleTimeToSourceTime(0);
           video.currentTime = startTime;
           syncCameraTime(startTime);
