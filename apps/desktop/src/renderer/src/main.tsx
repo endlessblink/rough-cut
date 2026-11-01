@@ -7415,8 +7415,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       // magnetic main track) and the section snaps back against its neighbour on release.
       if (frame >= start) {
         // Ripple: the section keeps its start, gets shorter, and everything after it slides left (no empty space while dragging).
+        // The edge you pull stays under the mouse; everything to its left slides right to close the space at once.
         const cut = Math.min(frame, end - 1) - start;
-        return { clipId: clip.id, newIn: start, newOut: end - cut, shift: -cut, after: end, waveFrame: start + cut };
+        return { clipId: clip.id, newIn: start + cut, newOut: end, shift: 0, shiftBefore: cut, before: start, after: end, waveFrame: start + cut };
       }
       const frames = start - frame;
       const push = Math.max(0, frames - (start - previousOut));
@@ -7441,6 +7442,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       if (region.id === ripple.clipId) return separated(frameRangeToPlacement(ripple.newIn, ripple.newOut, fps, model.durationSec));
       if (Number.isFinite(region.timelineIn) && Number.isFinite(region.timelineOut) && Math.round(region.timelineIn ?? 0) >= ripple.after) {
         return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shift, (region.timelineOut ?? 1) + ripple.shift, fps, model.durationSec));
+      }
+      if ('shiftBefore' in ripple && ripple.shiftBefore && Number.isFinite(region.timelineOut) && Math.round(region.timelineOut ?? 0) <= (ripple.before ?? 0)) {
+        return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shiftBefore, (region.timelineOut ?? 1) + ripple.shiftBefore, fps, model.durationSec));
       }
     }
     if (clipDragPreview?.clipId === region.id) {
@@ -7498,6 +7502,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       if (ripple.clipId === clipId) return separated(frameRangeToPlacement(ripple.newIn, ripple.newOut, fps, model.durationSec));
       if (Number.isFinite(region.timelineIn) && Number.isFinite(region.timelineOut) && Math.round(region.timelineIn ?? 0) >= ripple.after) {
         return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shift, (region.timelineOut ?? 1) + ripple.shift, fps, model.durationSec));
+      }
+      if ('shiftBefore' in ripple && ripple.shiftBefore && Number.isFinite(region.timelineOut) && Math.round(region.timelineOut ?? 0) <= (ripple.before ?? 0)) {
+        return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shiftBefore, (region.timelineOut ?? 1) + ripple.shiftBefore, fps, model.durationSec));
       }
     }
     if (!trimDragPreview || trimDragPreview.clipId !== clipId || !linkedScreen) {
