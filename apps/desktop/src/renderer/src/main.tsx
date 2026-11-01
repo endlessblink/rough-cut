@@ -6074,14 +6074,14 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   // An empty stretch between sections, selected so Delete can close it.
   const [selectedGap, setSelectedGap] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [rippleTrim, setRippleTrim] = React.useState(() => {
-    // Plain trim by default, like Resolve and Premiere: the edge you drag follows the mouse and a
-    // gap stays. Closing gaps (ripple) is opt-in; a saved choice is kept.
-    try { return window.localStorage.getItem('roughCut.rippleTrim') === 'on'; } catch { return false; }
+    // Ripple by default (Noam, 2026-11-02): shortening a section moves everything after it, so no empty
+    // section is left, and extending reveals more footage and pushes the rest. The button turns it off.
+    try { return window.localStorage.getItem('roughCut.rippleTrim.v2') !== 'off'; } catch { return true; }
   });
   function toggleRippleTrim() {
     setRippleTrim((current) => {
       const next = !current;
-      try { window.localStorage.setItem('roughCut.rippleTrim', next ? 'on' : 'off'); } catch { /* storage unavailable */ }
+      try { window.localStorage.setItem('roughCut.rippleTrim.v2', next ? 'on' : 'off'); } catch { /* storage unavailable */ }
       return next;
     });
   }
