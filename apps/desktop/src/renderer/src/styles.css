@@ -7409,3 +7409,6 @@ button.devStopButton:hover:not(:disabled) { background: var(--panel-alt); filter
 .timelineDock .timelineToolButton { height: 2.375rem; min-width: 2.375rem; }
 .timelineDock .timelineToolButton svg { width: 24px; height: 24px; }
 .timelineDock .timelineRippleButton svg { stroke-width: 2; }
+
+/* The trim toggle is a word, not an icon: detail is lost at toolbar size (Noam 2026-11-01). */
+.timelineDock .timelineRippleButton { padding: 0 0.875rem; font-size: var(--text-sm); letter-spacing: 0.01em; }
