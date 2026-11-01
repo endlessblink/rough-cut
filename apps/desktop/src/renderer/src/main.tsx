@@ -7644,7 +7644,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               trackTitle={cutModeActive ? 'Drag to mark a cut range' : 'Click or drag to seek'}
             >
           {renderGaps('screen')}
-          {trimDragPreview ? trimDragBaseline.filter((clip) => clip.id === trimDragPreview.clipId).map((clip) => (
+          {trimDragPreview && !rippleTrim ? trimDragBaseline.filter((clip) => clip.id === trimDragPreview.clipId).map((clip) => (
             <span key="trim-ghost" className="trimGhost" style={{ left: `${clip.left}%`, width: `${clip.width}%` }} aria-hidden="true" />
           )) : null}
           {model.lanes.screen.map((region, index) => (
