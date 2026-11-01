@@ -9469,4 +9469,8 @@ function formatClock(seconds: number) {
   return `${minutes}:${String(remainder).padStart(2, '0')}`;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+// One React root for the whole session. Every hot update of this entry file used to create another root on the
+// same container; the old trees kept their video elements and timers running (stuck playback, sound after Stop).
+const appRoot = import.meta.hot?.data.appRoot ?? createRoot(document.getElementById('root')!);
+if (import.meta.hot) import.meta.hot.data.appRoot = appRoot;
+appRoot.render(<App />);
