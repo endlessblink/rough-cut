@@ -2927,7 +2927,7 @@ function getFocusableElements(root: HTMLElement) {
 
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom' | 'censor' | 'info';
 type FrameAlignmentMode = 'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
-type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'captions' | 'censor' | 'graphics';
+type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'audio' | 'captions' | 'censor' | 'graphics';
 
 const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
   folder: PhosphorFolder,
@@ -2967,6 +2967,7 @@ function ToolRail({ active, onSelect, panelOpen, onTogglePanel }: { active: Acti
     { id: 'camera', icon: PhosphorVideoCamera, label: 'Camera' },
     { id: 'cursor', icon: PhosphorCursor, label: 'Cursor' },
     { id: 'zoom', icon: PhosphorMagnifyingGlassPlus, label: 'Zoom' },
+    { id: 'audio', icon: PhosphorSpeakerHigh, label: 'Audio' },
     { id: 'captions', icon: PhosphorClosedCaptioning, label: 'Captions' },
     { id: 'censor', icon: PhosphorEyeSlash, label: 'Censor' },
     { id: 'graphics', icon: PhosphorTextAa, label: 'Graphics' },
@@ -3803,12 +3804,23 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
     );
   }
 
+  if (activeTool === 'audio') {
+    return (
+      <aside className="setupBoard studioPane" aria-label="Audio board">
+        {project?.recording && onProjectChange ? (
+          <div className="timelineBoardStack" data-ui-region="audio-control-panel">
+            <VoiceCleanPanel disabled={disabled} />
+          </div>
+        ) : null}
+      </aside>
+    );
+  }
+
   if (activeTool === 'captions') {
     return (
       <aside className="setupBoard studioPane" aria-label="Captions board">
         {project?.recording && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="captions-control-panel">
-            <VoiceCleanPanel disabled={disabled} />
             <CaptionsPanel project={project} onProjectChange={onProjectChange} />
           </div>
         ) : null}
