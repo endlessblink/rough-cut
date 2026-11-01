@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option C3 - Versions inside the editor</title>
+<style>
+:root{--bg:#0a0c10;--panel:#0e1117;--line:#1d222b;--fg:#e8eaef;--mute:#7b8392;--blue:#2f6bff;--clip:#1d3c72;--clip2:#18305c;--wave:#143a46}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,sans-serif;height:100vh;min-height:620px;display:grid;grid-template-rows:44px 1fr 250px;grid-template-columns:1fr 250px;overflow:hidden}
+.top{grid-column:1/3;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--line)}
+.top .l{display:flex;gap:12px;align-items:center}
+.top .l small{color:var(--mute);display:block;font-size:11px;line-height:1}
+.tabs{display:flex;gap:2px;padding:3px;background:#12161d;border:1px solid var(--line);border-radius:9px}
+.tabs span{padding:4px 12px;border-radius:7px;color:var(--mute)}
+.tabs span.on{background:#222833;color:var(--fg)}
+.top .r{display:flex;gap:10px;align-items:center;color:var(--mute)}
+.rec{border:1px solid var(--line);padding:5px 12px;border-radius:8px;color:var(--fg)}
+.exp{background:var(--blue);color:#fff;padding:6px 14px;border-radius:8px;font-weight:600}
+.view{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(#10141b 1px,transparent 1px) 0 0/22px 22px}
+.versions{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:2px;padding:3px;background:rgba(14,17,23,.92);border:1px solid var(--line);border-radius:99px;white-space:nowrap}
+.versions button{border:0;background:transparent;color:var(--mute);font:inherit;padding:5px 13px;border-radius:99px;cursor:pointer}
+.versions button.on{background:#222833;color:var(--fg)}
+.versions button small{color:var(--mute);margin-left:6px}
+.versions .more{color:var(--mute);padding:5px 9px}
+.versions .plus{color:#7ea6ff;padding:5px 10px}
+.canvas{width:min(640px,76%);aspect-ratio:16/9;background:#0c0f14;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--mute);margin-top:30px}
+.play{margin-top:14px;display:flex;gap:12px;align-items:center;background:#12161d;border:1px solid var(--line);border-radius:99px;padding:6px 14px;color:var(--mute)}
+.play b{color:var(--fg);font-weight:500}
+.rail{border-left:1px solid var(--line);background:var(--panel);padding:14px;color:var(--mute)}
+.rail h4{margin:0 0 10px;color:var(--fg);font-weight:600}
+.rail .row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)}
+.tl{grid-column:1/3;border-top:1px solid var(--line);background:var(--panel);padding:6px 0 0;position:relative}
+.tool{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;color:var(--mute)}
+.lane{display:flex;align-items:center;height:34px}
+.lane .n{width:62px;padding-left:16px;color:var(--mute);font-size:11px}
+.lane .t{flex:1;position:relative;height:28px;margin-right:16px}
+.clip{position:absolute;top:0;bottom:0;background:var(--clip);border:1px solid #2c5399;border-radius:4px;padding:5px 8px;font-size:12px;overflow:hidden;white-space:nowrap}
+.wave{position:absolute;top:2px;bottom:2px;background:var(--wave);border-radius:3px}
+.gap{position:absolute;top:2px;bottom:2px;width:0;border-left:2px solid #e8a0a0;opacity:.8}
+.ph{position:absolute;top:0;bottom:0;left:30%;width:2px;background:#fff}
+.chat{position:absolute;right:16px;bottom:14px;display:flex;align-items:center;gap:8px;background:#12161d;border:1px solid var(--line);border-radius:99px;padding:7px 14px;color:var(--mute)}
+.chat i{font-style:normal;font-size:11px;background:#222833;border-radius:99px;padding:1px 8px}
+.hint{position:absolute;left:16px;bottom:10px;color:var(--mute);font-size:12px}
+</style></head><body>
+<div class="top">
+  <div class="l"><span>‹</span><div>Mixamo motion test<small>Saved</small></div></div>
+  <div class="tabs"><span>Recording</span><span>Projects</span><span class="on">Recording edit</span><span>AI</span></div>
+  <div class="r"><span>↶</span><span>↷</span><span class="rec">● Record</span><span class="exp">Export</span></div>
+</div>
+
+<div class="view">
+  <div class="versions" id="tabs"></div>
+  <div class="canvas" id="canvas">preview</div>
+  <div class="play"><span>▶</span><b id="time">2:13</b><span id="len">/ 11:48</span></div>
+</div>
+
+<div class="rail"><h4>Zoom</h4>
+  <div class="row"><span>Auto zooms</span><span>2</span></div>
+  <div class="row"><span>Camera follow</span><span>0.6</span></div>
+  <div class="row"><span>Removed parts</span><span id="rem">9</span></div>
+  <div class="row"><span>Hidden ranges</span><span>0</span></div>
+</div>
+
+<div class="tl">
+  <div class="tool"><span>✂ &nbsp; Select range</span><span id="where"></span></div>
+  <div class="lane"><span class="n">Screen</span><div class="t" id="screen"></div></div>
+  <div class="lane"><span class="n">Audio</span><div class="t" id="audio"></div></div>
+  <div class="lane"><span class="n">Camera</span><div class="t"><div class="clip" style="left:0;right:0;background:#1b2230;border-color:#2b3447;color:var(--mute)">Camera</div></div></div>
+  <div class="hint" id="hint"></div>
+  <div class="chat"><span>Ask AI for another version…</span><i>soon</i></div>
+</div>
+
+<script>
+const V=[
+ {n:'My edit',len:'18:00',keep:[[0,100]],rem:0,hint:'Your own timeline. AI never changes it.'},
+ {n:'AI cut 1',len:'10:25',keep:[[0,3],[9,14],[17,24],[36,40],[50,61],[69,76],[82,100]],rem:7,hint:'First pass, cuts were rough.'},
+ {n:'AI cut 2',len:'11:48',keep:[[0,12],[18,31],[34,60],[64,100]],rem:5,hint:'Cuts only in pauses. Red marks are where it joins.'}
+];
+let cur=2;
+const $=id=>document.getElementById(id);
+function draw(){
+  $('tabs').innerHTML=V.map((v,i)=>`<button class="${i===cur?'on':''}" data-i="${i}">${v.n}<small>${v.len}</small></button>`).join('')+'<button class="more" title="Older versions">⋯</button><button class="plus" title="New version">+</button>';
+  const v=V[cur];
+  $('canvas').textContent='preview · '+v.n;
+  $('len').textContent='/ '+v.len; $('rem').textContent=v.rem; $('hint').textContent=v.hint;
+  $('screen').innerHTML=v.keep.map((k,i)=>`<div class="clip" style="left:${k[0]}%;width:${k[1]-k[0]-0.4}%">${(k[1]-k[0])>7?'Screen':''}</div>`).join('')+(cur>0?v.keep.slice(1).map(k=>`<i class="gap" style="left:${k[0]-0.2}%"></i>`).join(''):'')+'<div class="ph"></div>';
+  $('audio').innerHTML=v.keep.map(k=>`<div class="wave" style="left:${k[0]}%;width:${k[1]-k[0]-0.4}%"></div>`).join('');
+}
+$('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.dataset.i==null)return;cur=+b.dataset.i;draw();});
+addEventListener('keydown',e=>{if(e.key==='['&&cur>0){cur--;draw();}if(e.key===']'&&cur<V.length-1){cur++;draw();}});
+draw();
+</script>
+</body></html>
