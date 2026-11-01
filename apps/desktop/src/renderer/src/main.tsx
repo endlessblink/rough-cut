@@ -1007,9 +1007,21 @@ function App() {
     if (project?.recording?.camera) setExportMode('styled');
   }, [project?.recording?.camera]);
 
+  // Reopening a project (or refreshing the app) puts the playhead back exactly where it was.
   React.useEffect(() => {
-    setSharedTimelineTimeSec(0);
+    setSharedTimelineTimeSec(project?.path ? readSavedPlayhead(project.path) : 0);
   }, [project?.path]);
+
+  const playheadSaveRef = React.useRef<{ path: string | null; sec: number; timer: number | null }>({ path: null, sec: 0, timer: null });
+  React.useEffect(() => {
+    const flush = () => {
+      const pending = playheadSaveRef.current;
+      if (pending.timer !== null) { window.clearTimeout(pending.timer); pending.timer = null; }
+      if (pending.path) writeSavedPlayhead(pending.path, pending.sec);
+    };
+    window.addEventListener('beforeunload', flush);
+    return () => { window.removeEventListener('beforeunload', flush); flush(); };
+  }, []);
 
   React.useEffect(() => {
     if (recording.state === 'recording') setPreRecordPanelOpen(false);
@@ -1050,9 +1062,20 @@ function App() {
     ? Math.max(0, (project.document.composition?.duration ?? 0) / sharedTimelineFps)
     : 0;
   const clampedSharedTimelineTimeSec = Math.max(0, Math.min(sharedTimelineDurationSec, sharedTimelineTimeSec));
+  const projectPathForPlayhead = project?.path ?? null;
   const updateSharedTimelineTimeSec = React.useCallback((nextTimeSec: number) => {
-    setSharedTimelineTimeSec(Math.max(0, Math.min(sharedTimelineDurationSec, nextTimeSec)));
-  }, [sharedTimelineDurationSec]);
+    const clamped = Math.max(0, Math.min(sharedTimelineDurationSec, nextTimeSec));
+    setSharedTimelineTimeSec(clamped);
+    const pending = playheadSaveRef.current;
+    pending.path = projectPathForPlayhead;
+    pending.sec = clamped;
+    if (pending.timer === null) {
+      pending.timer = window.setTimeout(() => {
+        pending.timer = null;
+        if (pending.path) writeSavedPlayhead(pending.path, pending.sec);
+      }, 400);
+    }
+  }, [sharedTimelineDurationSec, projectPathForPlayhead]);
 
   async function toggleRecording() {
     if (recordingActionPendingRef.current) {
@@ -3693,6 +3716,17 @@ function RippleTrimIcon() {
       <path d="M17.5 8.5 21 12l-3.5 3.5" />
     </svg>
   );
+}
+
+const PLAYHEAD_KEY_PREFIX = 'roughCut.playhead:';
+function readSavedPlayhead(projectPath: string): number {
+  try {
+    const value = Number(window.localStorage.getItem(PLAYHEAD_KEY_PREFIX + projectPath));
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch { return 0; }
+}
+function writeSavedPlayhead(projectPath: string, sec: number) {
+  try { window.localStorage.setItem(PLAYHEAD_KEY_PREFIX + projectPath, String(Math.round(sec * 1000) / 1000)); } catch { /* storage unavailable */ }
 }
 
 function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRestoreOriginal, onRemoveCutRange, onClearCutRanges, censorCount = 0, censorDrawArmed = false, onCensorDrawArmedChange, selectedCensorId = null, selectedCensorSoftness = 0, onCensorSoftnessChange, selectedCensorFollows = false, censorTrackBusy = false, censorTrackStatus = null, onCensorTrack, onCensorClearTrack, framingHoldCount = 0, framingHoldSelected = false, onAddFramingHold }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRestoreOriginal?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void; censorCount?: number; censorDrawArmed?: boolean; onCensorDrawArmedChange?: (armed: boolean) => void; selectedCensorId?: string | null; selectedCensorSoftness?: number; onCensorSoftnessChange?: (censorId: string, softness: number) => void; selectedCensorFollows?: boolean; censorTrackBusy?: boolean; censorTrackStatus?: string | null; onCensorTrack?: (censorId: string) => void; onCensorClearTrack?: (censorId: string) => void; framingHoldCount?: number; framingHoldSelected?: boolean; onAddFramingHold?: () => Promise<void> | void }) {
