@@ -16,6 +16,7 @@ import {
   splitClip,
   TimelineCommandError,
   trimClipEdge,
+  trimEdge,
   updateTrackSettings,
 } from './timeline-commands.js';
 import { assertTimelineInvariants, canonicalizeProjectDocument } from './shared-timeline.js';
@@ -394,5 +395,101 @@ describe('clip ids stay unique across sessions', () => {
       ...split.timeline,
       tracks: [{ ...split.timeline.tracks[0]!, clips: [first!, { ...second!, id: first!.id }] }],
     })).toThrow(/unique/);
+  });
+});
+
+describe('trimEdge: the one trim command', () => {
+  const asset = createAsset('video', '/tmp/screen.mp4', { id: 'asset-1' as never, duration: 300 });
+  // gap: a 0-50, b 80-120, c 140-180   touching: a 0-50, b 50-90, c 90-130   (source starts leave room both sides)
+  const layouts = {
+    gap: [[0, 50], [80, 120], [140, 180]],
+    touching: [[0, 50], [50, 90], [90, 130]],
+  } as const;
+  function build(layout: keyof typeof layouts) {
+    return createProject({
+      assets: [asset],
+      tracks: [track({ clips: layouts[layout].map(([i, o], n) => clip('abc'[n]!, asset.id, i, o, 100)) })],
+    });
+  }
+  const snapshot = (doc: { timeline: { tracks: readonly { clips: readonly { id: string; timelineIn: number; timelineOut: number; sourceIn: number; sourceOut: number }[] }[] } }) =>
+    Object.fromEntries(doc.timeline.tracks[0]!.clips.map((c) => [c.id, [c.timelineIn, c.timelineOut, c.sourceIn, c.sourceOut]]));
+
+  for (const layout of ['gap', 'touching'] as const) {
+    for (const target of ['a', 'b', 'c'] as const) {
+      for (const edge of ['head', 'tail'] as const) {
+        for (const direction of ['shorten', 'extend'] as const) {
+          for (const mode of ['normal', 'ripple'] as const) {
+            it(`${mode} ${edge} ${direction} on ${target} (${layout})`, () => {
+              const project = build(layout);
+              const before = snapshot(canonicalizeProjectDocument(project));
+              const [tin, tout] = before[target]! as number[];
+              const step = direction === 'shorten' ? 5 : 5;
+              // head moves right to shorten / left to extend; tail the opposite.
+              const frame = edge === 'head' ? tin! + (direction === 'shorten' ? step : -step) : tout! + (direction === 'shorten' ? -step : step);
+              const room = edge === 'head' ? tin! - Math.max(0, ...Object.values(before).filter((c) => c[1]! <= tin!).map((c) => c[1]!)) : Infinity;
+              const nextIn = Math.min(Infinity, ...Object.values(before).filter((c) => c[0]! >= tout!).map((c) => c[0]!));
+              const blocked = mode === 'normal' && direction === 'extend' && (edge === 'head' ? room < step : nextIn - tout! < step);
+              if (blocked) {
+                // No free space next to this edge: normal trim stops at the neighbour (clamped to 0 here).
+                if ((edge === 'head' ? room : nextIn - tout!) === 0) {
+                  expect(() => trimEdge(project, { clipId: target, edge, frame, mode })).toThrow(TimelineCommandError);
+                  return;
+                }
+              }
+              const result = trimEdge(project, { clipId: target, edge, frame, mode });
+              assertTimelineInvariants(result.document.timeline);
+              const after = snapshot(result.document);
+              const moved = after[target]!;
+              for (const c of Object.values(after)) expect(c[3]! - c[2]!).toBe(c[1]! - c[0]!);
+              const applied = edge === 'head' ? moved[0]! - tin! : moved[1]! - tout!;
+              if (mode === 'normal') {
+                // only the dragged edge of the target moved; nothing else
+                for (const id of ['a', 'b', 'c'].filter((id) => id !== target)) expect(after[id]).toEqual(before[id]);
+                expect(Math.sign(applied)).toBe(Math.sign(frame - (edge === 'head' ? tin! : tout!)));
+                if (direction === 'shorten') expect(applied).toBe(edge === 'head' ? step : -step);
+              } else {
+                // the clip start never moves; later clips slide by the length change; earlier clips stay
+                expect(moved[0]).toBe(tin);
+                const change = moved[1]! - tout!;
+                expect(change).toBe(direction === 'shorten' ? -step : step);
+                for (const id of ['a', 'b', 'c'].filter((id) => id !== target)) {
+                  const was = before[id]! as number[];
+                  const shift = was[0]! >= tout! ? change : 0;
+                  expect(after[id]).toEqual([was[0]! + shift, was[1]! + shift, was[2], was[3]]);
+                }
+              }
+            });
+          }
+        }
+      }
+    }
+  }
+
+  it('ripple head extend reveals earlier footage and grows to the right (clip start stays)', () => {
+    const result = trimEdge(build('touching'), { clipId: 'b', edge: 'head', frame: 40, mode: 'ripple' });
+    expect(snapshot(result.document)).toEqual({ a: [0, 50, 100, 150], b: [50, 100, 90, 140], c: [100, 140, 100, 140] });
+  });
+
+  it('normal extend stops at the neighbour and at the footage handle', () => {
+    const project = build('gap');
+    expect(snapshot(trimEdge(project, { clipId: 'b', edge: 'tail', frame: 500, mode: 'normal' }).document).b).toEqual([80, 140, 100, 160]);
+    expect(snapshot(trimEdge(project, { clipId: 'b', edge: 'head', frame: 0, mode: 'normal' }).document).b).toEqual([50, 120, 70, 140]);
+    const handle = createProject({ assets: [asset], tracks: [track({ clips: [clip('a', asset.id, 10, 50, 5)] })] });
+    expect(snapshot(trimEdge(handle, { clipId: 'a', edge: 'head', frame: 0, mode: 'normal' }).document).a).toEqual([5, 50, 0, 45]);
+  });
+
+  it('roll moves the cut between two touching clips and keeps total length', () => {
+    const forward = trimEdge(build('touching'), { clipId: 'b', edge: 'head', frame: 40, mode: 'roll' });
+    expect(snapshot(forward.document)).toEqual({ a: [0, 40, 100, 140], b: [40, 90, 90, 140], c: [90, 130, 100, 140] });
+    const back = trimEdge(build('touching'), { clipId: 'b', edge: 'tail', frame: 100, mode: 'roll' });
+    expect(snapshot(back.document)).toEqual({ a: [0, 50, 100, 150], b: [50, 100, 100, 150], c: [100, 130, 110, 140] });
+    expect(() => trimEdge(build('gap'), { clipId: 'b', edge: 'tail', frame: 100, mode: 'roll' })).toThrow(TimelineCommandError);
+  });
+
+  it('rejects locked tracks and no-op trims', () => {
+    const project = build('gap');
+    expect(() => trimEdge(project, { clipId: 'b', edge: 'tail', frame: 120, mode: 'normal' })).toThrow(TimelineCommandError);
+    const locked = updateTrackSettings(project, { trackId: 'video-1', locked: true }).document;
+    expect(() => trimEdge(locked, { clipId: 'b', edge: 'tail', frame: 110, mode: 'ripple' })).toThrow(TimelineCommandError);
   });
 });

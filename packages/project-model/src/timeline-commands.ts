@@ -8,6 +8,7 @@ import {
 import type { ProjectDocument } from './types.js';
 
 export type TimelineCommandType =
+  | 'trimEdge'
   | 'trimClipEdge'
   | 'rippleTrimClipEdge'
   | 'moveClip'
@@ -40,6 +41,120 @@ export class TimelineCommandError extends Error {
     super(message);
     this.name = 'TimelineCommandError';
   }
+}
+
+export type TimelineTrimMode = 'normal' | 'ripple' | 'roll';
+
+/**
+ * The one trim command (docs/ai-editing/TRIM_SPEC.md). `frame` is where the
+ * dragged edge should end up; the result is clamped to what exists (footage
+ * handles, neighbouring clips, one-frame minimum) so the drag preview, the
+ * drag clamp and the commit can all call this and never disagree.
+ *  - normal: shortening leaves a gap, extending stops at the neighbour.
+ *  - ripple: the clip start never moves; later clips slide by the change.
+ *  - roll: moves the cut between the clip and the clip touching that edge.
+ */
+export function trimEdge(
+  document: ProjectDocument,
+  input: { readonly clipId: string; readonly edge: TimelineTrimEdge; readonly frame: number; readonly mode: TimelineTrimMode },
+): TimelineCommandResult {
+  const canonical = canonicalizeProjectDocument(document);
+  const timeline = canonical.timeline;
+  const loc = findClipLocation(timeline, input.clipId);
+  if (!loc) throw new TimelineCommandError(`Clip not found: ${input.clipId}`);
+  if (loc.track.locked) throw new TimelineCommandError('Cannot trim clips on locked tracks');
+  // Ripple head-extend on the first clip is dragged to a frame below 0: that is only an intent, the handles clamp it.
+  const frame = Math.round(Number(input.frame));
+  if (!Number.isFinite(frame)) throw new TimelineCommandError('frame must be a finite number');
+  const edge = normalizeTrimEdge(input.edge);
+  const linked = linkedLocations(timeline, loc.clip);
+  ensureEditableLocations(linked, 'trim');
+  const linkedKeys = new Set(linked.map(clipKey));
+  const { timelineIn, timelineOut } = loc.clip;
+  const wanted = edge === 'head' ? frame - timelineIn : frame - timelineOut; // + = edge moves right
+  const sourceLength = (clip: TimelineClip) => timeline.sources.find((source) => source.id === clip.mediaId)?.duration ?? Infinity;
+  const tailRoom = (clips: readonly TimelineClip[]) => Math.min(...clips.map((clip) => sourceLength(clip) - clip.sourceOut));
+  const headRoom = (clips: readonly TimelineClip[]) => Math.min(...clips.map((clip) => clip.sourceIn));
+  const length = timelineOut - timelineIn;
+  // Nearest other clip on the edited tracks on each side of this section.
+  const others = timeline.tracks.flatMap((track, trackIndex) => track.clips
+    .filter((_clip, clipIndex) => !linkedKeys.has(`${trackIndex}:${clipIndex}`))
+    .filter(() => linked.some((entry) => entry.trackIndex === trackIndex)));
+  const previousOut = Math.max(0, ...others.filter((clip) => clip.timelineOut <= timelineIn).map((clip) => clip.timelineOut));
+  const nextIn = Math.min(Infinity, ...others.filter((clip) => clip.timelineIn >= timelineOut).map((clip) => clip.timelineIn));
+
+  if (input.mode === 'roll') {
+    const neighbourLoc = edge === 'head'
+      ? timeline.tracks[loc.trackIndex]!.clips.map((clip, clipIndex) => ({ clip, clipIndex })).find((entry) => entry.clip.timelineOut === timelineIn)
+      : timeline.tracks[loc.trackIndex]!.clips.map((clip, clipIndex) => ({ clip, clipIndex })).find((entry) => entry.clip.timelineIn === timelineOut);
+    if (!neighbourLoc) throw new TimelineCommandError('Roll trim needs a clip touching that edge');
+    const neighbour = findClipLocation(timeline, neighbourLoc.clip.id)!;
+    const neighbourLinked = linkedLocations(timeline, neighbour.clip);
+    ensureEditableLocations(neighbourLinked, 'roll trim');
+    const left = edge === 'head' ? neighbourLinked : linked;
+    const right = edge === 'head' ? linked : neighbourLinked;
+    const leftLength = left[0]!.clip.timelineOut - left[0]!.clip.timelineIn;
+    const rightLength = right[0]!.clip.timelineOut - right[0]!.clip.timelineIn;
+    // delta > 0: the cut moves right (left clip grows, right clip shrinks).
+    const delta = Math.max(-Math.min(leftLength - 1, headRoomOfRight(right)), Math.min(wanted, rightLength - 1, tailRoom(left.map((entry) => entry.clip))));
+    if (delta === 0) throw new TimelineCommandError('Trim would not change the clip');
+    const shifts = new Map<string, TimelineClip>();
+    for (const entry of left) shifts.set(clipKey(entry), { ...entry.clip, timelineOut: entry.clip.timelineOut + delta, sourceOut: entry.clip.sourceOut + delta });
+    for (const entry of right) shifts.set(clipKey(entry), { ...entry.clip, timelineIn: entry.clip.timelineIn + delta, sourceIn: entry.clip.sourceIn + delta });
+    return commitCommand(canonical, 'trimEdge', {
+      ...timeline,
+      tracks: timeline.tracks.map((track, trackIndex) => ({
+        ...track,
+        clips: track.clips.map((clip, clipIndex) => shifts.get(`${trackIndex}:${clipIndex}`) ?? clip),
+      })),
+    });
+  }
+
+  const linkedClips = linked.map((entry) => entry.clip);
+  let delta: number; // + = edge moves right
+  if (edge === 'head') {
+    const maxExtend = input.mode === 'ripple'
+      ? headRoom(linkedClips)
+      : Math.min(headRoom(linkedClips), timelineIn - previousOut);
+    delta = Math.min(Math.max(wanted, -maxExtend), length - 1);
+  } else {
+    const maxExtend = input.mode === 'ripple'
+      ? tailRoom(linkedClips)
+      : Math.min(tailRoom(linkedClips), nextIn - timelineOut);
+    delta = Math.max(Math.min(wanted, maxExtend), -(length - 1));
+  }
+  if (delta === 0) throw new TimelineCommandError('Trim would not change the clip');
+
+  if (input.mode === 'normal') {
+    return commitCommand(canonical, 'trimEdge', updateClips(timeline, linked, (clip) => edge === 'head'
+      ? { ...clip, timelineIn: clip.timelineIn + delta, sourceIn: clip.sourceIn + delta }
+      : { ...clip, timelineOut: clip.timelineOut + delta, sourceOut: clip.sourceOut + delta }));
+  }
+
+  // ripple: the clip start stays put; the length changes by `change`.
+  const change = edge === 'head' ? -delta : delta;
+  const editedTrackIds = new Set(linked.map((entry) => entry.track.id));
+  return commitCommand(canonical, 'trimEdge', {
+    ...timeline,
+    tracks: timeline.tracks.map((track, trackIndex) => {
+      if (!editedTrackIds.has(track.id)) return track;
+      return {
+        ...track,
+        clips: track.clips.map((clip, clipIndex) => {
+          if (linkedKeys.has(`${trackIndex}:${clipIndex}`)) {
+            return edge === 'head'
+              ? { ...clip, timelineOut: clip.timelineOut + change, sourceIn: clip.sourceIn + delta }
+              : { ...clip, timelineOut: clip.timelineOut + change, sourceOut: clip.sourceOut + delta };
+          }
+          return clip.timelineIn >= timelineOut ? shiftClip(clip, change) : clip;
+        }),
+      };
+    }),
+  });
+}
+
+function headRoomOfRight(right: readonly ClipLocation[]): number {
+  return Math.min(...right.map((entry) => entry.clip.sourceIn));
 }
 
 export function trimClipEdge(
