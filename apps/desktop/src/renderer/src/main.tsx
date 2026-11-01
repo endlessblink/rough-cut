@@ -5055,6 +5055,7 @@ function ProjectPreview({
   async function updateTimelineClipTrim(clipId: string, edge: 'head' | 'tail', frame: number, options: { ripple?: boolean } = {}) {
     if (!effectiveRecording) return;
     if (!recordingAsset?.id) return;
+    console.info('[trim]', JSON.stringify({ clipId: clipId.slice(0, 14), edge, frame, ripple: options.ripple }));
     if (options.ripple === false) {
       await trimTimelineClipLeavingGap(clipId, edge, frame);
       return;
@@ -5069,10 +5070,11 @@ function ProjectPreview({
         edge,
         frame,
       }) as unknown as ProjectState['document'];
-      if (nextDocument === project.document) return;
+      if (nextDocument === project.document) { console.warn('[trim] ripple trim changed nothing', JSON.stringify({ edge, frame })); return; }
       await persist(nextDocument);
-    } catch {
+    } catch (error) {
       // Invalid trims are rejected by the command layer; keep the current edit intact.
+      console.warn('[trim] ripple trim rejected', error instanceof Error ? error.message : String(error));
     }
   }
 
