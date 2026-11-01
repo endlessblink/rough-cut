@@ -81,10 +81,10 @@ try {
   check(minClip > 3, `no stray 1-3 frame clip left (smallest clip ${minClip} frames)`);
 
   const batch = await call('apply_edits', { project_path: projectPath, ops: [
-    { op: 'cut_range', startSec: 10, endSec: 12 },
-    { op: 'cut_range', startSec: 2, endSec: 4 },
-    { op: 'cut_range', startSec: 11.5, endSec: 13 },
-    { op: 'cut_range', startSec: 0, endSec: 0.05 },
+    { op: 'cut_range', startSec: 10, endSec: 12, gate: 'silence' },
+    { op: 'cut_range', startSec: 2, endSec: 4, gate: 'silence' },
+    { op: 'cut_range', startSec: 11.5, endSec: 13, gate: 'silence' },
+    { op: 'cut_range', startSec: 0, endSec: 0.05, gate: 'silence' },
   ] });
   check(batch.cuts === 3 && Math.abs(batch.removedSec - (0.05 + 2 + 3)) < 0.01, `batch merges overlapping cuts (${batch.cuts} cuts, ${batch.removedSec} s removed)`);
   check(Math.abs(batch.durationAfterSec - (18 - 5.05)) < 0.02, `batch result is the right length (${batch.durationAfterSec} s)`);
@@ -95,6 +95,29 @@ try {
 
   const rev = await call('review_edit', { project_path: projectPath, render: true });
   check(rev.pass === true && rev.joins.length === 2 && rev.draftChecked === true, `review_edit passes a clean edit and lists the joins (${JSON.stringify(rev)})`);
+
+  // The takes gate: repeats cannot be cut until a takes table passes.
+  const fail = async (name, args) => { try { await callRaw(name, args); return null; } catch (error) { return String(error.message); } };
+  const noGate = await fail('apply_edits', { project_path: projectPath, ops: [{ op: 'cut_range', startSec: 14, endSec: 16.1 }] });
+  check(Boolean(noGate) && noGate.includes('Takes gate'), 'a repeat cut is refused without a passed takes table');
+  const unit = (id, startSec, endSec, gist, group, keep, reason = '') => ({ id, startSec, endSec, gist, group, keep, reason });
+  const bad = await call('takes_gate', { project_path: projectPath, stage: 'plan', units: [
+    unit('u1', 1, 2, 'a greeting to the viewer', 'A', true), unit('u2', 5, 6.5, 'again hello world words', 'B', true),
+    unit('u3', 14, 16.1, 'announce we will test the thing today', 'C', false, 'earlier take, stumbles') ] });
+  check(bad.pass === false && bad.problems.some((p) => p.includes('kept takes')) && bad.problems.some((p) => p.includes('not in any unit')), `gate fails: a group with no kept take and uncovered words (${bad.problems.length} problems)`);
+  const good = await call('takes_gate', { project_path: projectPath, stage: 'plan', units: [
+    unit('u1', 1, 2, 'a greeting to the viewer', 'A', true), unit('u2', 5, 6.5, 'again hello world words', 'B', true),
+    unit('u3', 14, 16.1, 'announce we will test the thing today', 'C', false, 'earlier take, stumbles'),
+    unit('u4', 17, 19.1, 'announce we will test the thing today', 'C', true),
+    unit('u5', 8, 9, 'a quiet pause with nothing said', 'E', false, 'dead air, no words'), unit('u6', 9, 10, 'a quiet pause with nothing said', 'E', true) ] });
+  check(good.pass === true && good.cuts.length === 2 && good.cuts[0].startSec === 8 && good.cuts[1].startSec === 14, `gate passes a complete table and returns the cut (${JSON.stringify(good.cuts)})`);
+  const outside = await fail('apply_edits', { project_path: projectPath, ops: [{ op: 'cut_range', startSec: 5, endSec: 6.5 }] });
+  check(Boolean(outside) && outside.includes('not part of the passed takes table'), 'a cut outside the passed table is refused');
+  const okCut = await call('apply_edits', { project_path: projectPath, ops: [{ op: 'cut_range', startSec: 8, endSec: 9 }] });
+  check(okCut.ok === true, 'the cut from the passed table is accepted');
+  const dup = await call('takes_gate', { project_path: projectPath, stage: 'final', units: [
+    unit('f1', 0, 3, 'announce we will test the thing today', 'C', true), unit('f2', 3, 6, 'announce we will test the thing today', 'D', true) ] });
+  check(dup.pass === false && dup.problems.some((p) => p.includes('REPEAT')), 'final stage flags the same idea twice in the finished cut');
 } finally {
   server.kill();
 }

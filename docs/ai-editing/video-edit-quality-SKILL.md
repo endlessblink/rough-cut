@@ -25,3 +25,14 @@ Noam's complaints on the first AI cuts (2026-10-31): "really bad", "interrupting
 3. Render a draft, look at frames around every join, read the transcript around each join: no sentence starts or ends mid-word.
 4. Save the previous cut as a version before replacing it. Never overwrite Noam's own edit; keep a backup.
 5. Report what was checked and what was not. Only Noam saying it is good counts as done.
+
+## 0. The takes table (mandatory gate, added 2026-11-02 after a missed repeat)
+Noam said the same idea twice ("what this project is supposed to do" then "what this project claims to do", each followed by its own explanation) and the cut kept both. Word-overlap checks miss this because a retake is often reworded and followed by different details. So:
+1. Split the transcript into idea units (a unit = one thought, usually 1 to 4 sentences, 8 to 40 s). Write a one-line gist for every unit IN YOUR OWN WORDS (not the transcript's words).
+2. Group units whose gist is the same idea, including reworded openers ("what X should do" / "what X claims to do") and the explanation that follows each. Also compare each unit's first clause with everything said in the previous 5 minutes.
+3. For every group of 2 or more, pick ONE take to keep and write why (complete, fluent, no stumble, best explanation; usually the last). A take includes its whole explanation, not just its first sentence: cut the entire losing take, then check the join still reads as one flow.
+4. Save the table (unit, time, gist, group, keep or cut, reason) next to the project. The edit is not allowed to start until every unit is in exactly one group and every group has exactly one kept take.
+5. After cutting, rebuild the table from the FINAL cut's transcript. Every gist must be unique. Any duplicate gist = not done, fix it. Report the table to Noam in plain words, not just "no repeats".
+Never rely on a similarity score as proof that there are no repeats; it only finds candidates.
+
+6. This is enforced by the rough-cut MCP tool takes_gate (stage "plan" before cutting, stage "final" on the rebuilt table of the finished cut). apply_edits refuses take-type cuts without a passed plan table; cuts for silences or private screens say gate:"silence" or gate:"privacy". Gate cut times are original-recording seconds on a fresh edit copy.

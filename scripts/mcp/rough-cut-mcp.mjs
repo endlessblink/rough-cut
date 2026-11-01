@@ -559,6 +559,15 @@ const TOOLS = {
         const last = merged.at(-1);
         if (last && c.s <= last.e) last.e = Math.max(last.e, c.e); else merged.push({ ...c });
       }
+      // Take-type cuts need a passing takes_gate record; silence and privacy cuts say so with gate:'silence'|'privacy'.
+      const gated = ops.filter((o) => o.op === 'cut_range' && !['silence', 'privacy'].includes(o.gate));
+      if (gated.length) {
+        const recordPath = `${resolve(project_path)}.takes-gate.json`;
+        if (!existsSync(recordPath)) throw new Error('Takes gate: run takes_gate (stage plan) and pass it before cutting repeats. Cuts for silences or private screens can say gate:"silence" or gate:"privacy".');
+        const rec = JSON.parse(readFileSync(recordPath, 'utf8'));
+        const outside = gated.filter((o) => !rec.cuts.some((c) => o.startSec >= c.startSec - 1 && o.endSec <= c.endSec + 1));
+        if (!rec.pass || outside.length) throw new Error(`Takes gate: ${outside.length} cut(s) are not part of the passed takes table (for example ${outside[0]?.startSec}-${outside[0]?.endSec}s). Update the table and pass it again.`);
+      }
       const before = summarise(editCopyPath(resolve(project_path))).durationSec;
       let removed = 0;
       for (const c of merged.reverse()) {
@@ -693,6 +702,65 @@ const TOOLS = {
         if (black.length) problems.push(`black frames: ${black.map((b) => `${b.from}-${b.to}s`).join(', ')}`);
       }
       return text({ pass: problems.length === 0, durationSec: s.durationSec, joins: [...joins].sort((a, b) => a - b), problems, ...(black ? { draftChecked: true } : {}) });
+    },
+  },
+  takes_gate: {
+    description: 'REQUIRED before cutting repeats. You write a takes table (idea units with your own one-line gist, a group per idea, keep:true on exactly one take per group, a reason for every cut) and this checks it against the transcript. stage "plan": every spoken word must be inside a unit, every unit has a gist and group, every group has exactly one kept take, every cut take has a reason, no two groups share a gist. Passing writes <project>.takes-gate.json and returns the cut list for apply_edits (times in source seconds). stage "final": give the table rebuilt from the FINISHED cut (only kept units): every gist must be unique, or it is not done. It cannot judge meaning; it forces the comparison to be written down.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: { type: 'string' },
+        stage: { type: 'string', enum: ['plan', 'final'] },
+        units: { type: 'array', items: { type: 'object', description: '{id, startSec, endSec, gist, group, keep, reason}' } },
+      },
+      required: ['project_path', 'stage', 'units'],
+    },
+    async handler({ project_path, stage, units }) {
+      const src = resolve(project_path);
+      const doc = loadProject(src);
+      const fps = doc.settings?.frameRate ?? 30;
+      const problems = [];
+      const norm = (t) => String(t ?? '').toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim();
+      for (const u of units) {
+        if (!(u.endSec > u.startSec)) problems.push(`unit ${u.id}: endSec must be after startSec`);
+        if (norm(u.gist).length < 6) problems.push(`unit ${u.id}: write a real one-line gist in your own words`);
+        if (!String(u.group ?? '').trim()) problems.push(`unit ${u.id}: no group`);
+      }
+      const gistGroups = new Map();
+      for (const u of units) { const g = norm(u.gist); if (!gistGroups.has(g)) gistGroups.set(g, new Set()); gistGroups.get(g).add(u.group); }
+      for (const [g, groups] of gistGroups) if (groups.size > 1) problems.push(`the same gist "${g.slice(0, 40)}" is in groups ${[...groups].join(', ')}: they are one idea, put them in one group`);
+      if (stage === 'final') {
+        const seen = new Map();
+        for (const u of units) { const g = norm(u.gist); if (seen.has(g)) problems.push(`REPEAT in the finished cut: units ${seen.get(g)} and ${u.id} have the same gist "${g.slice(0, 40)}"`); else seen.set(g, u.id); }
+        const groupCount = new Map();
+        for (const u of units) groupCount.set(u.group, (groupCount.get(u.group) ?? 0) + 1);
+        for (const [g, n] of groupCount) if (n > 1) problems.push(`REPEAT in the finished cut: group "${g}" appears ${n} times`);
+        return text({ pass: problems.length === 0, stage, units: units.length, problems });
+      }
+      const words = (doc.transcript?.words ?? []).map((w) => ({ s: w.startFrame / fps, e: w.endFrame / fps }));
+      if (!words.length) problems.push('the project has no transcript: transcribe it first');
+      let run = 0, runStart = 0;
+      const flush = (endAt) => { if (run >= 3) problems.push(`${run} spoken words around ${runStart.toFixed(1)}-${endAt.toFixed(1)}s are not in any unit`); run = 0; };
+      for (const w of words) {
+        const covered = units.some((u) => w.s >= u.startSec - 0.05 && w.s < u.endSec + 0.05);
+        if (!covered) { if (run === 0) runStart = w.s; run += 1; } else flush(w.s);
+      }
+      flush(words.at(-1)?.e ?? 0);
+      const groups = new Map();
+      for (const u of units) { if (!groups.has(u.group)) groups.set(u.group, []); groups.get(u.group).push(u); }
+      for (const [g, list] of groups) {
+        const keeps = list.filter((u) => u.keep === true).length;
+        if (keeps !== 1) problems.push(`group "${g}" has ${keeps} kept takes; it must have exactly one`);
+        for (const u of list) if (u.keep !== true && norm(u.reason).length < 4) problems.push(`unit ${u.id} is cut but has no reason (why is the kept take better?)`);
+      }
+      const cutUnits = units.filter((u) => u.keep !== true).sort((a, b) => a.startSec - b.startSec);
+      const cuts = [];
+      for (const u of cutUnits) { const last = cuts.at(-1); if (last && u.startSec <= last.endSec + 0.01) last.endSec = Math.max(last.endSec, u.endSec); else cuts.push({ startSec: u.startSec, endSec: u.endSec }); }
+      const pass = problems.length === 0;
+      const record = `${src}.takes-gate.json`;
+      if (pass) writeFileSync(record, JSON.stringify({ pass: true, at: new Date().toISOString(), cuts, units: units.length }));
+      else if (existsSync(record)) rmSync(record);
+      return text({ pass, stage, units: units.length, groups: groups.size, problems, cuts: pass ? cuts : [] , gateRecord: pass ? record : null });
     },
   },
   get_transcript: {
