@@ -7413,7 +7413,11 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     if (trimDragPreview.edge === 'head') {
       // Shortening from the left: the left edge follows the mouse like any trim (as in CapCut's
       // magnetic main track) and the section snaps back against its neighbour on release.
-      if (frame >= start) return null;
+      if (frame >= start) {
+        // Ripple: the section keeps its start, gets shorter, and everything after it slides left (no empty space while dragging).
+        const cut = Math.min(frame, end - 1) - start;
+        return { clipId: clip.id, newIn: start, newOut: end - cut, shift: -cut, after: end, waveFrame: start + cut };
+      }
       const frames = start - frame;
       const push = Math.max(0, frames - (start - previousOut));
       return { clipId: clip.id, newIn: start - (frames - push), newOut: end + push, shift: push, after: end, waveFrame: Math.max(0, frame) };
