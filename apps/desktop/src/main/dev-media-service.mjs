@@ -153,7 +153,7 @@ export function agentEditJournalPath(projectPath) {
 /** The agent's edits for this project that Noam has not taken in or skipped yet. */
 export async function readAgentEditJournal(projectPath, { read = readFile } = {}) {
   const path = agentEditJournalPath(projectPath);
-  if (!path) return { entries: [] };
+  if (!path) return { entries: [], isEditCopy: true };
   try {
     const journal = JSON.parse(await read(path, 'utf8'));
     const entries = Array.isArray(journal?.entries) ? journal.entries : [];

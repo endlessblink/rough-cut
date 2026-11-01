@@ -46,6 +46,10 @@ import { drawBackgroundGrid, isBackgroundGridOn } from '../../shared/background-
 import { CUT_PREROLL_EARLY_FRAMES, cutPrerollKey, planCutPreroll, standbyAlignedForCut } from './timeline-cut-preroll.mjs';
 import { clampVoiceCleanAmount, createVoiceCleanMixer, type VoiceCleanMixer } from './voice-clean-mix.mjs';
 import { shouldPublishTimelinePlayhead } from './timeline-playhead-publish.mjs';
+import { installPlayTracker, silenceAfterStop } from './preview-media-guard.mjs';
+
+// Remember every element that plays so Stop can silence strays too (sound that kept playing after Stop until a restart).
+installPlayTracker();
 import {
   cameraCoversSourceTime,
   cameraSyncCorrection,
@@ -1456,6 +1460,7 @@ export function StyledVideoPreview({
     } else {
       pausePreviewVideo(video);
       cameraVideo?.pause();
+      silenceAfterStop();
     }
   }, [controlledPlaying, timeMode]);
 
@@ -1504,6 +1509,7 @@ export function StyledVideoPreview({
       pausePreviewVideo(video);
       cameraVideo?.pause();
       resetCutPreroll();
+      silenceAfterStop();
       video.playbackRate = timelineRateRef.current;
       if (cameraVideo) cameraVideo.playbackRate = timelineRateRef.current;
       activeTimelineSegmentRef.current = null;

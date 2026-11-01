@@ -31,7 +31,7 @@ type DevBridge = {
   devTakeChunk?: (id: string, chunk: ArrayBuffer) => Promise<number>;
   devTakeFinish?: (payload: { id: string; projectFps: number; kind?: 'camera' | 'voice' }) => Promise<PreparedMedia>;
   devTakeCancel?: (id: string) => Promise<boolean>;
-  devGetAgentEdits?: (payload: { projectPath: string }) => Promise<{ entries: AgentEditEntryView[] }>;
+  devGetAgentEdits?: (payload: { projectPath: string }) => Promise<{ entries: AgentEditEntryView[]; isEditCopy?: boolean }>;
   devResolveAgentEdits?: (payload: { projectPath: string; ids: string[]; resolution: 'accepted' | 'skipped' }) => Promise<{ updated: number }>;
 };
 
@@ -129,10 +129,12 @@ export function DevMediaMenu({
   const [agentEdits, setAgentEdits] = React.useState<AgentEditEntryView[]>([]);
   const [agentSelected, setAgentSelected] = React.useState<Set<string>>(() => new Set());
   const [agentNote, setAgentNote] = React.useState<string | null>(null);
+  const [agentIsCopy, setAgentIsCopy] = React.useState(false);
   const loadAgentEdits = React.useCallback(async () => {
     if (!projectPath) { setAgentEdits([]); return; }
     const result = await bridge().devGetAgentEdits?.({ projectPath }).catch(() => null);
     const entries = result?.entries ?? [];
+    setAgentIsCopy(Boolean(result?.isEditCopy));
     setAgentEdits(entries);
     setAgentSelected(new Set(entries.map((entry) => entry.id)));
   }, [projectPath]);
@@ -638,7 +640,7 @@ export function DevMediaMenu({
         <div className="devMenuPopover devTakePanel devAgentPanel" role="dialog" aria-label="Agent edits">
           <p className="devPanelTitle">Agent edits</p>
           <p className="devPanelNote">Changes an agent made on its copy of this project. Tick the ones you want; they are added to your project in order, as one step you can undo.</p>
-          {agentEdits.length === 0 ? <p className="devPanelNote">Nothing new from the agent.</p> : (
+          {agentEdits.length === 0 ? <p className="devPanelNote">{agentIsCopy ? 'This is the agent\'s own copy, its edits are already in it. Open the original project to take them in.' : 'Nothing new from the agent.'}</p> : (
             <ul className="devAgentList">
               {agentEdits.map((entry) => {
                 const frame = agentEditFrame(entry.edit);
@@ -664,8 +666,9 @@ export function DevMediaMenu({
           )}
           {agentNote ? <p className="devPanelNote" role="status">{agentNote}</p> : null}
           <div className="devChoiceRow devTakeActions">
-            <button type="button" className="devAgentApply" data-agent-edits-apply="true" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void takeInAgentEdits()}>Take in selected</button>
-            <button type="button" className="devTextButton" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void skipAgentEdits()}>Skip</button>
+            <button type="button" className="devAgentApply" data-agent-edits-apply="true" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void takeInAgentEdits()}>{agentSelected.size === agentEdits.length && agentEdits.length > 0 ? 'Take in all' : 'Take in selected'}</button>
+            <button type="button" className="devTextButton" disabled={agentSelected.size === 0 || agentEdits.length === 0} onClick={() => void skipAgentEdits()}>{agentSelected.size === agentEdits.length && agentEdits.length > 0 ? 'Skip all' : 'Skip selected'}</button>
+            <button type="button" className="devTextButton" disabled={agentEdits.length === 0} onClick={() => setAgentSelected(agentSelected.size === agentEdits.length ? new Set() : new Set(agentEdits.map((entry) => entry.id)))}>{agentSelected.size === agentEdits.length ? 'Untick all' : 'Tick all'}</button>
             <button type="button" className="devTextButton" onClick={() => setPanel('none')}>Close</button>
           </div>
         </div>

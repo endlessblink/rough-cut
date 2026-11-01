@@ -119,3 +119,9 @@ test('the take remux copies streams without re-encoding, on two threads', () => 
   assert.deepEqual(args.slice(args.indexOf('-c'), args.indexOf('-c') + 2), ['-c', 'copy']);
   assert.ok(args.includes('-threads'));
 });
+
+test('the agent edits list says so when the open file is the agent copy', async () => {
+  const { readAgentEditJournal } = await import('./dev-media-service.mjs');
+  assert.deepEqual(await readAgentEditJournal('/x/a.claude-edit.roughcut'), { entries: [], isEditCopy: true });
+  assert.deepEqual(await readAgentEditJournal('/x/a.roughcut', { read: async () => { throw new Error('none'); } }), { entries: [] });
+});
