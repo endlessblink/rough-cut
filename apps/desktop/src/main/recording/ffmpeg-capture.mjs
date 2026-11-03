@@ -1,6 +1,6 @@
 // @ts-check
 import { spawn } from 'node:child_process';
-import { audioInputArgs, cameraInputArgs, screenInputArgs, captureSupported } from './platform-capture.mjs';
+import { audioInputArgs, cameraInputArgs, screenInputArgs, screenOutputFilterArgs, captureSupported } from './platform-capture.mjs';
 
 /**
  * @typedef {Object} FfmpegCaptureOptions
@@ -237,13 +237,17 @@ export function startFfmpegCameraCapture({
 
 export function startFfmpegCameraPreview({
   devicePath,
-  fps = 15,
+  fps = null,
   width = 1280,
   height = 720,
   previewWidth = 320,
   onFrame = null,
+  platform = process.platform,
 }) {
-  const args = buildFfmpegCameraPreviewArgs({ devicePath, fps, width, height, previewWidth });
+  // Mac cameras don't support 15 fps; use 30 fps as default. Windows can use DirectShow mode matching; Linux uses whatever is requested.
+  const defaultFps = platform === 'darwin' ? 30 : 15;
+  const resolvedFps = fps !== null ? fps : defaultFps;
+  const args = buildFfmpegCameraPreviewArgs({ devicePath, fps: resolvedFps, width, height, previewWidth, platform });
   console.info('[ffmpeg-camera-preview] Starting:', 'ffmpeg', args.join(' '));
 
   const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -460,7 +464,8 @@ export function buildFfmpegCameraCaptureArgs({
     // 0.7 s between frames, and the editor's drift correction (which compares the camera element's time with the
     // timeline) then seeks and changes the playback rate constantly: slow camera, voice out of step, a jittering
     // playhead. Duplicating frames to a constant rate gives the editor the regular timeline it expects.
-    ...(platform === 'win32' ? ['-fps_mode', 'cfr', '-r', String(frameRate)] : []),
+    // Mac cameras lower their rate in dim light the same way (AVFoundation hands over variable-rate frames).
+    ...(platform === 'win32' || platform === 'darwin' ? ['-fps_mode', 'cfr', '-r', String(frameRate)] : []),
     '-c:v',
     'libx264',
     '-preset',
@@ -703,6 +708,8 @@ export function buildFfmpegCaptureArgs({
     videoMaps: ['0:v'],
   });
   // No audio → no -map needed (single input, auto-mapped)
+  // Mac: AVFoundation captures the whole screen, so a region is cropped here (no-op elsewhere).
+  args.push(...screenOutputFilterArgs({ platform, width, height, display }));
 
   // --- Codecs ---
   // BUG-269 (2026-04-28): switched from libvpx (VP8) to libx264 (H.264).

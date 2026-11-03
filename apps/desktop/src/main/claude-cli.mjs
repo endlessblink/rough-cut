@@ -179,7 +179,13 @@ export async function askClaudeForJson({
     return { ok: false, reason: CLAUDE_MISSING_REASON };
   }
   const connection = await connectionCheck({ binary });
-  if (!connection.ok) return { ok: false, reason: connection.reason };
+  if (!connection.ok) {
+    // Provide a clear, actionable error message based on the connection status
+    const reason = connection.status === 'not-signed-in'
+      ? `Claude login expired or not signed in. ${connection.reason}`
+      : connection.reason;
+    return { ok: false, reason, status: connection.status };
+  }
   const args = buildClaudeArgs({ systemPrompt, schema, model });
   const cwd = await mkdtemp(join(tmpdir(), 'rough-cut-claude-'));
   try {

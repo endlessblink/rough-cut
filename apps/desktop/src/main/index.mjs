@@ -1,8 +1,10 @@
+import { installSupportServices } from './support-services.mjs';
 import { installReleaseServices } from './release-services.mjs';
 import { configureBundledTools } from './bundled-tools.mjs';
+import { applyMacReleaseLaunchEnv } from './mac-app-bundle.mjs';
 import { runAppImageSandboxed, sandboxDisabledByArgs, shouldHandOffAppImage } from './linux-sandbox-permission.mjs';
 import { planTrayUpdate } from './recording-tray-policy.mjs';
-import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, systemPreferences, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -32,11 +34,13 @@ import {
   resolveReferencedVisualSource,
 } from './visual-discontinuity-service.mjs';
 import { remuxMkvSegmentsToMp4, remuxMkvToMp4 } from './remux-service.mjs';
-import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
+import { createRecordingSession, getPrimaryX11DisplayInfo, killOrphanedCaptureProcesses } from './recording/recording-session.mjs';
 import { startFfmpegAudioLevelProbe, startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
 import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
 import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { getRecordingPreflightStatus } from './recording/preflight.mjs';
+import { getPrimaryMacDisplayInfo, listAvfoundationCameraSources, listAvfoundationMicSources, listAvfoundationSystemAudioSources, macPrivacySettingsUrl, readMacPermissions, requestMacPermissions } from './recording/mac-devices.mjs';
+import { isUiohookAvailable } from './recording/uiohook-button-listener.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import {
   getPrimaryWindowsDisplayInfo,
@@ -94,6 +98,7 @@ import { translateCaptionLines } from './captions-translate-service.mjs';
 import { transcribeSpeechForCaptions } from './captions-speech-service.mjs';
 
 configureBundledTools({ resourcesPath: process.resourcesPath });
+applyMacReleaseLaunchEnv(process.env, { appPath: app.getAppPath() });
 // The AppImage launcher adds --no-sandbox on systems that block the sandbox (Ubuntu 24.04+).
 // Run the real app sandboxed instead (asking once for the system rule it needs); this never returns.
 if (shouldHandOffAppImage()) await runAppImageSandboxed();
@@ -275,8 +280,13 @@ let activeExportController = null;
 let activeCensorTrackController = null;
 const studioWindowBoundsById = new Map();
 function getPrimaryDisplayInfo() {
+  if (process.platform === 'darwin') return getPrimaryMacDisplayInfo(screen);
   return process.platform === 'win32' ? getPrimaryWindowsDisplayInfo(screen) : getPrimaryX11DisplayInfo(screen);
 }
+
+// Clean up any orphaned ffmpeg-capture processes from previous crashes (Bug 3).
+killOrphanedCaptureProcesses();
+
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
@@ -292,6 +302,7 @@ const recordingSession = createRecordingSession({
       ? screen.dipToScreenPoint(screen.getCursorScreenPoint())
       : (process.platform === 'linux' ? readCursorViaXdotool() : null) ?? screen.getCursorScreenPoint(),
 });
+let transcriptionDiagnostics = { available: false, engine: null };
 const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
   environment: process.env,
   userDataDir: app.getPath('userData'),
@@ -305,6 +316,7 @@ const recordingTranscriptionBridgePromise = createTranscriptionRuntime({
     }
   },
 }).then(async (runtime) => {
+  transcriptionDiagnostics = { available: runtime.available, engine: runtime.engine ?? null };
   const bridge = createRecordingTranscriptionBridge({
     service: runtime.service,
     fixtureDurationMs: runtime.fixtureDurationMs,
@@ -323,7 +335,7 @@ const recordingTranscriptionLifecycle = createRecordingTranscriptionLifecycle({
 });
 
 async function listCameraSources() {
-  const sources = process.platform === 'win32' ? await listDshowCameraSources() : await listV4l2CameraSources();
+  const sources = process.platform === 'win32' ? await listDshowCameraSources() : process.platform === 'darwin' ? await listAvfoundationCameraSources() : await listV4l2CameraSources();
   const smokeCameraPath = process.env.ROUGH_CUT_SMOKE_CAMERA_DEVICE_PATH;
   if (!smokeCameraPath) return sources;
   return [
@@ -337,7 +349,7 @@ async function listCameraSources() {
 }
 
 async function listMicSources() {
-  const sources = await (process.platform === 'win32' ? listDshowMicSources() : listPulseAudioMicSources()).catch(() => []);
+  const sources = await (process.platform === 'win32' ? listDshowMicSources() : process.platform === 'darwin' ? listAvfoundationMicSources() : listPulseAudioMicSources()).catch(() => []);
   const smokeMicSource = process.env.ROUGH_CUT_SMOKE_MIC_SOURCE;
   if (!smokeMicSource) return sources;
   return [
@@ -347,7 +359,7 @@ async function listMicSources() {
 }
 
 async function listSystemAudioSources() {
-  const sources = await (process.platform === 'win32' ? listDshowSystemAudioSources() : listPulseAudioSystemAudioSources()).catch(() => []);
+  const sources = await (process.platform === 'win32' ? listDshowSystemAudioSources() : process.platform === 'darwin' ? listAvfoundationSystemAudioSources() : listPulseAudioSystemAudioSources()).catch(() => []);
   const smokeSystemAudioSource = process.env.ROUGH_CUT_SMOKE_SYSTEM_AUDIO_SOURCE;
   if (!smokeSystemAudioSource) return sources;
   return [
@@ -1090,8 +1102,30 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, optio
     systemAudioSources,
     cameraSources,
     options,
+    macPermissions: process.platform === 'darwin' ? await checkMacPermissions(options) : null,
   });
 });
+
+// Mac: the first check asks macOS for what the recording needs (mic/camera prompts; listing screens makes macOS
+// offer Screen Recording). If screen recording is refused, System Settings opens on that page once per run.
+let macScreenSettingsOpened = false;
+async function checkMacPermissions(options = {}) {
+  const permissions = await requestMacPermissions({ systemPreferences, desktopCapturer, needMic: Boolean(options.recordMic), needCamera: Boolean(options.recordCamera) }).catch(() => readMacPermissions(systemPreferences, isUiohookAvailable));
+  if (permissions.screen === 'denied' && !macScreenSettingsOpened && !process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH) {
+    macScreenSettingsOpened = true;
+    void shell.openExternal(macPrivacySettingsUrl('screen')).catch(() => undefined);
+  }
+  return permissions;
+}
+
+ipcMain.handle(IPC_CHANNELS.RECORDING_OPEN_PERMISSION_SETTINGS, async (_event, permissionKind = 'screen') => {
+  if (process.platform === 'darwin') {
+    await shell.openExternal(macPrivacySettingsUrl(permissionKind)).catch(() => undefined);
+    return true;
+  }
+  return false;
+});
+
 ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   const { hideWindowDuringRecording, ...recordingOptions } = options ?? {};
@@ -1886,7 +1920,13 @@ async function resolveDockStartupProject(explicitProjectPath) {
 }
 
 app.whenReady().then(() => {
-  installReleaseServices({ app, Menu, dialog, BrowserWindow, ipcMain, channels: IPC_CHANNELS, isBusy: () => Boolean(activeRecordingFinalizePromise || activeExportController || ['recording', 'paused', 'starting', 'stopping', 'finishing'].includes(recordingSession.status().state)) });
+  const support = installSupportServices({ app, ipcMain, channels: IPC_CHANNELS, desktopCapturer,
+    getPermissions: () => process.platform === 'darwin' ? readMacPermissions(systemPreferences, isUiohookAvailable) : { screen: 'not-applicable', microphone: 'unknown', camera: 'unknown', accessibility: 'not-applicable' },
+    getDevices: async () => { const [cameras, microphones] = await Promise.all([listCameraSources(), listMicSources()]); return { cameras, microphones }; },
+    getClaude: () => inspectClaudeSubscription({ binary: resolveClaudeBinary() }),
+    getTranscription: async () => { await recordingTranscriptionBridgePromise; return transcriptionDiagnostics; },
+    getRecording: () => recordingSession.status(), recordingsDir, runtimeLogPath, shell, dialog, BrowserWindow });
+  installReleaseServices({ app, Menu, dialog, BrowserWindow, ipcMain, support, channels: IPC_CHANNELS, isBusy: () => Boolean(activeRecordingFinalizePromise || activeExportController || ['recording', 'paused', 'starting', 'stopping', 'finishing'].includes(recordingSession.status().state)) });
   recordDockProvenance();
   registerMediaProtocol();
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {

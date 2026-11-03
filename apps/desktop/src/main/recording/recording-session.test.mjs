@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createRecordingSession, getPrimaryX11DisplayInfo, normalizeCaptureRegion, normalizeCursorPoint, resolveCaptureDisplayInfo } from './recording-session.mjs';
+import { createRecordingSession, getPrimaryX11DisplayInfo, normalizeCaptureRegion, normalizeCursorPoint, normalizeCameraDevicePath, resolveCaptureDisplayInfo } from './recording-session.mjs';
 import { createXinputEventParser } from './xinput-button-listener.mjs';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1841,4 +1841,36 @@ test('with alignment switched off the feed is left alone but the gap is still lo
   assert.equal(logged.deltaMs, 170);
   await session.stop();
   await rm(root, { recursive: true, force: true });
+});
+
+test('Mac: normalizeCameraDevicePath accepts AVFoundation device names', () => {
+  // Mac cameras are identified by name (e.g., "FaceTime HD Camera") not by /dev/videoN path
+  assert.equal(normalizeCameraDevicePath('FaceTime HD Camera', 'darwin'), 'FaceTime HD Camera');
+  assert.equal(normalizeCameraDevicePath('OBS Virtual Camera', 'darwin'), 'OBS Virtual Camera');
+  assert.equal(normalizeCameraDevicePath('  FaceTime HD Camera  ', 'darwin'), 'FaceTime HD Camera');
+  // Reject names with newlines even on Mac
+  assert.equal(normalizeCameraDevicePath('FaceTime HD Camera\n', 'darwin'), null);
+  // Empty strings are rejected
+  assert.equal(normalizeCameraDevicePath('   ', 'darwin'), null);
+  assert.equal(normalizeCameraDevicePath('', 'darwin'), null);
+  // Non-string values are rejected
+  assert.equal(normalizeCameraDevicePath(null, 'darwin'), null);
+  assert.equal(normalizeCameraDevicePath(123, 'darwin'), null);
+});
+
+test('Linux: normalizeCameraDevicePath still requires /dev/videoN format', () => {
+  assert.equal(normalizeCameraDevicePath('/dev/video0', 'linux'), '/dev/video0');
+  assert.equal(normalizeCameraDevicePath('/dev/video1', 'linux'), '/dev/video1');
+  // Mac names are rejected on Linux
+  assert.equal(normalizeCameraDevicePath('FaceTime HD Camera', 'linux'), null);
+  assert.equal(normalizeCameraDevicePath('/dev/video', 'linux'), null);
+  assert.equal(normalizeCameraDevicePath('/dev/video0a', 'linux'), null);
+});
+
+test('Windows: normalizeCameraDevicePath accepts any name without quotes or newlines', () => {
+  assert.equal(normalizeCameraDevicePath('Integrated Camera', 'win32'), 'Integrated Camera');
+  assert.equal(normalizeCameraDevicePath('USB Camera', 'win32'), 'USB Camera');
+  // Reject names with quotes or newlines
+  assert.equal(normalizeCameraDevicePath('Camera"Name', 'win32'), null);
+  assert.equal(normalizeCameraDevicePath('Camera\nName', 'win32'), null);
 });

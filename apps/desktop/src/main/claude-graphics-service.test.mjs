@@ -225,3 +225,11 @@ test('a chosen length goes to Claude, long ones ask for beats, and the result ke
   assert.equal(result.ok, true);
   assert.equal(result.graphic.durationSec, 30);
 });
+
+test('P3: Claude login error includes status for UI detection when not signed in', async () => {
+  const { generateGraphic } = await import('./claude-graphics-service.mjs');
+  const notSignedIn = async () => ({ ok: false, status: 'not-signed-in', reason: 'Sign in or renew your login with claude auth login, then check again.' });
+  const result = await generateGraphic({ request: 'test', binary: '/bin/true', runOnce: async () => ({}), connectionCheck: notSignedIn });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /Claude login expired or not signed in/);
+});

@@ -1,5 +1,11 @@
 /** IPC channels -- the contract between main and renderer */
 export const IPC_CHANNELS = {
+  SUPPORT_STATUS: 'support:status',
+  SUPPORT_SCREEN_THUMBNAIL: 'support:screen-thumbnail',
+  SUPPORT_SAVE_SELF_CHECK: 'support:save-self-check',
+  SUPPORT_CREATE_REPORT: 'support:create-report',
+  SUPPORT_REPORT_PROBLEM: 'support:report-problem',
+  SUPPORT_OPEN: 'support:open',
   CLAUDE_CONNECTION_STATUS: 'claude:connection-status',
   CLAUDE_CONNECTION_SETUP: 'claude:connection-setup',
   // In-app updates: main pushes the status (and answers a get); install runs the menu's restart flow.

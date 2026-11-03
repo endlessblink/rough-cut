@@ -1,5 +1,6 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { execSync } from 'node:child_process';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
 import { createUiohookButtonListener } from './uiohook-button-listener.mjs';
@@ -37,6 +38,50 @@ const DEFAULT_AUDIO_TAIL_GRACE_MS = Number(process.env.ROUGH_CUT_AUDIO_TAIL_GRAC
 const DIAGNOSTIC_LOGGING_DEFAULT =
   process.env.ROUGH_CUT_DEBUG_RECORDING !== '0';
 
+// Detect and kill orphaned ffmpeg-capture processes (ppid 1) from previous crashes.
+export function killOrphanedCaptureProcesses() {
+  try {
+    if (process.platform === 'win32') {
+      execSync('tasklist /FI "IMAGENAME eq ffmpeg.exe"', { encoding: 'utf8', stdio: 'pipe' });
+      // On Windows, we'd need to parse and identify which ffmpeg instances are ours.
+      // For now, skip: the tester report is Mac-specific.
+    } else {
+      const ps = execSync('ps -o ppid,pid,comm', { encoding: 'utf8', stdio: 'pipe' });
+      const lines = ps.split('\n').slice(1);
+      const orphaned = lines
+        .map(line => {
+          const match = line.trim().match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+          return match ? { ppid: parseInt(match[1], 10), pid: parseInt(match[2], 10), name: match[3] } : null;
+        })
+        .filter(entry => entry && entry.name && entry.name.includes('ffmpeg') && entry.ppid === 1);
+
+      if (orphaned.length > 0) {
+        console.warn(`[recording-session] found ${orphaned.length} orphaned ffmpeg process(es)`);
+        for (const proc of orphaned) {
+          try {
+            process.kill(proc.pid, 'SIGTERM');
+            console.warn(`[recording-session] sent SIGTERM to orphaned ffmpeg (pid ${proc.pid})`);
+            // Give it a moment to exit gracefully, then force kill if needed.
+            setTimeout(() => {
+              try {
+                process.kill(proc.pid, 'SIGKILL');
+                console.warn(`[recording-session] sent SIGKILL to orphaned ffmpeg (pid ${proc.pid})`);
+              } catch (e) {
+                // Already dead, which is fine.
+              }
+            }, 2000);
+          } catch (e) {
+            // Process may have already exited.
+          }
+        }
+      }
+    }
+  } catch (error) {
+    // ps command failed or no orphans; log but continue.
+    console.warn(`[recording-session] orphan cleanup skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 export function createRecordingSession({
   recordingsDir,
   markerPath,
@@ -48,12 +93,15 @@ export function createRecordingSession({
   // process drags BOTH video streams down to roughly the camera's rate: the screen recorded ~9 fps instead of 30 while
   // the camera was re-encoded in the same process. Separate processes keep the screen at 30 fps, so Windows uses the
   // separate camera capture (the same path Linux falls back to).
-  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture && process.platform !== 'win32' ? startFfmpegUnifiedCapture : null,
+  // The Mac beta also records the camera in its own process: the unified graph was only ever measured on Linux.
+  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture && process.platform === 'linux' ? startFfmpegUnifiedCapture : null,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
   cameraWarmupMs = DEFAULT_CAMERA_WARMUP_MS,
-  buttonListenerFactory = process.platform === 'win32' ? createUiohookButtonListener : createXinputButtonListener,
+  // Mac: the same native hook as Windows. Without Accessibility permission it fails to start and recording carries on
+  // without click telemetry (auto-zoom then uses its cursor-jump heuristic).
+  buttonListenerFactory = process.platform === 'win32' || process.platform === 'darwin' ? createUiohookButtonListener : createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
   videoStreamStartProbe = probeVideoStreamStartOffsets,
@@ -137,7 +185,7 @@ export function createRecordingSession({
 
   async function start(options = {}) {
     if (active) throw new Error('A recording is already active.');
-    if (!isCaptureAvailable()) throw new Error(process.platform === 'win32' ? 'FFmpeg screen capture is not available on this session.' : 'FFmpeg x11grab capture is not available on this session.');
+    if (!isCaptureAvailable()) throw new Error(process.platform === 'win32' || process.platform === 'darwin' ? 'FFmpeg screen capture is not available on this session.' : 'FFmpeg x11grab capture is not available on this session.');
     const micSource = normalizeAudioSource(options.micSource);
     const micGainPercent = normalizeAudioGainPercent(options.micGainPercent);
     const systemAudioSource = normalizeAudioSource(options.systemAudioSource);
@@ -1013,10 +1061,13 @@ function normalizeAudioGainPercent(value) {
   return Math.max(0, Math.min(200, Math.round(number)));
 }
 
-function normalizeCameraDevicePath(value) {
+export function normalizeCameraDevicePath(value, platform = process.platform) {
   if (typeof value !== 'string') return null;
+  // Reject any string with newlines or carriage returns before trimming
+  if (/[\r\n]/.test(value)) return null;
   const trimmed = value.trim();
-  if (process.platform === 'win32') return trimmed.length > 0 && !/["\r\n]/.test(trimmed) ? trimmed : null;
+  if (platform === 'win32') return trimmed.length > 0 && !/"/.test(trimmed) ? trimmed : null;
+  if (platform === 'darwin') return trimmed.length > 0 ? trimmed : null;
   return /^\/dev\/video\d+$/.test(trimmed) ? trimmed : null;
 }
 
