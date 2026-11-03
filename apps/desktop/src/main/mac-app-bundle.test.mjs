@@ -4,7 +4,7 @@ import { applyMacReleaseLaunchEnv, isMacReleaseBundle } from './mac-app-bundle.m
 
 const resourcesPath = '/Applications/Rough Cut.app/Contents/Resources';
 
-test('the Mac release bundle loads the built renderer and opens the editor', () => {
+test('the Mac release bundle loads the built renderer and opens the editor', { skip: process.platform === 'win32' ? 'uses POSIX paths or file modes' : false }, () => {
   const env = {};
   assert.equal(applyMacReleaseLaunchEnv(env, { platform: 'darwin', appPath: `${resourcesPath}/app`, resourcesPath }), true);
   assert.equal(env.ROUGH_CUT_LOAD_BUILT_RENDERER, '1');

@@ -26,7 +26,7 @@ async function fixture(t, overrides = {}) {
 }
 const results = ['opens', 'screen', 'mic', 'camera', 'claude', 'transcription'].map(id => ({ id, status: id === 'opens' ? 'pass' : 'skipped', detail: 'Observed result' }));
 
-test('persists all six observed checks privately and restores them without opening a browser', async t => {
+test('persists all six observed checks privately and restores them without opening a browser', { skip: process.platform === 'win32' ? 'uses POSIX paths or file modes' : false }, async t => {
   const f = await fixture(t);
   assert.equal((await f.support.status()).selfCheck, null);
   await f.support.saveSelfCheck(results);

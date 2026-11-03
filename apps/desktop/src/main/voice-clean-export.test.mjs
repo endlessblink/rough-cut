@@ -45,7 +45,7 @@ test('stand-in: the first recording/video asset is repointed, nothing else chang
   assert.equal(original.assets[0].filePath, '/r/take.mp4', 'input not mutated');
 });
 
-test('plan: off at amount 0, without a fresh cleaned file, or without a recording', async () => {
+test('plan: off at amount 0, without a fresh cleaned file, or without a recording', { skip: process.platform === 'win32' ? 'uses POSIX paths or file modes' : false }, async () => {
   const fresh = async () => true;
   assert.equal(await planVoiceCleanExport({ project: project(0), isFresh: fresh }), null);
   assert.equal(await planVoiceCleanExport({ project: project(undefined), isFresh: fresh }), null);

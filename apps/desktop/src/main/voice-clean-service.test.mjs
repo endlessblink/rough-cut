@@ -104,7 +104,7 @@ async function fixture() {
 
 const available = async () => ({ available: true, reason: null });
 
-test('paths: cached file is a sibling with its own suffix, never the recording', () => {
+test('paths: cached file is a sibling with its own suffix, never the recording', { skip: process.platform === 'win32' ? 'uses POSIX paths or file modes' : false }, () => {
   assert.equal(cleanedVoicePathFor('/r/take.mp4'), '/r/take.voice-clean.wav');
   assert.equal(cleanedVoicePathFor('/r/take.mp4', '/tmp/out'), '/tmp/out/take.voice-clean.wav');
   assert.equal(isVoiceCleanSourcePath('/r/take.mp4'), true);
@@ -194,7 +194,7 @@ test('availability: missing env says needs setup; no GPU says so; otherwise avai
   assert.deepEqual(ok, { available: true, reason: null });
 });
 
-test('clean: extract -> worker -> cached sibling; original untouched; reused next time', async () => {
+test('clean: extract -> worker -> cached sibling; original untouched; reused next time', { skip: process.platform === 'win32' ? 'uses POSIX paths or file modes' : false }, async () => {
   const { dir, sourcePath } = await fixture();
   try {
     const { spawnProcess, calls } = fakeSpawner();
@@ -255,7 +255,7 @@ test('clean: a cache older than the recording is stale', async () => {
   }
 });
 
-test('clean: jobs run one at a time', async () => {
+test('clean: jobs run one at a time', { skip: process.platform === 'win32' ? 'uses POSIX paths or file modes' : false }, async () => {
   const one = await fixture();
   const two = await fixture();
   try {
@@ -278,7 +278,7 @@ test('clean: jobs run one at a time', async () => {
   }
 });
 
-test('cancel: kills the worker, leaves no partial file and keeps the original', async () => {
+test('cancel: kills the worker, leaves no partial file and keeps the original', { skip: process.platform === 'win32' ? 'uses POSIX paths or file modes' : false }, async () => {
   const { dir, sourcePath } = await fixture();
   try {
     const { spawnProcess, calls } = fakeSpawner({ holdWorker: true });
