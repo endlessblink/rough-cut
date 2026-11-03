@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { LibraryDocument, ProjectDocument } from './types.js';
+import { audioLevelFromUnknown } from './audio-level.js';
 
 // --- Primitives ---
 
@@ -53,6 +54,22 @@ export const BackgroundConfigSchema = z.object({
 
 // --- Project Settings ---
 
+// Clean voice mix (0 = original only, 1 = cleaned only). Absent means 0, so
+// documents saved before this field load and play exactly as before. A bad
+// value is clamped or dropped instead of failing the whole project load.
+export const VoiceCleanSettingsSchema = z.object({
+  amount: z
+    .number()
+    .finite()
+    .catch(0)
+    .transform((value) => Math.max(0, Math.min(1, value))),
+});
+
+// Volume (0..2) and mute, for the recording's track and for single clips.
+// Absent means 100% and not muted. Bad values are clamped or dropped (never a
+// failed load), and the default level is stored as absence.
+export const AudioLevelSchema = z.unknown().transform((value) => audioLevelFromUnknown(value));
+
 export const ProjectSettingsSchema = z.object({
   resolution: ResolutionSchema,
   frameRate: FrameRateSchema,
@@ -62,6 +79,8 @@ export const ProjectSettingsSchema = z.object({
   backgroundConfig: BackgroundConfigSchema.optional(),
   recordingDefaults: z.lazy(() => RecordingPresentationSchema).optional(),
   destinationPresetId: z.string().nullable().optional(),
+  voiceClean: VoiceCleanSettingsSchema.optional().catch(undefined),
+  recordingAudio: AudioLevelSchema.optional().catch(undefined),
 });
 
 // --- Asset ---
@@ -726,6 +745,7 @@ export const TimelineClipSchema = z.object({
   sourceOut: nonNegativeInt,
   // Transitional import adapter for existing NLE code. Canonical model code uses mediaId.
   source: NleClipSourceSchema.optional(),
+  audio: AudioLevelSchema.optional(),
 }).refine((clip) => clip.timelineOut > clip.timelineIn, {
   message: 'Clip timelineOut must be greater than timelineIn',
   path: ['timelineOut'],

@@ -1,5 +1,6 @@
 import {
   canonicalizeProjectDocument,
+  insertedMediaSourceIds,
   createDefaultRecordingPresentation,
   resolveTimelineLengthFrames,
   restoreFullSource,
@@ -147,7 +148,9 @@ export function restoreRecordingOriginalState(document, { assetId }) {
     if (track.linkedGroupId !== linkedGroupId && !track.clips?.some((clip) => sourceIds.has(clip.mediaId))) return track;
     const clips = (track.clips ?? []).filter((clip) => sourceIds.has(clip.mediaId));
     if (clips.length === 0) return track;
-    const first = clips[0];
+    // The sections go away, so do their own volumes (the track volume stays).
+    const { audio: _sectionAudio, ...first } = clips[0];
+    void _sectionAudio;
     const isCamera = first.mediaId.endsWith(':camera');
     const assetIdForClip = first.source?.id ?? (isCamera ? cameraAssetId : recording.id);
     const sourceIn = isCamera ? cameraOffset : 0;
@@ -236,7 +239,48 @@ export function rippleDeleteRecordingRange(document, { assetId, startFrame, endF
   }
 
   model = selectRecordingEditModel({ document: nextDocument, recordingAssetId: assetId });
-  return rippleDeleteRange(nextDocument, { startFrame: start, endFrame: end, linkGroupId: model.linkedGroupId }).document;
+  const insertedSources = insertedMediaSourceIds(nextDocument);
+  if (insertedSources.size === 0) {
+    return rippleDeleteRange(nextDocument, { startFrame: start, endFrame: end, linkGroupId: model.linkedGroupId }).document;
+  }
+  return rippleDeleteWithInsertedMedia(model.document, { startFrame: start, endFrame: end, linkGroupId: model.linkedGroupId, insertedSources });
+}
+
+/**
+ * Ripple delete when clips from outside the recording sit on its lanes. Closing
+ * the gap has to carry them along too, or the recording would slide underneath a
+ * clip that stayed put (and overlap it). Inserted clips inside the removed span go
+ * with it; one crossing an edge keeps the part outside.
+ */
+function rippleDeleteWithInsertedMedia(document, { startFrame, endFrame, linkGroupId, insertedSources }) {
+  const duration = endFrame - startFrame;
+  const affected = (clip) => clip.linkGroupId === linkGroupId || insertedSources.has(clip.mediaId);
+  const tracks = document.timeline.tracks.map((track) => ({
+    ...track,
+    clips: track.clips.flatMap((clip) => {
+      if (!affected(clip) || clip.timelineOut <= startFrame) return [clip];
+      if (clip.timelineIn >= endFrame) return [{ ...clip, timelineIn: clip.timelineIn - duration, timelineOut: clip.timelineOut - duration }];
+      const pieces = [];
+      if (clip.timelineIn < startFrame) {
+        pieces.push({ ...clip, timelineOut: startFrame, sourceOut: clip.sourceIn + (startFrame - clip.timelineIn) });
+      }
+      if (clip.timelineOut > endFrame) {
+        const keep = clip.timelineOut - endFrame;
+        pieces.push({
+          ...clip,
+          id: pieces.length > 0 ? `${clip.id}-r${endFrame}` : clip.id,
+          timelineIn: startFrame,
+          timelineOut: startFrame + keep,
+          sourceIn: clip.sourceOut - keep,
+        });
+      }
+      return pieces;
+    }).sort((left, right) => left.timelineIn - right.timelineIn || left.timelineOut - right.timelineOut),
+  }));
+  const effects = (document.timeline.effects ?? []).map((effect) => (effect.ownerType === 'timeline' && typeof effect.startFrame === 'number' && typeof effect.endFrame === 'number' && effect.startFrame >= endFrame
+    ? { ...effect, startFrame: effect.startFrame - duration, endFrame: effect.endFrame - duration }
+    : effect));
+  return canonicalizeProjectDocument({ ...document, timeline: { ...document.timeline, tracks, effects } });
 }
 
 /**
@@ -273,7 +317,10 @@ function extendRecordingSection(model, clip, edge, requestedFrames) {
     && candidate.timelineIn === clip.timelineIn
     && candidate.timelineOut === clip.timelineOut;
   const sectionClips = timeline.tracks.flatMap((track) => track.clips).filter(inSection);
-  const neighbours = model.screenClips
+  const insertedSources = insertedMediaSourceIds(model.document);
+  const screenTrack = timeline.tracks.find((track) => track.clips.some((candidate) => candidate.id === clip.id));
+  const insertedNeighbours = (screenTrack?.clips ?? []).filter((candidate) => insertedSources.has(candidate.mediaId));
+  const neighbours = [...model.screenClips, ...insertedNeighbours]
     .filter((candidate) => !(candidate.timelineIn === clip.timelineIn && candidate.timelineOut === clip.timelineOut))
     .sort((left, right) => left.timelineIn - right.timelineIn);
   let frames = Math.max(0, Math.round(requestedFrames));
@@ -301,7 +348,7 @@ function extendRecordingSection(model, clip, edge, requestedFrames) {
           ? { ...candidate, timelineIn: candidate.timelineIn - (frames - push), timelineOut: candidate.timelineOut + push, sourceIn: candidate.sourceIn - frames }
           : { ...candidate, timelineOut: candidate.timelineOut + frames, sourceOut: candidate.sourceOut + frames };
       }
-      if (push > 0 && candidate.linkGroupId === clip.linkGroupId && candidate.timelineIn >= clip.timelineOut) {
+      if (push > 0 && (candidate.linkGroupId === clip.linkGroupId || insertedSources.has(candidate.mediaId)) && candidate.timelineIn >= clip.timelineOut) {
         return { ...candidate, timelineIn: candidate.timelineIn + push, timelineOut: candidate.timelineOut + push };
       }
       return candidate;
@@ -332,7 +379,7 @@ export function selectRecordingEditModel(input) {
   const sourceDurationFrames = Math.max(1, Math.round(recordingAsset?.duration ?? timelineDurationFrames));
   const viewStartFrame = screenClips.length > 0 ? Math.min(...screenClips.map((clip) => clip.timelineIn)) : 0;
   const viewEndFrame = screenClips.length > 0 ? Math.max(...screenClips.map((clip) => clip.timelineOut)) : timelineDurationFrames;
-  const unsupportedVideoClips = unsupportedRecordingVideoClips(document?.timeline?.tracks, linkedGroupId);
+  const unsupportedVideoClips = unsupportedRecordingVideoClips(document?.timeline?.tracks, linkedGroupId, document ? insertedMediaSourceIds(document) : new Set());
   const firstClip = screenClips[0] ?? null;
   const lastClip = screenClips[screenClips.length - 1] ?? null;
   const trimInfo = firstClip && lastClip
@@ -437,11 +484,12 @@ function findScreenClipAt(clips, frame) {
   return clips.find((clip) => frame > clip.timelineIn && frame < clip.timelineOut) ?? null;
 }
 
-function unsupportedRecordingVideoClips(tracks, linkedGroupId) {
+function unsupportedRecordingVideoClips(tracks, linkedGroupId, insertedSources = new Set()) {
   if (!Array.isArray(tracks) || !linkedGroupId) return [];
   return tracks.flatMap((track) => {
     if (track?.kind !== 'video') return [];
-    return (track.clips ?? []).filter((clip) => clip.linkGroupId && clip.linkGroupId !== linkedGroupId);
+    // Clips inserted from outside the recording are first-class Recording edit clips.
+    return (track.clips ?? []).filter((clip) => clip.linkGroupId && clip.linkGroupId !== linkedGroupId && !insertedSources.has(clip.mediaId));
   });
 }
 

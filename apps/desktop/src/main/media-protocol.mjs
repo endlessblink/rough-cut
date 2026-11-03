@@ -113,5 +113,6 @@ function contentTypeFor(filePath) {
   if (filePath.toLowerCase().endsWith('.svg')) return 'image/svg+xml';
   if (filePath.toLowerCase().endsWith('.mp4')) return 'video/mp4';
   if (filePath.toLowerCase().endsWith('.mkv')) return 'video/x-matroska';
+  if (filePath.toLowerCase().endsWith('.wav')) return 'audio/wav';
   return 'application/octet-stream';
 }

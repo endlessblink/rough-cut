@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option B - Quiet review line</title>
+<style>
+:root{--bg:#101114;--fg:#e9eaee;--mute:#80838c;--line:#23252b;--accent:#7aa2ff;--cut:#d98a8a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
+.stage{flex:1;display:flex;align-items:center;justify-content:center}
+.video{width:min(760px,80%);aspect-ratio:16/9;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;color:var(--mute)}
+.note{display:flex;align-items:center;justify-content:center;gap:18px;padding:16px;color:var(--mute)}
+.note b{color:var(--fg);font-weight:500}
+.btn{border:0;background:transparent;color:var(--accent);font:inherit;cursor:pointer;padding:0}
+.btn.solid{background:var(--accent);color:#0a1020;padding:7px 16px;border-radius:99px;font-weight:600}
+.timeline{margin:0 28px 28px;height:40px;position:relative}
+.timeline i{position:absolute;top:18px;height:4px;border-radius:2px;background:#2d3036}
+.timeline i.cut{top:14px;height:12px;background:transparent;border-left:2px solid var(--cut);border-right:2px solid var(--cut);opacity:.8}
+</style></head><body>
+<div class="stage"><div class="video">preview</div></div>
+<div class="note">
+  <span><b>AI suggested 21 changes</b> · 7 min 35 s shorter</span>
+  <button class="btn">Review</button>
+  <button class="btn solid">Take all</button>
+</div>
+<div class="timeline">
+  <i style="left:0;width:100%"></i>
+  <i class="cut" style="left:3%;width:6%"></i><i class="cut" style="left:24%;width:12%"></i><i class="cut" style="left:40%;width:10%"></i><i class="cut" style="left:61%;width:8%"></i><i class="cut" style="left:76%;width:6%"></i>
+</div>
+</body></html>

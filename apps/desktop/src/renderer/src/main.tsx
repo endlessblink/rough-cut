@@ -20,7 +20,6 @@ import {
   Check as PhosphorCheck,
   GearSix as PhosphorGearSix,
   Icon as PhosphorIconType,
-  Magnet as PhosphorMagnet,
   MagnifyingGlassMinus as PhosphorMagnifyingGlassMinus,
   MagnifyingGlassPlus as PhosphorMagnifyingGlassPlus,
   Microphone as PhosphorMicrophone,
@@ -34,6 +33,7 @@ import {
   SlidersHorizontal as PhosphorSlidersHorizontal,
   Sparkle as PhosphorSparkle,
   SpeakerHigh as PhosphorSpeakerHigh,
+  SpeakerSlash as PhosphorSpeakerSlash,
   Stop as PhosphorStop,
   VideoCamera as PhosphorVideoCamera,
   Waveform as PhosphorWaveform,
@@ -70,7 +70,20 @@ import {
   type CursorStyle,
   type RecordingBackgroundStyle,
   type ZoomMarker,
+  listInsertedClips,
+  moveInsertedClip,
+  removeInsertedClip,
+  splitInsertedClipsAt,
+  trimInsertedClip,
+  setVoiceOverMode,
+  type InsertedClipView,
+  getVoiceCleanAmount,
+  getClipAudioLevel,
+  withClipAudioLevel,
+  withRecordingAudioLevel,
 } from '@rough-cut/project-model';
+import { formatVolume } from '../../shared/audio-gain.mjs';
+import { DevMediaMenu, useDevFeatures, type TakeRange } from './dev-media-tools';
 import { getCameraLayoutRect, resolveFrame, resolveFramedCrop } from '@rough-cut/frame-resolver';
 import './styles.css';
 
@@ -89,11 +102,15 @@ import { isBackgroundGridOn } from '../../shared/background-grid.mjs';
 import { ExportDestination } from './export-destination';
 import { addGraphic, dragGraphicRange, graphicLaneRows, listGraphics, reorderGraphic, moveGraphic, removeGraphic, replaceGraphicContent, requestMentionsTime, setGraphicAnimate, setGraphicLayout, setGraphicTiming, updateGraphicFields, type GraphicLayout, type TimelineGraphic } from '../../shared/motion-graphics.mjs';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
+import { VoiceCleanContext, VoiceCleanPanel, useVoiceCleanController, type VoiceCleanBridge } from './voice-clean-panel';
+import { AudioVolumeContext, AudioVolumePanel, useAudioVolumeController } from './audio-volume-panel';
 import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
+  addClipZoomAtFrame,
   addManualMarkerAtFrame,
   addAutoZoomMarkersFromTelemetry,
+  findZoomMarker,
   getZoomPresentation,
   listMarkers,
   patchZoomPresentation,
@@ -105,6 +122,7 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { resolveCensorSoftness } from '../../shared/censor-regions.mjs';
+import { addedClipAtFrame, clipCaptionView, clipCaptions, clipScreenSections, commitClipCaptionView } from '../../shared/clip-overlays.mjs';
 import { CAPTION_LANGUAGES, CAPTION_POSITIONS, addCaption, addCaptionCuesToTrack, addCaptionTrack, buildCaptionCues, captionTextDirection, getCaptions, getOriginalCaptionCues, setActiveCaptionTrack, withCaptionEdit, withCaptionSettings, withTranscribedSpeech } from '../../shared/captions.mjs';
 import { CaptionSelectionContext, CaptionsLane, sourceFrameAtTimeline } from './captions-lane';
 import {
@@ -234,6 +252,10 @@ declare global {
         reused: boolean;
       }>;
       cancelStabilization: (jobId: string) => Promise<{ cancelled: boolean }>;
+      getVoiceCleanStatus: VoiceCleanBridge['getVoiceCleanStatus'];
+      startVoiceClean: VoiceCleanBridge['startVoiceClean'];
+      cancelVoiceClean: VoiceCleanBridge['cancelVoiceClean'];
+      onVoiceCleanProgress: VoiceCleanBridge['onVoiceCleanProgress'];
       getStabilizationSupport: () => Promise<{ supported: boolean; reason?: string | null }>;
       onStabilizationProgress: (
         callback: (progress: {
@@ -324,7 +346,7 @@ type ProjectState = {
     id: string;
     name: string;
     composition: { duration: number; tracks?: Array<{ clips?: Array<{ assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>> } & Record<string, unknown>> };
-    settings?: { aspectRatio?: ProjectAspectRatio };
+    settings?: { aspectRatio?: ProjectAspectRatio; voiceClean?: { amount: number } };
   assets?: Array<{ id?: string; type?: string; cameraAssetId?: string | null; presentation?: { background?: RecordingBackgroundStyle } & Record<string, unknown> } & Record<string, unknown>>;
   };
   recording: null | { filePath: string; duration: number; width: number; height: number; fps: number; audio?: unknown; camera?: { width?: number; height?: number; sourceInFrames?: number } & Record<string, unknown> };
@@ -1008,9 +1030,21 @@ function RoughCutApp() {
     if (project?.recording?.camera) setExportMode('styled');
   }, [project?.recording?.camera]);
 
+  // Reopening a project (or refreshing the app) puts the playhead back exactly where it was.
   React.useEffect(() => {
-    setSharedTimelineTimeSec(0);
+    setSharedTimelineTimeSec(project?.path ? readSavedPlayhead(project.path) : 0);
   }, [project?.path]);
+
+  const playheadSaveRef = React.useRef<{ path: string | null; sec: number; timer: number | null }>({ path: null, sec: 0, timer: null });
+  React.useEffect(() => {
+    const flush = () => {
+      const pending = playheadSaveRef.current;
+      if (pending.timer !== null) { window.clearTimeout(pending.timer); pending.timer = null; }
+      if (pending.path) writeSavedPlayhead(pending.path, pending.sec);
+    };
+    window.addEventListener('beforeunload', flush);
+    return () => { window.removeEventListener('beforeunload', flush); flush(); };
+  }, []);
 
   React.useEffect(() => {
     if (recording.state === 'recording') setPreRecordPanelOpen(false);
@@ -1051,9 +1085,20 @@ function RoughCutApp() {
     ? Math.max(0, (project.document.composition?.duration ?? 0) / sharedTimelineFps)
     : 0;
   const clampedSharedTimelineTimeSec = Math.max(0, Math.min(sharedTimelineDurationSec, sharedTimelineTimeSec));
+  const projectPathForPlayhead = project?.path ?? null;
   const updateSharedTimelineTimeSec = React.useCallback((nextTimeSec: number) => {
-    setSharedTimelineTimeSec(Math.max(0, Math.min(sharedTimelineDurationSec, nextTimeSec)));
-  }, [sharedTimelineDurationSec]);
+    const clamped = Math.max(0, Math.min(sharedTimelineDurationSec, nextTimeSec));
+    setSharedTimelineTimeSec(clamped);
+    const pending = playheadSaveRef.current;
+    pending.path = projectPathForPlayhead;
+    pending.sec = clamped;
+    if (pending.timer === null) {
+      pending.timer = window.setTimeout(() => {
+        pending.timer = null;
+        if (pending.path) writeSavedPlayhead(pending.path, pending.sec);
+      }, 400);
+    }
+  }, [sharedTimelineDurationSec, projectPathForPlayhead]);
 
   async function toggleRecording() {
     if (recordingActionPendingRef.current) {
@@ -2937,7 +2982,7 @@ function getFocusableElements(root: HTMLElement) {
 
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom' | 'censor' | 'info';
 type FrameAlignmentMode = 'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
-type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'captions' | 'censor' | 'graphics';
+type ActiveTool = 'background' | 'frame' | 'camera' | 'cursor' | 'zoom' | 'audio' | 'captions' | 'censor' | 'graphics';
 
 const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
   folder: PhosphorFolder,
@@ -2970,6 +3015,11 @@ function Icon({ name }: { name: IconName }) {
 }
 
 
+function ClipAudioIcon({ level }: { level: { volume: number; muted: boolean } }) {
+  const Glyph = level.muted ? PhosphorSpeakerSlash : PhosphorSpeakerHigh;
+  return <Glyph size={12} weight="fill" className="clipAudioIcon" aria-label={level.muted ? 'Audio muted' : 'Audio level changed'} role="img" />;
+}
+
 function ToolRail({ active, onSelect, panelOpen, onTogglePanel }: { active: ActiveTool; onSelect: (tool: ActiveTool) => void; panelOpen: boolean; onTogglePanel: () => void }) {
   const tools: Array<{ id: ActiveTool; icon: PhosphorIconType; label: string }> = [
     { id: 'background', icon: PhosphorImage, label: 'Background' },
@@ -2977,6 +3027,7 @@ function ToolRail({ active, onSelect, panelOpen, onTogglePanel }: { active: Acti
     { id: 'camera', icon: PhosphorVideoCamera, label: 'Camera' },
     { id: 'cursor', icon: PhosphorCursor, label: 'Cursor' },
     { id: 'zoom', icon: PhosphorMagnifyingGlassPlus, label: 'Zoom' },
+    { id: 'audio', icon: PhosphorSpeakerHigh, label: 'Audio' },
     { id: 'captions', icon: PhosphorClosedCaptioning, label: 'Captions' },
     { id: 'censor', icon: PhosphorEyeSlash, label: 'Censor' },
     { id: 'graphics', icon: PhosphorTextAa, label: 'Graphics' },
@@ -3692,6 +3743,30 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
+/** A centre line with an arrow each way: the cut edge opens and the rest moves over. Kept to a few bold strokes so it holds up at toolbar size. */
+function RippleTrimIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 4v16" />
+      <path d="M9 12H3.5" />
+      <path d="M6.5 8.5 3 12l3.5 3.5" />
+      <path d="M15 12h5.5" />
+      <path d="M17.5 8.5 21 12l-3.5 3.5" />
+    </svg>
+  );
+}
+
+const PLAYHEAD_KEY_PREFIX = 'roughCut.playhead:';
+function readSavedPlayhead(projectPath: string): number {
+  try {
+    const value = Number(window.localStorage.getItem(PLAYHEAD_KEY_PREFIX + projectPath));
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch { return 0; }
+}
+function writeSavedPlayhead(projectPath: string, sec: number) {
+  try { window.localStorage.setItem(PLAYHEAD_KEY_PREFIX + projectPath, String(Math.round(sec * 1000) / 1000)); } catch { /* storage unavailable */ }
+}
+
 function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRestoreOriginal, onRemoveCutRange, onClearCutRanges, censorCount = 0, censorDrawArmed = false, onCensorDrawArmedChange, selectedCensorId = null, selectedCensorSoftness = 0, onCensorSoftnessChange, selectedCensorFollows = false, censorTrackBusy = false, censorTrackStatus = null, onCensorTrack, onCensorClearTrack, framingHoldCount = 0, framingHoldSelected = false, onAddFramingHold }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRestoreOriginal?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void; censorCount?: number; censorDrawArmed?: boolean; onCensorDrawArmedChange?: (armed: boolean) => void; selectedCensorId?: string | null; selectedCensorSoftness?: number; onCensorSoftnessChange?: (censorId: string, softness: number) => void; selectedCensorFollows?: boolean; censorTrackBusy?: boolean; censorTrackStatus?: string | null; onCensorTrack?: (censorId: string) => void; onCensorClearTrack?: (censorId: string) => void; framingHoldCount?: number; framingHoldSelected?: boolean; onAddFramingHold?: () => Promise<void> | void }) {
   void recordingTemplateOverrides;
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
@@ -3809,6 +3884,20 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
         ) : (
           <EmptyState icon="zoom" title="No recording yet" description="Record a take or open a project to add zooms." />
         )}
+      </aside>
+    );
+  }
+
+  if (activeTool === 'audio') {
+    return (
+      <aside className="setupBoard studioPane" aria-label="Audio board">
+        {project?.recording && onProjectChange ? (
+          <div className="timelineBoardStack" data-ui-region="audio-control-panel">
+            {/* Not disabled while saving: that would drop keyboard focus after every step. Commits chain through the latest project. */}
+            <AudioVolumePanel />
+            <VoiceCleanPanel disabled={disabled} />
+          </div>
+        ) : null}
       </aside>
     );
   }
@@ -4430,6 +4519,23 @@ function ProjectPreview({
     };
   }, []);
   const [previewPlaying, setPreviewPlaying] = React.useState(false);
+  // After a refresh the saved playhead is restored in app state, but the preview's own seek position
+  // and the video stay at 0: the playhead shows the saved spot and Play starts from the beginning.
+  // Once per project, when the playhead is clearly past 0 while the seek position is still 0, move the video to it.
+  const restoredSeekProjectRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (restoredSeekProjectRef.current === project.path) return;
+    if (previewPlaying || currentTimeSec <= 0.25 || timelineSeekSec >= 0.05) return;
+    restoredSeekProjectRef.current = project.path;
+    setTimelineSeekSec(currentTimeSec);
+  }, [project.path, currentTimeSec, timelineSeekSec, previewPlaying]);
+  // Dev-only (dock copy): added clips and camera takes.
+  const devFeatures = useDevFeatures();
+  const [takeRange, setTakeRange] = React.useState<TakeRange>({ startFrame: null, endFrame: null });
+  const [takePlayback, setTakePlayback] = React.useState<{ playing: boolean; muted: boolean } | null>(null);
+  const [selectedInsertedClipId, setSelectedInsertedClipId] = React.useState<string | null>(null);
+  // Recording clips selected on the timeline (owned by the timeline; mirrored here for the Audio tab).
+  const [selectedScreenClipIds, setSelectedScreenClipIds] = React.useState<string[]>([]);
   const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
   const [cutModeActive, setCutModeActive] = React.useState(false);
   const [censorDrawArmed, setCensorDrawArmed] = React.useState(false);
@@ -4500,7 +4606,7 @@ function ProjectPreview({
   const cutRanges = recordingAsset?.id && effectiveRecording ? listCutRanges(project.document as unknown as ProjectDocument, recordingAsset.id, effectiveRecording.duration) as CutRange[] : [];
   const activeCutRanges = clipCutRangesToTrim(cutRanges, trimInfo);
   const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
-  const selectedZoomMarker = inspectorSelection.markerId ? listMarkers(project.document as unknown as ProjectDocument).find((marker) => marker.id === inspectorSelection.markerId) ?? null : null;
+  const selectedZoomMarker = inspectorSelection.markerId ? findZoomMarker(project.document as unknown as ProjectDocument, inspectorSelection.markerId)?.marker ?? null : null;
   const hasCamera = Boolean(recordingAsset?.cameraAssetId && project.cameraMediaUrl);
   const cameraPresentation: CameraPresentation = {
     ...DEFAULT_CAMERA_PRESENTATION,
@@ -4561,6 +4667,35 @@ function ProjectPreview({
       setIsSaving(false);
     }
   }
+
+  // Clean voice: Amount is a project setting saved (with undo) through persist;
+  // while the slider moves only the live preview mix changes.
+  const voiceClean = useVoiceCleanController({
+    sourcePath: project.recording?.filePath ?? null,
+    savedAmount: getVoiceCleanAmount(project.document.settings),
+    onCommitAmount: (amount) => {
+      const latest = latestProjectRef.current.document;
+      void persist({ ...latest, settings: { ...latest.settings, voiceClean: { amount: Math.round(amount * 100) / 100 } } });
+    },
+  });
+
+  // Track and clip volume: saved (with undo) through persist when a slider is
+  // let go or Mute is switched; while a slider moves only the preview changes.
+  const audioVolume = useAudioVolumeController({
+    document: project.document as unknown as ProjectDocument,
+    selectedClipIds: selectedScreenClipIds,
+    addedClipSelected: Boolean(selectedInsertedClipId),
+    onCommitTrack: (patch) => {
+      const latest = latestProjectRef.current.document as unknown as ProjectDocument;
+      const next = withRecordingAudioLevel(latest, patch);
+      if (next !== latest) void persist(next as unknown as ProjectState['document']);
+    },
+    onCommitClip: (clipIds, patch) => {
+      const latest = latestProjectRef.current.document as unknown as ProjectDocument;
+      const next = withClipAudioLevel(latest, clipIds, patch);
+      if (next !== latest) void persist(next as unknown as ProjectState['document']);
+    },
+  });
 
   async function updateAspectRatio(nextAspectRatio: ProjectAspectRatio) {
     if (nextAspectRatio === aspectRatio) return;
@@ -4980,6 +5115,7 @@ function ProjectPreview({
   async function updateTimelineClipTrim(clipId: string, edge: 'head' | 'tail', frame: number, options: { ripple?: boolean } = {}) {
     if (!effectiveRecording) return;
     if (!recordingAsset?.id) return;
+    console.info('[trim]', JSON.stringify({ clipId: clipId.slice(0, 14), edge, frame, ripple: options.ripple }));
     if (options.ripple === false) {
       await trimTimelineClipLeavingGap(clipId, edge, frame);
       return;
@@ -4994,10 +5130,11 @@ function ProjectPreview({
         edge,
         frame,
       }) as unknown as ProjectState['document'];
-      if (nextDocument === project.document) return;
+      if (nextDocument === project.document) { console.warn('[trim] ripple trim changed nothing', JSON.stringify({ edge, frame })); return; }
       await persist(nextDocument);
-    } catch {
+    } catch (error) {
       // Invalid trims are rejected by the command layer; keep the current edit intact.
+      console.warn('[trim] ripple trim rejected', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -5438,6 +5575,17 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+  async function editInsertedMedia(edit: (document: ProjectDocument) => ProjectDocument) {
+    try {
+      const current = latestProjectRef.current.document as unknown as ProjectDocument;
+      const next = edit(current);
+      if (next === current) return;
+      await persist(next as unknown as ProjectState['document']);
+    } catch {
+      // Overlaps and out-of-file trims are refused by the model; keep the edit as it was.
+    }
+  }
+
   async function splitAtPlayhead() {
     if (!effectiveRecording) return;
     const frame = Math.round(currentTimeSec * (effectiveRecording.fps || 30));
@@ -5446,10 +5594,10 @@ function ProjectPreview({
 
   async function splitAtFrame(frame: number) {
     if (!recordingAsset?.id || !effectiveRecording) return;
-    const nextDocument = splitRecordingAtFrame(project.document as unknown as ProjectDocument, {
+    const nextDocument = splitInsertedClipsAt(splitRecordingAtFrame(project.document as unknown as ProjectDocument, {
       assetId: recordingAsset.id,
       frame,
-    }) as unknown as ProjectState['document'];
+    }) as unknown as ProjectDocument, { frame }) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
     await persist(nextDocument);
   }
@@ -5519,6 +5667,8 @@ function ProjectPreview({
 
   return (
     <CaptionSelectionContext.Provider value={captionSelectionValue}>
+    <VoiceCleanContext.Provider value={voiceClean}>
+    <AudioVolumeContext.Provider value={audioVolume}>
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace"  onKeyDown={handleEditorKeyDown} data-inspector-state={inspectorOpen ? 'expanded' : 'collapsed'}>
       <ToolRail active={activeTool} onSelect={onActiveToolChange} panelOpen={setupBoardOpen} onTogglePanel={onSetupBoardToggle} />
       {activeTool === 'graphics' ? (
@@ -5541,7 +5691,7 @@ function ProjectPreview({
         <h2 className="srOnly">{project.document.name}</h2>
         {project.mediaUrl ? <GraphicsOverlay stageRef={graphicsStageRef} graphics={graphics} currentTimeSec={currentTimeSec} fps={graphicsFps} canvasWidth={graphicsCanvas.width} canvasHeight={graphicsCanvas.height} selectedGraphicId={selectedGraphicId} editable={!previewPlaying} onLayoutChange={changeGraphicLayout} onSelect={selectGraphic} /> : null}
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
+          <VideoPreview project={effectiveProject} isPlaying={takePlayback ? takePlayback.playing : undefined} audioMuted={Boolean(takePlayback?.muted)} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" scrubbing={timelineScrubbing} onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} selectedFramingFocal={selectedFramingRange && !selectedZoomMarker ? { id: selectedFramingRange.id, x: selectedFramingRange.focalPoint.x, y: selectedFramingRange.focalPoint.y } : null} onFramingFocalChange={updateFramingFocal} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} voiceClean={voiceClean.preview} trackGain={audioVolume.previewTrackGain} clipGainOverride={audioVolume.clipGainOverride} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets).
           <section className="projectPreviewEmpty" data-testid="project-preview-empty" aria-label="Blank project empty state">
@@ -5556,7 +5706,22 @@ function ProjectPreview({
           <p className="timelineHeaderTitle">Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onCaptionsChange={(next) => { void persist(next as unknown as ProjectState['document']); }} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} /> : null}
+           {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onSplitAtFrame={splitAtFrame} onSplitAtPlayhead={splitAtPlayhead} onRestoreOriginal={restoreOriginalRecording} onRestoreTrimStart={() => restoreHiddenSourceEdge('head')} onRestoreTrimEnd={() => restoreHiddenSourceEdge('tail')} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onCaptionsChange={(next) => { void persist(next as unknown as ProjectState['document']); }} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} framingAvailable={framingAvailable} selectedFramingId={selectedFramingRange?.id ?? null} onSelectFraming={selectFramingRange} onFramingCreateRange={createFramingForRange} onFramingRangeChange={updateFramingRange} onFramingRemove={removeFraming} graphics={graphics} selectedGraphicId={selectedGraphicId} onSelectGraphic={selectGraphic} onGraphicRangeChange={(id, startFrame, endFrame) => void persistGraphics(moveGraphic(project.document as unknown as ProjectDocument, id, { startFrame, endFrame, timelineFrames: recordingEditModel.timelineDurationFrames }), 'move')} onGraphicRemove={(id) => void removeGraphicById(id)} selectedInsertedClipId={selectedInsertedClipId} onSelectInsertedClip={setSelectedInsertedClipId} onScreenClipSelectionChange={setSelectedScreenClipIds} onEditInsertedMedia={(edit) => void editInsertedMedia(edit)} takeRange={devFeatures ? takeRange : null} devToolbar={devFeatures ? (
+            <DevMediaMenu
+              projectPath={project.path ?? null}
+              fps={effectiveRecording.fps || 30}
+              playheadFrame={Math.round(currentTimeSec * (effectiveRecording.fps || 30))}
+              playheadSec={currentTimeSec}
+              takeRange={takeRange}
+              onTakeRangeChange={setTakeRange}
+              selectedTakeClipId={selectedInsertedClipId && listInsertedClips(project.document as unknown as ProjectDocument).some((clip) => clip.clipId === selectedInsertedClipId && clip.lane === 'camera') ? selectedInsertedClipId : null}
+              hasCamera={Boolean(effectiveRecording.camera)}
+              getDocument={() => latestProjectRef.current.document as unknown as ProjectDocument}
+              onApply={(next) => persist(next as unknown as ProjectState['document'])}
+              onSeekFrame={(frame) => { const sec = Math.max(0, frame / (effectiveRecording.fps || 30)); setCurrentTimeSec(sec); setTimelineSeekSec(sec); }}
+              onTakePlayback={setTakePlayback}
+            />
+          ) : null} /> : null}
         </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector" hidden={!inspectorOpen}>
         <div className="inspectorHeader">
@@ -5605,6 +5770,8 @@ function ProjectPreview({
         {saveError ? <p className="error">{saveError}</p> : null}
       </aside>
     </section>
+    </AudioVolumeContext.Provider>
+    </VoiceCleanContext.Provider>
     </CaptionSelectionContext.Provider>
   );
 }
@@ -5752,7 +5919,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove, onCaptionsChange }: { onCaptionsChange?: (next: ProjectDocument) => void; project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
+function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onSplitAtFrame, onSplitAtPlayhead, onRestoreOriginal, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange, framingAvailable = false, selectedFramingId = null, onSelectFraming, onFramingCreateRange, onFramingRangeChange, onFramingRemove, graphics = [], selectedGraphicId = null, onSelectGraphic, onGraphicRangeChange, onGraphicRemove, onCaptionsChange, selectedInsertedClipId = null, onSelectInsertedClip, onScreenClipSelectionChange, onEditInsertedMedia, takeRange = null, devToolbar = null }: { selectedInsertedClipId?: string | null; onSelectInsertedClip?: (clipId: string | null) => void; onScreenClipSelectionChange?: (clipIds: string[]) => void; onEditInsertedMedia?: (edit: (document: ProjectDocument) => ProjectDocument) => void; takeRange?: TakeRange | null; devToolbar?: React.ReactNode; onCaptionsChange?: (next: ProjectDocument) => void; project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number, options?: { ripple?: boolean }) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onSplitAtFrame?: (frame: number) => void; onSplitAtPlayhead?: () => void; onRestoreOriginal?: () => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void; framingAvailable?: boolean; selectedFramingId?: string | null; onSelectFraming?: (rangeId: string | null) => void; onFramingCreateRange?: (startFrame: number, endFrame: number) => void; onFramingRangeChange?: (rangeId: string, startFrame: number, endFrame: number) => void; onFramingRemove?: (rangeId: string) => void; graphics?: readonly TimelineGraphic[]; selectedGraphicId?: string | null; onSelectGraphic?: (id: string | null) => void; onGraphicRangeChange?: (id: string, startFrame: number, endFrame: number) => void; onGraphicRemove?: (id: string) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -5762,6 +5929,113 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
 
   const fps = project.recording?.fps && project.recording.fps > 0 ? project.recording.fps : 30;
   const sourceFrameDuration = Math.max(1, Math.round((model.sourceDurationSec ?? model.durationSec) * fps));
+  // Clips added from outside the recording and camera takes: edited like any clip,
+  // previewed locally while dragging and committed once on pointer up.
+  const insertedClips = listInsertedClips(project.document as unknown as ProjectDocument);
+  const [insertedDrag, setInsertedDrag] = React.useState<{ clipId: string; timelineIn: number; timelineOut: number } | null>(null);
+  function beginInsertedDrag(clip: InsertedClipView, mode: 'move' | 'head' | 'tail', event: React.PointerEvent<HTMLElement>) {
+    if (event.button !== 0 || cutModeActive) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const startFrame = timelineFrameFromClientUnclamped(handle, event.clientX) ?? clip.timelineIn;
+    const startX = event.clientX;
+    let moved = false;
+    let latest = { timelineIn: clip.timelineIn, timelineOut: clip.timelineOut };
+    const length = clip.timelineOut - clip.timelineIn;
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!moved && Math.abs(moveEvent.clientX - startX) < 4) return;
+      moved = true;
+      const frame = timelineFrameFromClientUnclamped(handle, moveEvent.clientX);
+      if (frame === null) return;
+      const delta = frame - startFrame;
+      if (mode === 'move') {
+        const timelineIn = Math.max(0, clip.timelineIn + delta);
+        latest = { timelineIn, timelineOut: timelineIn + length };
+      } else if (mode === 'head') {
+        latest = { timelineIn: Math.max(clip.timelineIn - clip.sourceIn, Math.min(clip.timelineOut - 1, clip.timelineIn + delta)), timelineOut: clip.timelineOut };
+      } else {
+        latest = { timelineIn: clip.timelineIn, timelineOut: Math.max(clip.timelineIn + 1, Math.min(clip.timelineOut + (clip.sourceDuration - clip.sourceOut), clip.timelineOut + delta)) };
+      }
+      setInsertedDrag({ clipId: clip.clipId, ...latest });
+    };
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onCancel);
+      setInsertedDrag(null);
+      onSelectInsertedClip?.(clip.clipId);
+      if (!moved) return;
+      if (mode === 'move') onEditInsertedMedia?.((document) => moveInsertedClip(document, { clipId: clip.clipId, timelineIn: latest.timelineIn }));
+      else onEditInsertedMedia?.((document) => trimInsertedClip(document, { clipId: clip.clipId, edge: mode, frame: mode === 'head' ? latest.timelineIn : latest.timelineOut }));
+    };
+    const onCancel = () => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onCancel);
+      setInsertedDrag(null);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onCancel);
+  }
+  function renderInsertedClip(clip: InsertedClipView) {
+    const span = insertedDrag?.clipId === clip.clipId ? insertedDrag : clip;
+    const placement = frameRangeToPlacement(span.timelineIn, span.timelineOut, fps, model.durationSec);
+    const selected = selectedInsertedClipId === clip.clipId;
+    const isTake = clip.lane === 'camera';
+    const isVoice = clip.kind === 'voice';
+    return (
+      <div
+        key={clip.clipId}
+        className={`insertedClipBar${isTake ? ' cameraTakeBar' : ''}${isVoice ? ` voiceOverBar voiceOver-${clip.voiceMode}` : ''}${selected ? ' selectedClip' : ''}${insertedDrag?.clipId === clip.clipId ? ' dragging' : ''}`}
+        style={{ left: `${placement.left}%`, width: `${placement.width}%` }}
+        data-inserted-clip-id={clip.clipId}
+        data-inserted-lane={clip.lane}
+        data-timeline-in={Math.round(span.timelineIn)}
+        data-timeline-out={Math.round(span.timelineOut)}
+      >
+        <span role="presentation" className="trimHandle trimHandleStart" title="Drag to trim the start" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginInsertedDrag(clip, 'head', event)} />
+        <button
+          type="button"
+          className="clipBody insertedClipBody"
+          aria-label={`${selected ? 'Selected ' : ''}${isTake ? 'Camera take' : isVoice ? 'Voice-over' : 'Added clip'} ${clip.name}`}
+          title={`${clip.name} · drag to move · Delete removes it`}
+          onPointerDown={(event) => { event.currentTarget.focus(); beginInsertedDrag(clip, 'move', event); }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+            event.preventDefault();
+            event.stopPropagation();
+            onSelectInsertedClip?.(null);
+            onEditInsertedMedia?.((document) => removeInsertedClip(document, { clipId: clip.clipId }));
+          }}
+        >
+          <span className="insertedClipName">{clip.name}</span>
+          <span className="clipDuration">{Math.max(0, (span.timelineOut - span.timelineIn) / fps).toFixed(1)}s</span>
+        </button>
+        {isVoice ? (
+          <button
+            type="button"
+            className="voiceModeChip"
+            data-voice-mode={clip.voiceMode ?? 'replace'}
+            title={clip.voiceMode === 'over' ? 'Plays over the recording. Click to replace the voice here instead.' : "Replaces the recording's voice here. Click to play over it instead."}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onEditInsertedMedia?.((document) => setVoiceOverMode(document, { clipId: clip.clipId, mode: clip.voiceMode === 'over' ? 'replace' : 'over' }));
+            }}
+          >
+            {clip.voiceMode === 'over' ? 'Over' : 'Replaces'}
+          </button>
+        ) : null}
+        <span role="presentation" className="trimHandle trimHandleEnd" title="Drag to trim the end" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginInsertedDrag(clip, 'tail', event)} />
+      </div>
+    );
+  }
+  const takeBand = takeRange && takeRange.startFrame !== null
+    ? frameRangeToPlacement(takeRange.startFrame, takeRange.endFrame ?? takeRange.startFrame + 1, fps, model.durationSec)
+    : null;
   const hasHiddenStart = model.trimStartFrame > 0;
   const hasHiddenEnd = model.trimEndFrame < sourceFrameDuration;
   const [zoomDragPreview, setZoomDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
@@ -5824,6 +6098,28 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       setSectionCaptionJob(null);
     }
   }
+  // Captions for an added clip: listen to that clip's own file and add its lines to the clip.
+  async function addCaptionsToAddedClip(clip: { assetId: string; filePath: string; sourceIn: number; sourceOut: number }) {
+    if (!onCaptionsChange || sectionCaptionJob) return;
+    const spoken = (project.document as { captions?: { speechLanguage?: string | null } }).captions?.speechLanguage;
+    const requestId = `captions-clip-${Date.now()}`;
+    setSectionCaptionJob('Listening to this clip…');
+    try {
+      const heard = await window.roughCut.transcribeCaptionSpeech({ requestId, sourcePath: clip.filePath, sections: [{ sourceIn: clip.sourceIn, sourceOut: clip.sourceOut }], fps, language: spoken ?? 'auto' });
+      if ('error' in heard) { setCaptionNotice(heard.error.message); return; }
+      const stamp = Date.now();
+      const fresh = buildCaptionCues(heard.words, { fps }).map((cue, index) => ({ ...cue, id: `cap_s${stamp}_${index}` }));
+      const latest = latestTimelineProjectRef.current.document as unknown as ProjectDocument;
+      const view = clipCaptionView(latest, clip.assetId);
+      const added = addCaptionCuesToTrack(view, 'original', fresh);
+      if (added.added > 0) onCaptionsChange(commitClipCaptionView(latest, clip.assetId, added.document));
+      setCaptionNotice(added.added > 0 ? `Added ${added.added} caption${added.added === 1 ? '' : 's'} to this clip.` : 'Nothing new to add: no speech heard where this clip has no captions.');
+    } catch (err) {
+      setCaptionNotice(err instanceof Error ? err.message : 'Could not add captions to this clip.');
+    } finally {
+      setSectionCaptionJob(null);
+    }
+  }
   const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number; timelineStart: number; timelineEnd: number } | null>(null);
   const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [graphicDragPreview, setGraphicDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
@@ -5840,18 +6136,22 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   // An empty stretch between sections, selected so Delete can close it.
   const [selectedGap, setSelectedGap] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [rippleTrim, setRippleTrim] = React.useState(() => {
-    // Plain trim by default, like Resolve and Premiere: the edge you drag follows the mouse and a
-    // gap stays. Closing gaps (ripple) is opt-in; a saved choice is kept.
-    try { return window.localStorage.getItem('roughCut.rippleTrim') === 'on'; } catch { return false; }
+    // Ripple by default (Noam, 2026-11-02): shortening a section moves everything after it, so no empty
+    // section is left, and extending reveals more footage and pushes the rest. The button turns it off.
+    try { return window.localStorage.getItem('roughCut.rippleTrim.v2') !== 'off'; } catch { return true; }
   });
   function toggleRippleTrim() {
     setRippleTrim((current) => {
       const next = !current;
-      try { window.localStorage.setItem('roughCut.rippleTrim', next ? 'on' : 'off'); } catch { /* storage unavailable */ }
+      try { window.localStorage.setItem('roughCut.rippleTrim.v2', next ? 'on' : 'off'); } catch { /* storage unavailable */ }
       return next;
     });
   }
   const [selectedScreenClipIds, setSelectedScreenClipIds] = React.useState<string[]>([]);
+  // The Audio tab sets volume on the selected clips.
+  const onScreenClipSelectionChangeRef = React.useRef(onScreenClipSelectionChange);
+  onScreenClipSelectionChangeRef.current = onScreenClipSelectionChange;
+  React.useEffect(() => { onScreenClipSelectionChangeRef.current?.(selectedScreenClipIds); }, [selectedScreenClipIds]);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const pendingScrollLeftRef = React.useRef<number | null>(null);
@@ -6381,6 +6681,16 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     // Skip if the press landed on an existing region (don't add inside markers).
     if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
     const track = event.currentTarget;
+    // Over an added clip the zoom goes on that clip (in its own frames), not on the recording.
+    const clickedTimelineFrame = timelineFrameFromClient(track, event.clientX);
+    const addedHere = clickedTimelineFrame === null ? null : addedClipAtFrame(project.document, clickedTimelineFrame);
+    if (addedHere) {
+      event.preventDefault();
+      // Same rule as on the recording: a click while a zoom is selected only clears the selection.
+      if (selectedZoomMarkerCount > 0 || selectedZoomMarkerId) return;
+      onEditInsertedMedia?.((document) => addClipZoomAtFrame(document, addedHere.assetId, addedHere.sourceFrame, fps) as ProjectDocument);
+      return;
+    }
     const downFrame = sourceFrameFromClient(track, event.clientX);
     if (downFrame === null) return;
     event.preventDefault();
@@ -6838,7 +7148,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   function handleTimelineSurfacePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement | null;
-    if (target?.closest('.timelineToolButton, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .zoomEditorChip, .trimHandle, .hiddenTrimRange, .hiddenCutRange, .laneResizeHandle, .laneLabel')) return;
+    if (target?.closest('.timelineToolButton, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .zoomEditorChip, .trimHandle, .hiddenTrimRange, .hiddenCutRange, .laneResizeHandle, .laneLabel, .devMediaMenu, .devMenuLayer, .insertedClipBar')) return;
     const track = event.currentTarget.querySelector('.laneTrack');
     if (!(track instanceof HTMLElement)) return;
      if (target?.closest('.clipBody, .laneTrack, .timelineRuler')) return;
@@ -6863,7 +7173,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     nudgeClipTrimHandle(region, index, edge, event.key === 'ArrowRight' ? 1 : -1, event.shiftKey);
   }
 
-  function beginZoomDrag(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
+  function beginZoomDrag(region: { id: string; startFrame?: number; endFrame?: number; clipAssetId?: string }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
     if (mode === 'move' && (event.shiftKey || event.ctrlKey || event.metaKey)) return;
     if (!Number.isFinite(region.startFrame) || !Number.isFinite(region.endFrame)) return;
     event.preventDefault();
@@ -6887,7 +7197,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       }
       const frame = timelineFrameFromClient(handle, clientX);
       if (frame === null) return;
-      const next = dragSourceRangeOnTimeline(laneClipsForMapping, initialRange, { mode, deltaFrames: frame - initialTimelineFrame, pointerFrame: frame, minSpan: 15 });
+      // A zoom on an added clip is in that clip's frames, so it maps through that clip.
+      const mapping = region.clipAssetId ? clipScreenSections(project.document, region.clipAssetId) : laneClipsForMapping;
+      const next = dragSourceRangeOnTimeline(mapping, initialRange, { mode, deltaFrames: frame - initialTimelineFrame, pointerFrame: frame, minSpan: 15 });
       if (!next) return;
       latest = { id: region.id, ...next };
       setZoomDragPreview(latest);
@@ -7167,7 +7479,12 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     if (trimDragPreview.edge === 'head') {
       // Shortening from the left: the left edge follows the mouse like any trim (as in CapCut's
       // magnetic main track) and the section snaps back against its neighbour on release.
-      if (frame >= start) return null;
+      if (frame >= start) {
+        // Ripple: the section keeps its start, gets shorter, and everything after it slides left (no empty space while dragging).
+        // The edge you pull stays under the mouse; everything to its left slides right to close the space at once.
+        const cut = Math.min(frame, end - 1) - start;
+        return { clipId: clip.id, newIn: start + cut, newOut: end, shift: 0, shiftBefore: cut, before: start, after: end, waveFrame: start + cut };
+      }
       const frames = start - frame;
       const push = Math.max(0, frames - (start - previousOut));
       return { clipId: clip.id, newIn: start - (frames - push), newOut: end + push, shift: push, after: end, waveFrame: Math.max(0, frame) };
@@ -7191,6 +7508,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       if (region.id === ripple.clipId) return separated(frameRangeToPlacement(ripple.newIn, ripple.newOut, fps, model.durationSec));
       if (Number.isFinite(region.timelineIn) && Number.isFinite(region.timelineOut) && Math.round(region.timelineIn ?? 0) >= ripple.after) {
         return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shift, (region.timelineOut ?? 1) + ripple.shift, fps, model.durationSec));
+      }
+      if ('shiftBefore' in ripple && ripple.shiftBefore && Number.isFinite(region.timelineOut) && Math.round(region.timelineOut ?? 0) <= (ripple.before ?? 0)) {
+        return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shiftBefore, (region.timelineOut ?? 1) + ripple.shiftBefore, fps, model.durationSec));
       }
     }
     if (clipDragPreview?.clipId === region.id) {
@@ -7249,6 +7569,9 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       if (Number.isFinite(region.timelineIn) && Number.isFinite(region.timelineOut) && Math.round(region.timelineIn ?? 0) >= ripple.after) {
         return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shift, (region.timelineOut ?? 1) + ripple.shift, fps, model.durationSec));
       }
+      if ('shiftBefore' in ripple && ripple.shiftBefore && Number.isFinite(region.timelineOut) && Math.round(region.timelineOut ?? 0) <= (ripple.before ?? 0)) {
+        return separated(frameRangeToPlacement((region.timelineIn ?? 0) + ripple.shiftBefore, (region.timelineOut ?? 1) + ripple.shiftBefore, fps, model.durationSec));
+      }
     }
     if (!trimDragPreview || trimDragPreview.clipId !== clipId || !linkedScreen) {
       const placement = frameRangeToPlacement(region.timelineIn ?? 0, region.timelineOut ?? region.timelineIn ?? 1, fps, model.durationSec);
@@ -7282,10 +7605,11 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       <div className="timelineToolbar" data-ui-region="timeline-toolbar">
         <button type="button" className="timelineToolButton" aria-label="Split at playhead" title="Split at the current playhead (S)" onClick={() => void onSplitAtPlayhead?.()}><PhosphorScissors size={17} weight="regular" /></button>
         <button type="button" className="timelineToolButton" aria-label="Delete selected clip" title={selectedScreenClipId ? 'Delete the selected clip (Delete)' : 'Select a clip to delete it'} disabled={!selectedScreenClipId || cutModeActive} onClick={() => { if (selectedScreenClipId) deleteScreenClip(selectedScreenClipId); }}><PhosphorTrash size={17} weight="regular" /></button>
-        <button type="button" className={rippleTrim ? 'timelineToolButton active timelineRippleButton' : 'timelineToolButton timelineRippleButton'} aria-label="Close gaps when trimming" aria-pressed={rippleTrim} title={rippleTrim ? 'Ripple on: trimming closes the gap and the rest slides over' : 'Ripple off: trimming leaves an empty space'} onClick={toggleRippleTrim}><PhosphorMagnet size={17} weight="regular" /></button>
+        <button type="button" className={rippleTrim ? 'timelineToolButton active timelineRippleButton' : 'timelineToolButton timelineRippleButton'} aria-label="Reveal cut content and push the rest" aria-pressed={rippleTrim} title={rippleTrim ? 'On: dragging a cut edge out brings back the cut content and pushes everything after it over' : 'Off: a cut edge stops at the next piece (turn on to bring back cut content)'} onClick={toggleRippleTrim}><RippleTrimIcon /></button>
         <span className="timelineToolbarDivider" aria-hidden="true" />
         <button type="button" className={cutModeActive ? 'timelineToolButton active timelineRangeButton' : 'timelineToolButton timelineRangeButton'} aria-label="Range cut mode" aria-pressed={cutModeActive} title={cutModeActive ? 'Range cut mode active - drag a range to remove it. Press Escape to cancel.' : 'Range cut mode - drag a range to remove it.'} onClick={() => onCutModeToggle?.()}>Select range</button>
         {onRestoreOriginal ? <button type="button" className="timelineToolButton timelineRestoreButton" aria-label="Restore original recording" title="Restore the untouched recording state" onClick={() => void onRestoreOriginal()}><PhosphorArrowCounterClockwise size={17} weight="regular" /></button> : null}
+        {devToolbar ? <><span className="timelineToolbarDivider" aria-hidden="true" />{devToolbar}</> : null}
         <span className="timelineToolbarSpacer" aria-hidden="true" />
         <div className="timelineZoomGroup" role="group" aria-label="Timeline zoom">
           <button type="button" className="timelineToolButton" aria-label="Zoom timeline out" title="Zoom timeline out (-)" disabled={!timelineZoomedIn} onClick={() => applyTimelineViewportZoom(-1)}><PhosphorMagnifyingGlassMinus size={17} weight="regular" /></button>
@@ -7397,7 +7721,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               trackTitle={cutModeActive ? 'Drag to mark a cut range' : 'Click or drag to seek'}
             >
           {renderGaps('screen')}
-          {trimDragPreview ? trimDragBaseline.filter((clip) => clip.id === trimDragPreview.clipId).map((clip) => (
+          {trimDragPreview && !rippleTrim ? trimDragBaseline.filter((clip) => clip.id === trimDragPreview.clipId).map((clip) => (
             <span key="trim-ghost" className="trimGhost" style={{ left: `${clip.left}%`, width: `${clip.width}%` }} aria-hidden="true" />
           )) : null}
           {model.lanes.screen.map((region, index) => (
@@ -7417,10 +7741,12 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                 );
               })() : null}
               {<button type="button" role="slider" className={`trimHandle trimHandleStart${(region.sourceIn ?? 0) > 0 ? ' hasHiddenFootage' : ''}`} title={(region.sourceIn ?? 0) > 0 ? `${formatClock((region.sourceIn ?? 0) / fps)} of earlier footage is hidden. Drag left to bring it back.` : 'Drag right to trim the start'} data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} />}
-              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}>Screen <span className="clipDuration">{Math.max(0, ((region.timelineOut ?? 0) - (region.timelineIn ?? 0)) / fps).toFixed(1)}s</span></button>
+              <button type="button" className="clipBody" tabIndex={cutModeActive ? -1 : 0} onPointerDownCapture={(event) => { event.currentTarget.focus(); beginClipMoveDrag(region, index, event); }} onKeyDown={(event) => { if ((event.key === 'Delete' || event.key === 'Backspace') && !cutModeActive) { event.preventDefault(); event.stopPropagation(); deleteScreenClip(region.id); } }} onClick={(event) => { if (!cutModeActive) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(region.id) ? current.filter((id) => id !== region.id) : [...current, region.id]) : [region.id]); setSelectedScreenClipId(region.id); setSelectedGap(null); onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: event.shiftKey ? 'Additional linked screen and audio section selected.' : 'Source clip selected from the timeline.' }); } }}>Screen <span className="clipDuration">{Math.max(0, ((region.timelineOut ?? 0) - (region.timelineIn ?? 0)) / fps).toFixed(1)}s</span>{(() => { const clipLevel = getClipAudioLevel(project.document as unknown as ProjectDocument, region.id); return clipLevel.muted || clipLevel.volume !== 1 ? <ClipAudioIcon level={clipLevel} /> : null; })()}</button>
               {<button type="button" role="slider" className={`trimHandle trimHandleEnd${(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? ' hasHiddenFootage' : ''}`} title={(region.sourceOut ?? sourceFrameDuration) < sourceFrameDuration ? `${formatClock((sourceFrameDuration - (region.sourceOut ?? sourceFrameDuration)) / fps)} of later footage is hidden. Drag right to bring it back.` : 'Drag left to trim the end'} data-recording-trim-edge="tail" aria-label={index === model.lanes.screen.length - 1 ? 'Trim end' : `Trim clip ${index + 1} end`} aria-valuemin={clipTrimBounds(index, 'tail')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'tail')?.maxFrame ?? sourceFrameDuration} aria-valuenow={Math.round(region.timelineOut ?? 0)} aria-valuetext={`Clip ${index + 1} end ${Math.round(region.timelineOut ?? 0)} frames`} tabIndex={cutModeActive ? -1 : 0} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'tail', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'tail', event)} />}
               </div>
           ))}
+          {insertedClips.filter((clip) => clip.lane === 'screen').map(renderInsertedClip)}
+          {takeBand ? <span className={`takeRangeBand${takeRange?.endFrame === null ? ' takeRangeOpen' : ''}`} style={{ left: `${takeBand.left}%`, width: `${takeRange?.endFrame === null ? 0 : takeBand.width}%` }} aria-label="Camera take range" /> : null}
           {cutDragPreview ? (() => {
             const start = Math.min(cutDragPreview.startFrame, cutDragPreview.endFrame);
             const end = Math.max(cutDragPreview.startFrame, cutDragPreview.endFrame);
@@ -7436,8 +7762,24 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             </TimelineLane>
             <TimelineLane label="Audio" className="audioLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
            {renderGaps('audio')}
+           {insertedClips.filter((clip) => clip.lane === 'audio' && clip.kind !== 'voice').map((clip) => {
+             // Sound from an added clip, or a camera take's voice (the recording's sound stays, muted under it).
+             const isTakeVoice = insertedClips.some((other) => other.lane === 'camera' && other.assetId === clip.assetId);
+             const placement = frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, model.durationSec);
+             return (
+               <span
+                 key={clip.clipId}
+                 className={`insertedAudioRegion${isTakeVoice ? ' takeVoiceRegion' : ''}`}
+                 style={{ left: `${placement.left}%`, width: `${placement.width}%` }}
+                 data-inserted-audio-clip-id={clip.clipId}
+                 title={isTakeVoice ? `${clip.name} voice: the recording's sound is muted here` : `${clip.name} sound`}
+               >
+                 <span className="insertedClipName">{isTakeVoice ? `${clip.name} voice` : clip.name}</span>
+               </span>
+             );
+           })}
            {model.lanes.audio.length > 0
-             ? model.lanes.audio.map((region, index) => { const linkedScreen = linkedScreenRegionForAudio(region); const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}`} data-recording-audio-clip-id={region.id} data-recording-linked-screen-clip-id={linkedScreen?.id ?? ''} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={audioRegionStyle(region)} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
+             ? model.lanes.audio.map((region, index) => { const linkedScreen = linkedScreenRegionForAudio(region); const linkedSelected = Boolean(linkedScreen && selectedScreenClipIds.includes(linkedScreen.id)); const level = getClipAudioLevel(project.document as unknown as ProjectDocument, linkedScreen?.id ?? region.id); const levelChanged = level.muted || level.volume !== 1; return <button key={region.id} type="button" className={`presenceRegion audioRegion ${linkedSelected ? 'linkedAudioRegion' : ''}${level.muted ? ' audioRegionMuted' : ''}`} data-recording-audio-clip-id={region.id} data-audio-level={levelChanged ? formatVolume(level) : undefined} data-recording-linked-screen-clip-id={linkedScreen?.id ?? ''} data-recording-timeline-in={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} data-recording-timeline-out={Math.round(region.timelineOut ?? linkedScreen?.timelineOut ?? 0)} aria-label={`${linkedSelected ? 'Selected ' : ''}Linked audio section ${index + 1}`} style={audioRegionStyle(region)} onClick={(event) => { if (linkedScreen) { setSelectedScreenClipIds((current) => event.shiftKey ? (current.includes(linkedScreen.id) ? current.filter((id) => id !== linkedScreen.id) : [...current, linkedScreen.id]) : [linkedScreen.id]); setSelectedScreenClipId(linkedScreen.id); } onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: event.shiftKey ? 'Additional linked audio and screen section selected.' : 'Audio follows the linked screen clip.' }); }}>
                   {index > 0 ? <span className="clipCutBoundary audioCutBoundary" data-recording-cut-boundary-frame={Math.round(region.timelineIn ?? linkedScreen?.timelineIn ?? 0)} aria-hidden="true" /> : null}
                   {linkedScreen ? (['head', 'tail'] as const).map((edge) => {
                     const screenIndex = model.lanes.screen.findIndex((clip) => clip.id === linkedScreen.id);
@@ -7451,10 +7793,21 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                      style={{ left: `${tile.left}px`, width: `${tile.width}px`, backgroundImage: `url("${url}")` }} /> : null;
                  })}
                  {Array.from({ length: waveformChannels }, (_, channel) => <span key={channel} className="audioSilenceGuide" aria-hidden="true" style={{ top: `${(channel + 0.5) * 100 / waveformChannels}%` }} />)}
+                  {levelChanged ? <span className="audioRegionLabel audioLevelBadge" title={level.muted ? 'This clip is muted' : `This clip plays at ${formatVolume(level)}`}><ClipAudioIcon level={level} />{formatVolume(level)}</span> : null}
                   <span className="srOnly">Audio {model.lanes.audio.length > 1 ? index + 1 : ''}</span>
                 </button>; })
              : <p className="srOnly">No audio track.</p>}
+           {insertedClips.filter((clip) => clip.kind === 'voice' && clip.voiceMode === 'replace').map((clip) => {
+             // Where a voice-over replaces the voice, the recording's sound is muted (kept, not removed).
+             const placement = frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, model.durationSec);
+             return <span key={`muted-${clip.clipId}`} className="voiceOverMutedRange" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} title={`Muted here: ${clip.name} replaces the voice`} aria-hidden="true" />;
+           })}
             </TimelineLane>
+            {insertedClips.some((clip) => clip.kind === 'voice') ? (
+              <TimelineLane label="Voice" className="voiceOverLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+                {insertedClips.filter((clip) => clip.kind === 'voice').map(renderInsertedClip)}
+              </TimelineLane>
+            ) : null}
             {(() => {
               // Subtitles get their own lane, shown once captions are on or any line exists.
               const captionDocument = project.document as unknown as ProjectDocument;
@@ -7462,6 +7815,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
               const { settings: captionSettings } = getCaptions(captionDocument);
               if (!onCaptionsChange || !(captionSettings.enabled || (stored?.cues?.length ?? 0) > 0)) return null;
               const sections = model.lanes.screen.map((clip) => ({ sourceIn: clip.sourceIn ?? 0, sourceOut: clip.sourceOut ?? 0, timelineIn: clip.timelineIn ?? 0 }));
+              const addedPictureAssetIds = Array.from(new Set(insertedClips.filter((clip) => clip.kind === 'clip' && clip.lane === 'screen').map((clip) => clip.assetId)));
               const playheadFrame = Math.round(model.currentTimeSec * fps);
               const seekToFrame = (frame: number) => { const sec = Math.max(0, Math.min(model.durationSec, frame / fps)); onScrubStart(); onScrub(sec); onScrubEnd(sec); };
               return (
@@ -7477,6 +7831,22 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                     if (rect.width <= 0) return;
                     const timelineFrame = Math.round(((event.clientX - rect.left) / rect.width) * Math.max(1, Math.round(model.durationSec * fps)));
                     seekToFrame(timelineFrame);
+                    // Over an added clip the line belongs to that clip, in its own frames.
+                    const addedHere = addedClipAtFrame(captionDocument, timelineFrame);
+                    if (addedHere) {
+                      const view = clipCaptionView(captionDocument, addedHere.assetId);
+                      const addedLine = addCaption(view, addedHere.sourceFrame, { lengthFrames: Math.round(fps * 2) });
+                      if (!addedLine) { setCaptionNotice('No room here - click a gap between subtitles.'); return; }
+                      setCaptionNotice(null);
+                      event.preventDefault();
+                      const before = new Set(clipCaptions(captionDocument, addedHere.assetId).map((cue) => cue.id));
+                      const next = commitClipCaptionView(captionDocument, addedHere.assetId, addedLine.document);
+                      const newId = clipCaptions(next, addedHere.assetId).find((cue) => !before.has(cue.id))?.id ?? null;
+                      setCaptionFocusId(newId);
+                      captionSelection.select(newId);
+                      onCaptionsChange(next);
+                      return;
+                    }
                     const sourceFrame = sourceFrameAtTimeline(timelineFrame, sections);
                     const added = sourceFrame === null ? null : addCaption(captionDocument, sourceFrame, { lengthFrames: Math.round(fps * 2) });
                     if (!added) {
@@ -7492,6 +7862,25 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                   }}
                 >
                   {captionNotice ? <span className="captionsLaneHint captionsLaneNotice" role="status">{captionNotice}</span> : null}
+                  {(() => {
+                    const pickedAdded = insertedClips.find((item) => item.clipId === selectedInsertedClipId && item.kind === 'clip' && item.lane === 'screen' && item.hasAudio);
+                    if (!pickedAdded) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="captionSectionButton"
+                        data-clip-captions="true"
+                        style={{ left: `${frameRangeToPlacement(pickedAdded.timelineIn, pickedAdded.timelineOut, fps, model.durationSec).left}%` }}
+                        disabled={sectionCaptionJob !== null}
+                        title="Listen to this added clip and add captions where it has none"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onClick={() => { void addCaptionsToAddedClip(pickedAdded); }}
+                      >
+                        {sectionCaptionJob ?? 'Add captions to this clip'}
+                      </button>
+                    );
+                  })()}
                   {(() => {
                     const picked = model.lanes.screen.find((item) => item.id === selectedScreenClipId);
                     if (!picked) return null;
@@ -7521,6 +7910,21 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                     autoFocusId={captionFocusId}
                     onAutoFocusDone={() => setCaptionFocusId(null)}
                   />
+                  {addedPictureAssetIds.map((assetId) => (
+                    <CaptionsLane
+                      key={`clip-captions-${assetId}`}
+                      document={captionDocument}
+                      fps={fps}
+                      durationSec={model.durationSec}
+                      sections={clipScreenSections(captionDocument, assetId)}
+                      playheadFrame={playheadFrame}
+                      onChange={(next) => onCaptionsChange(next as ProjectDocument)}
+                      onSeek={seekToFrame}
+                      autoFocusId={captionFocusId}
+                      onAutoFocusDone={() => setCaptionFocusId(null)}
+                      scope={{ view: (document) => clipCaptionView(document, assetId), commit: (document, view) => commitClipCaptionView(document, assetId, view) }}
+                    />
+                  ))}
                 </TimelineLane>
               );
             })()}
@@ -7534,7 +7938,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
                 const strength = Math.max(0, Math.min(1, region.strength ?? 0.5));
                 const depthPct = Math.round(strength * 100);
                 return (
-                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-layer={region.layer ?? 0} data-zoom-marker-id={region.id} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={(event) => selectZoomRegion(region, event)} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-layer={region.layer ?? 0} data-zoom-marker-id={region.id} data-clip-zoom={(region as { clipAssetId?: string }).clipAssetId ? "true" : undefined} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={(event) => selectZoomRegion(region, event)} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
                     <span className="zoomClipLabel"><Icon name={kind === 'auto' ? 'sparkle' : 'zoom'} /> Zoom</span>
                     <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
                     <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
@@ -7700,6 +8104,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             : <p className="srOnly">No click events yet.</p>}
             </TimelineLane>
             <TimelineLane label="Camera" className="cameraLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+          {insertedClips.filter((clip) => clip.lane === 'camera').map(renderInsertedClip)}
           {model.lanes.camera.length > 0
             ? model.lanes.camera.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'camera', label: 'Camera track', detail: 'Camera presence selected from the timeline.' })}>Camera</button>)
             : <p className="srOnly">No camera track.</p>}
@@ -7721,6 +8126,7 @@ const TIMELINE_LANE_ICONS: Record<string, PhosphorIconType> = {
   camera: PhosphorVideoCamera,
   framing: PhosphorFrameCorners,
   graphics: PhosphorTextAa,
+  voice: PhosphorMicrophone,
 };
 
 function TimelineLane({ label, className, style, children, onTrackDoubleClick, onTrackPointerDown, onTrackPointerDownCapture, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; style?: React.CSSProperties; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; onTrackPointerDownCapture?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {
@@ -9143,4 +9549,8 @@ function formatClock(seconds: number) {
   return `${minutes}:${String(remainder).padStart(2, '0')}`;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+// One React root for the whole session. Every hot update of this entry file used to create another root on the
+// same container; the old trees kept their video elements and timers running (stuck playback, sound after Stop).
+const appRoot = import.meta.hot?.data.appRoot ?? createRoot(document.getElementById('root')!);
+if (import.meta.hot) import.meta.hot.data.appRoot = appRoot;
+appRoot.render(<App />);

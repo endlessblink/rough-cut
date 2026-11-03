@@ -128,3 +128,15 @@ test('censor tracking progress channel is part of the IPC contract', async () =>
   const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
   assert.equal(IPC_CHANNELS.CENSOR_TRACK_PROGRESS, 'censor:track-progress');
 });
+
+test('clean voice channels are part of the IPC contract and bridged in preload', async () => {
+  const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
+  assert.equal(IPC_CHANNELS.VOICE_CLEAN_STATUS, 'voice-clean:status');
+  assert.equal(IPC_CHANNELS.VOICE_CLEAN_START, 'voice-clean:start');
+  assert.equal(IPC_CHANNELS.VOICE_CLEAN_CANCEL, 'voice-clean:cancel');
+  assert.equal(IPC_CHANNELS.VOICE_CLEAN_PROGRESS, 'voice-clean:progress');
+  const source = await readPreload();
+  for (const bridge of ['getVoiceCleanStatus', 'startVoiceClean', 'cancelVoiceClean', 'onVoiceCleanProgress']) {
+    assert.ok(source.includes(`${bridge}:`), `preload exposes ${bridge}`);
+  }
+});

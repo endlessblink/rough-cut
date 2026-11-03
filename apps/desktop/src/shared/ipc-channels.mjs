@@ -11,6 +11,18 @@ export const IPC_CHANNELS = {
   // In-app updates: main pushes the status (and answers a get); install runs the menu's restart flow.
   UPDATE_STATUS: 'update:status',
   UPDATE_INSTALL: 'update:install',
+  // Dev-only (Noam's own dock copy): add outside clips, record camera takes.
+  // Main registers the DEV_* handlers only when the local dev switch is on.
+  DEV_FEATURES_STATUS: 'dev:features-status',
+  DEV_INSERT_PICK: 'dev:insert-pick',
+  DEV_INSERT_PREPARE: 'dev:insert-prepare',
+  DEV_INSERT_PROGRESS: 'dev:insert-progress',
+  DEV_TAKE_BEGIN: 'dev:take-begin',
+  DEV_TAKE_CHUNK: 'dev:take-chunk',
+  DEV_TAKE_FINISH: 'dev:take-finish',
+  DEV_TAKE_CANCEL: 'dev:take-cancel',
+  DEV_AGENT_EDITS_GET: 'dev:agent-edits-get',
+  DEV_AGENT_EDITS_RESOLVE: 'dev:agent-edits-resolve',
   UPDATE_CHECK: 'update:check',
   ABOUT_OPEN: 'about:open',
   // Project I/O
@@ -63,6 +75,14 @@ export const IPC_CHANNELS = {
   STABILIZATION_CANCEL: 'stabilization:cancel',
   STABILIZATION_PROGRESS: 'stabilization:progress',
   STABILIZATION_SUPPORT: 'stabilization:support',
+
+  // Clean voice (NVIDIA RE-USE). A cancellable GPU job writes a cached
+  // `<recording>.voice-clean.wav` next to the recording; the preview mixes it in
+  // at playback. Status answers { available, reason, state, progress, cleanedMediaUrl }.
+  VOICE_CLEAN_STATUS: 'voice-clean:status',
+  VOICE_CLEAN_START: 'voice-clean:start',
+  VOICE_CLEAN_CANCEL: 'voice-clean:cancel',
+  VOICE_CLEAN_PROGRESS: 'voice-clean:progress',
 
   // Export
   EXPORT_START: 'export:start',

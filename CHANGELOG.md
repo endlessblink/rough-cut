@@ -1,5 +1,22 @@
 # Changelog
 
+## Dev only — not in public builds
+
+Behind a local switch (Noam's own dock copy). Spec: docs/SPEC-dev-insert-and-camera-takes-2026-10-20.md.
+
+- Dev: add a clip at the playhead from a video file or from another Rough Cut project (exported with its finished look first), as Insert (everything after moves later, graphics too) or Overwrite. The clip takes the whole picture over the project background; the recording's camera, cursor, clicks and zooms are hidden for its length and its sound replaces the recording's. Trim, move, split, delete and undo like any clip; export matches the preview.
+- Dev: record a camera take over a marked range (3-2-1, the range plays silent unless sound is switched on, stops by itself). The take is the camera bubble for that range and its voice replaces the old one, which is muted, not deleted. Every take is kept; the newest is used and any other can be picked from the Dev menu.
+- Dev: record a voice-over (mic only) from the playhead until Stop, or over a marked range where it stops by itself. 3-2-1 first, the timeline plays silent unless sound is switched on, and a live mic level shows before recording. It lands as its own clip on a Voice lane at that exact spot; drag and trim it to the frame. Per take: Replace (the recording's voice is muted there, not deleted) or Play over; click the chip on the clip to switch. Undo works for all of it; export matches.
+- Dev: zooms and captions on an added clip. Click the Zoom or Captions lane over the clip (or "Add captions to this clip" when it is selected); they belong to the clip and move with it, edit like any zoom or caption, and export as they preview.
+- Dev: "Add clip at playhead" also takes sound files (mp3, wav, m4a, aac, ogg, flac, opus). One lands on the Voice lane at the playhead, replacing the sound there or playing over it.
+- Fix: timeline playback no longer stops at the first frame of an empty stretch on the timeline.
+- Export ffmpeg also runs at low CPU and idle disk priority inside its memory-capped scope.
+
+## Unreleased
+
+- New: when the open project's file is changed outside Rough Cut (for example by an agent), the app shows the new version at once. If you were editing at that moment, it asks whether to load their version or keep yours; autosave never saves an old copy over theirs.
+- Projects: copies of a project get their own identity, and when several projects in one recording folder share a name, each card shows its file name, sorted by last edit.
+
 ## 0.1.0-beta.12 — not yet published
 
 - New: one-click updates on Windows and Linux. When a newer version is ready, an Update button appears at the top; one click downloads it, closes Rough Cut and opens it again on the new version (never while recording or exporting). Updating from beta.11 uses Help, Update Rough Cut once. Mac: download new versions manually until auto-update support arrives.

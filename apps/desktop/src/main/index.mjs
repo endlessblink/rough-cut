@@ -6,14 +6,15 @@ import { runAppImageSandboxed, sandboxDisabledByArgs, shouldHandOffAppImage } fr
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, systemPreferences, Tray } from 'electron';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
-import { exportProjectToMp4 } from './export-service.mjs';
+import { exportProjectToMp4, runCappedFfmpeg } from './export-service.mjs';
+import { buildTakeRemuxArgs, classifyInsertPick, createTakeWriter, describeInsertableVideo, devFeaturesEnabled, exportProjectForInsert, INSERTABLE_AUDIO_EXTENSIONS, INSERTABLE_VIDEO_EXTENSIONS, readAgentEditJournal, resolveAgentEditEntries } from './dev-media-service.mjs';
 import { verifyExportedFile } from './export-verify.mjs';
 import { createAppSettingsStore, defaultAppSettingsPath } from './app-settings-store.mjs';
 import { pickDirectory, pickSavePath } from './file-picker.mjs';
@@ -54,6 +55,7 @@ import { createRecordingTemplateOverridesStore, defaultRecordingTemplateOverride
 import { createAiAssetsStore, defaultAiAssetsRoot } from './ai-assets-store.mjs';
 import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import { createStabilizationService } from './stabilization-service.mjs';
+import { createVoiceCleanService, isVoiceCleanSourcePath } from './voice-clean-service.mjs';
 import { createRecordingTranscriptionBridge } from './transcription-recording-bridge.mjs';
 import { generateGraphic } from './claude-graphics-service.mjs';
 import { typicalClaudeAnswerMs, resolveClaudeBinary } from './claude-cli.mjs';
@@ -266,6 +268,9 @@ const aiAssetsStore = createAiAssetsStore({
 const stabilizationService = createStabilizationService({
   cacheRoot: join(app.getPath('userData'), 'stabilization-cache'),
 });
+// Dev/local only until the ~5 GB Python env is packaged; see voice-clean-service.mjs.
+const voiceCleanService = createVoiceCleanService();
+app.on('will-quit', () => voiceCleanService.cancelAll());
 const recordingStopShortcut = 'CommandOrControl+Shift+R';
 const recordingRestartShortcut = 'CommandOrControl+Shift+N';
 let hiddenRecorderWindow = null;
@@ -1290,6 +1295,78 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_event, projectPath) => {
     throw err;
   }
 });
+// Dev-only features (docs/SPEC-dev-insert-and-camera-takes-2026-10-20.md). The
+// switch is read once at start: an env var from Noam's dock launcher or a file in
+// the app config folder. Public builds have neither, so these handlers never exist.
+const devFeaturesOn = devFeaturesEnabled({ userDataDir: app.getPath('userData') });
+ipcMain.handle(IPC_CHANNELS.DEV_FEATURES_STATUS, () => ({ enabled: devFeaturesOn }));
+if (devFeaturesOn) registerDevMediaHandlers();
+
+function registerDevMediaHandlers() {
+  console.info('[dev] dev features are on (add clips, camera takes)');
+  const takes = createTakeWriter();
+  ipcMain.handle(IPC_CHANNELS.DEV_INSERT_PICK, async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = await dialog.showOpenDialog(owner, {
+      title: 'Add clip at playhead',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Video, sound or Rough Cut project', extensions: [...INSERTABLE_VIDEO_EXTENSIONS, ...INSERTABLE_AUDIO_EXTENSIONS, 'roughcut'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const filePath = result.filePaths[0];
+    const kind = classifyInsertPick(filePath);
+    if (!kind) throw new Error('Pick a video, a sound file or a Rough Cut project.');
+    return { filePath, kind, name: basename(filePath) };
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_INSERT_PREPARE, async (event, payload) => {
+    const filePath = payload?.filePath;
+    const kind = classifyInsertPick(filePath);
+    if (!kind) throw new Error('Pick a video, a sound file or a Rough Cut project.');
+    if (kind === 'audio') return describeInsertableVideo(filePath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia, kind: 'audio' });
+    let videoPath = filePath;
+    if (kind === 'project') {
+      const targetProjectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
+      videoPath = await exportProjectForInsert({
+        sourceProjectPath: filePath,
+        targetProjectPath,
+        openProject: openProjectFile,
+        exportProject: exportProjectToMp4,
+        onProgress: (progress) => event.sender.send(IPC_CHANNELS.DEV_INSERT_PROGRESS, progress),
+      });
+      if (!videoPath) return null;
+    }
+    return describeInsertableVideo(videoPath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia });
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_TAKE_BEGIN, async (_event, payload) => {
+    const projectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
+    return takes.begin({ projectPath, kind: payload?.kind === 'voice' ? 'voice' : 'camera' });
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_TAKE_CHUNK, (_event, id, chunk) => takes.append(id, chunk));
+  ipcMain.handle(IPC_CHANNELS.DEV_TAKE_FINISH, async (_event, payload) => {
+    const finalPath = await takes.finish(payload?.id, {
+      remux: async (inputPath, outputPath) => {
+        const result = await runCappedFfmpeg(buildTakeRemuxArgs(inputPath, outputPath));
+        return result.code === 0;
+      },
+    });
+    return describeInsertableVideo(finalPath, { projectFps: Number(payload?.projectFps) || 30, probe: probeImportedMedia, kind: payload?.kind === 'voice' ? 'audio' : 'video' });
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_TAKE_CANCEL, (_event, id) => takes.cancel(id));
+  // Edits an agent made on its copy of the open project (rough-cut MCP), for Noam to
+  // take in one by one. Read from, and marked in, <project>.claude-edit.roughcut.edits.json.
+  ipcMain.handle(IPC_CHANNELS.DEV_AGENT_EDITS_GET, async (_event, payload) => {
+    const projectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
+    return readAgentEditJournal(projectPath);
+  });
+  ipcMain.handle(IPC_CHANNELS.DEV_AGENT_EDITS_RESOLVE, async (_event, payload) => {
+    const projectPath = validateProjectPath(payload?.projectPath, { allowedRoots: buildAllowedProjectRoots() });
+    return resolveAgentEditEntries(projectPath, payload?.ids, payload?.resolution);
+  });
+}
+
 // Serialize concurrent saves per project path. The renderer can fire two
 // project:save calls in quick succession (e.g. autosave + manual save). The
 // atomic write in saveProjectFile uses a fixed `.tmp` suffix per path; two
@@ -1778,6 +1855,52 @@ ipcMain.handle(IPC_CHANNELS.STABILIZATION_PREPARE, async (event, payload = {}) =
     proxyUrl: toMediaUrl(result.proxyPath),
   };
 });
+async function voiceCleanSourceFrom(payload) {
+  const sourcePath = payload?.sourcePath;
+  if (!isVoiceCleanSourcePath(sourcePath)) return null;
+  try {
+    return (await stat(sourcePath)).isFile() ? sourcePath : null;
+  } catch {
+    return null;
+  }
+}
+function voiceCleanStatusPayload(status) {
+  return {
+    available: status.available,
+    reason: status.reason,
+    state: status.state,
+    phase: status.phase,
+    progress: status.progress,
+    cleanedMediaUrl: status.cleanedPath ? toMediaUrl(status.cleanedPath) : null,
+  };
+}
+ipcMain.handle(IPC_CHANNELS.VOICE_CLEAN_STATUS, async (_event, payload = {}) => {
+  const sourcePath = await voiceCleanSourceFrom(payload);
+  if (!sourcePath) {
+    const { available, reason } = await voiceCleanService.availability();
+    return { available, reason, state: 'none', phase: null, progress: 0, cleanedMediaUrl: null };
+  }
+  return voiceCleanStatusPayload(await voiceCleanService.status({ sourcePath }));
+});
+ipcMain.handle(IPC_CHANNELS.VOICE_CLEAN_START, async (event, payload = {}) => {
+  const sourcePath = await voiceCleanSourceFrom(payload);
+  if (!sourcePath) return { error: { code: 'invalid-source', message: 'This project has no recording sound to clean.' } };
+  try {
+    await voiceCleanService.clean({
+      sourcePath,
+      onProgress: (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.VOICE_CLEAN_PROGRESS, progress);
+      },
+    });
+    return { status: voiceCleanStatusPayload(await voiceCleanService.status({ sourcePath })) };
+  } catch (err) {
+    return { error: { code: err?.code ?? 'failed', message: err?.message ?? String(err) } };
+  }
+});
+ipcMain.handle(IPC_CHANNELS.VOICE_CLEAN_CANCEL, async (_event, payload = {}) => {
+  const sourcePath = await voiceCleanSourceFrom(payload);
+  return { cancelled: sourcePath ? voiceCleanService.cancel({ sourcePath }) : false };
+});
 ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
   const { projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, startSec, spanSec } = payload;
   if (typeof projectPath !== 'string' || !projectPath) throw new Error('clip-visuals: projectPath required');
@@ -1860,6 +1983,27 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_CANCEL, () => {
   return { cancelled: true };
 });
 
+// The rough-cut MCP's export_styled: one styled export with the job's options, no
+// window, then quit. The job file names the project, output and options; the
+// result is written next to it as <job>.result.json.
+async function runAgentExportFromEnv() {
+  const jobPath = process.env.ROUGH_CUT_AGENT_EXPORT_JOB;
+  const resultPath = `${jobPath}.result.json`;
+  const startedAt = Date.now();
+  try {
+    const job = JSON.parse(await readFile(jobPath, 'utf8'));
+    const { runAgentExportJob } = await import('./agent-export-job.mjs');
+    const done = await runAgentExportJob(job, { openProjectFile, exportProjectToMp4, runCappedFfmpeg, rm });
+    await writeFile(resultPath, `${JSON.stringify({ ok: true, ...done, durationMs: Date.now() - startedAt }, null, 2)}\n`);
+  } catch (err) {
+    process.exitCode = 1;
+    await writeFile(resultPath, `${JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }, null, 2)}\n`).catch(() => undefined);
+  } finally {
+    app.quit();
+    setTimeout(() => app.exit(process.exitCode ?? 0), 1000).unref?.();
+  }
+}
+
 async function runMainProcessHeadlessExportSmoke() {
   const resultPath = process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_RESULT_PATH;
   const projectPath = process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_PROJECT_PATH;
@@ -1934,6 +2078,10 @@ app.whenReady().then(() => {
   });
   if (process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_RESULT_PATH) {
     void runMainProcessHeadlessExportSmoke();
+    return;
+  }
+  if (process.env.ROUGH_CUT_AGENT_EXPORT_JOB) {
+    void runAgentExportFromEnv();
     return;
   }
   const requestedProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;

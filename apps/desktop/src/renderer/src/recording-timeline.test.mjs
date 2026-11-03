@@ -720,3 +720,31 @@ test('lengthening a section from its start reveals hidden footage and pushes lat
   const screen = selectRecordingEditModel({ document: revealed, recordingAssetId: assetId }).screenClips;
   assert.equal(screen[2].sourceIn, 210, 'the section starts 20 frames earlier in the recording');
 });
+
+test('deleting a recording section carries clips added from outside the recording along', async () => {
+  const { createAsset, createProject, canonicalizeProjectDocument, createInsertedMediaAsset, insertMediaClip, listInsertedClips, collectTimelineInvariantIssues } = await import('@rough-cut/project-model');
+  const recording = createAsset('recording', '/rec/screen.mp4', { id: 'rec', duration: 400, metadata: { width: 1920, height: 1080, fps: 30 } });
+  const base = createProject({ assets: [recording] });
+  const clip = (id, mediaId, trackId) => ({ id, mediaId, trackId, linkGroupId: 'linked:rec', timelineIn: 0, timelineOut: 400, sourceIn: 0, sourceOut: 400 });
+  const document = canonicalizeProjectDocument({
+    ...base,
+    timeline: {
+      ...base.timeline,
+      sources: [],
+      linkedGroups: [],
+      tracks: [
+        { id: 'v', kind: 'video', index: 0, label: 'Screen', enabled: true, locked: false, muted: false, clips: [clip('s', 'source:rec:screen', 'v')] },
+        { id: 'a', kind: 'audio', index: 1, label: 'Audio', enabled: true, locked: false, muted: false, clips: [clip('au', 'source:rec:system-audio', 'a')] },
+      ],
+    },
+  });
+  const asset = createInsertedMediaAsset({ id: 'ext', filePath: '/elsewhere/clip.mp4', durationFrames: 60, kind: 'clip', hasAudio: true });
+  const inserted = insertMediaClip(document, { asset, frame: 200, mode: 'insert', placement: 'screen' });
+  const next = rippleDeleteRecordingRange(inserted, { assetId: 'rec', startFrame: 50, endFrame: 100 });
+  assert.deepEqual(collectTimelineInvariantIssues(next.timeline), []);
+  assert.deepEqual(listInsertedClips(next).map((item) => [item.lane, item.timelineIn, item.timelineOut]), [['audio', 150, 210], ['screen', 150, 210]]);
+  // A trim that removes part of the added clip keeps the rest of it.
+  const overlapping = rippleDeleteRecordingRange(inserted, { assetId: 'rec', startFrame: 230, endFrame: 300 });
+  assert.deepEqual(collectTimelineInvariantIssues(overlapping.timeline), []);
+  assert.deepEqual(listInsertedClips(overlapping).filter((item) => item.lane === 'screen').map((item) => [item.timelineIn, item.timelineOut, item.sourceIn]), [[200, 230, 0]]);
+});

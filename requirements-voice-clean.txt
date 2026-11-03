@@ -1,0 +1,14 @@
+# Clean voice (NVIDIA RE-USE speech enhancement). Dev/local only: about 5 GB
+# once installed, needs an NVIDIA GPU, and is NOT shipped with the app yet.
+# Installed by scripts/setup-voice-clean.sh together with two prebuilt CUDA
+# wheels (mamba-ssm 2.2.4, causal-conv1d 1.5.0.post8) built for torch 2.5 + cp312.
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121
+torchaudio==2.5.1+cu121
+transformers==4.46.3
+huggingface-hub==0.36.2
+numpy==1.26.4
+safetensors==0.8.0
+einops==0.8.2
+soundfile==0.14.0
+pyyaml==6.0.3

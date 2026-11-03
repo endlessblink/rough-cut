@@ -3064,6 +3064,16 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .capMessage { color: var(--muted); font-size: var(--text-xs); margin: 0; }
 .capMessage.error { color: #f6a6a6; }
 
+/* Clean voice sits above Captions in the same board: same flat skin; the board
+ * stack draws the divider between them. */
+.voiceClean { flex: none; gap: var(--space-2); padding-bottom: var(--space-1); }
+.voiceClean .capHead { padding-bottom: 0; }
+.voiceCleanState { color: var(--muted); font-size: var(--text-xs); }
+.voiceClean[data-voice-clean-state="ready"] .voiceCleanState { color: var(--text); }
+.voiceCleanStart { align-items: center; display: flex; gap: var(--space-3); justify-content: space-between; }
+.voiceCleanStart .capMessage { flex: 1; }
+.voiceCleanStart button { flex: none; }
+
 .capList {
   border-top: 1px solid var(--line);
   list-style: none;
@@ -7146,6 +7156,27 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .graphicsTabs .segmentedOption.active .graphicsTabCount { color: var(--muted); }
 .graphicsTabPanel { display: grid; gap: var(--space-6); }
 .graphicsPane .graphicsTabPanel > .inspectorSection { border-top: 0; padding-top: 0; }
+
+/* Fit the pane's width, never widen it (2026-10-20: with a graphic selected, the
+ * "Selected graphic · To front · To back · Delete" row made the pane's auto grid column
+ * 401px inside a 357px pane, pushing every row past the right edge). Every grid here
+ * gets a column that can shrink, and rows that cannot shrink wrap instead. */
+.graphicsPane,
+.graphicsPane .graphicsTabPanel,
+.graphicsPane .inspectorSection,
+.graphicsPane .graphicsFields,
+.graphicsPane .graphicsList { grid-template-columns: minmax(0, 1fr); }
+.graphicsPane .graphicsList > li { min-width: 0; }
+.graphicsPane .graphicsListTime { flex: none; }
+.graphicsPane > *,
+.graphicsPane .graphicsTabPanel > *,
+.graphicsPane .inspectorSection > * { min-width: 0; }
+.graphicsPane .inspectorSectionHead { flex-wrap: wrap; row-gap: var(--space-1); }
+.graphicsPane .inspectorSectionAction { flex-wrap: wrap; justify-content: flex-end; row-gap: var(--space-1); }
+.studioPane .graphicsTabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.studioPane .graphicsTabs .segmentedOption { min-width: 0; overflow: hidden; padding-inline: var(--space-1); text-overflow: ellipsis; white-space: nowrap; }
+.graphicsPane .paneTitle > * { min-width: 0; }
+.graphicsPane p { overflow-wrap: anywhere; }
 .graphicsLookSummary {
   align-items: center;
   background: var(--panel-alt);
@@ -7173,3 +7204,216 @@ h3 { color: var(--text); font-size: var(--text-lg); margin: 0; }
 .graphicsGroup > summary:hover { color: var(--text); }
 .graphicsGroupBody { display: grid; gap: var(--space-4); padding-top: var(--space-4); }
 .graphicsHouseStyleBody { display: grid; gap: var(--space-4); }
+
+/* Dev-only (dock copy): clips added from outside the recording and camera takes.
+ * An added clip is "another shot": a neutral slate bar with a solid light edge, so it
+ * reads apart from the blue recording sections without a new accent hue. A camera take
+ * is a dark bar edged in the record red, the colour the app already uses for "recorded". */
+.insertedClipBar {
+  align-items: center;
+  background: #2b2f3a;
+  border: 1px solid #8b93a7;
+  border-radius: var(--radius-sm);
+  bottom: 0.25rem;
+  color: var(--text);
+  display: flex;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  min-width: 2px;
+  overflow: hidden;
+  position: absolute;
+  top: 0.25rem;
+  z-index: 9;
+}
+.insertedClipBar.cameraTakeBar {
+  background: #2a1a20;
+  border-color: rgb(244 63 94 / 0.7);
+  /* Above the full-length Camera presence bar so a take is always clickable. */
+  z-index: 12;
+}
+.insertedClipBar.selectedClip { box-shadow: inset 0 0 0 2px #dbeafe; z-index: 11; }
+.insertedClipBar.dragging { opacity: 0.85; }
+.insertedClipBody {
+  align-items: center;
+  display: flex;
+  gap: var(--space-1-5);
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 var(--space-2);
+  white-space: nowrap;
+}
+.insertedClipName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.takeRangeBand {
+  background: rgb(244 63 94 / 0.1);
+  border-left: 1px dashed rgb(244 63 94 / 0.85);
+  border-right: 1px dashed rgb(244 63 94 / 0.85);
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  z-index: 12;
+}
+.takeRangeBand.takeRangeOpen { border-right: 0; }
+
+.devMediaMenu { align-items: center; display: inline-flex; gap: var(--space-2); position: relative; }
+.devMenuButton { font-size: var(--text-sm); font-weight: var(--weight-semibold); padding: 0 var(--space-2); width: auto; }
+.devMenuLayer { position: fixed; z-index: 150; }
+.devMenuPopover {
+  background: var(--panel);
+  border: 1px solid var(--strong-line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 15rem;
+  padding: var(--space-1-5);
+}
+.devMenuItem {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: var(--text-md);
+  gap: var(--space-4);
+  justify-content: space-between;
+  padding: var(--space-1-5) var(--space-2);
+  text-align: left;
+}
+.devMenuItem:hover:not(:disabled), .devMenuItem:focus-visible { background: rgb(255 255 255 / 0.06); }
+.devMenuItem:disabled { color: var(--subtle); cursor: default; }
+.devMenuItemActive { background: rgb(122 167 255 / 0.14); }
+.devMenuHint { color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.devMenuSeparator { background: var(--line); height: 1px; margin: var(--space-1) 0; }
+.devMenuLabel { color: var(--muted); font-size: var(--text-xs); margin: 0; padding: var(--space-1) var(--space-2) 0; }
+.devPanelTitle { color: var(--text); font-size: var(--text-md); margin: 0; }
+.devPanelNote { color: var(--muted); font-size: var(--text-xs); margin: 0; }
+.devPanelError { color: #fda4af; font-size: var(--text-xs); margin: 0; }
+.devInsertChoice, .devTakePanel { gap: var(--space-2); padding: var(--space-3); width: 20rem; }
+.devChoiceRow { display: flex; gap: var(--space-2); }
+.devChoiceButton {
+  align-items: flex-start;
+  background: var(--panel-alt);
+  border: 1px solid var(--strong-line);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  padding: var(--space-2) var(--space-2-5);
+  text-align: left;
+}
+.devChoiceButton span { color: var(--muted); font-size: var(--text-xs); }
+.devChoiceButton:hover:not(:disabled), .devChoiceButton:focus-visible { border-color: rgb(122 167 255 / 0.6); }
+.devChoiceButton:disabled { cursor: default; opacity: 0.5; }
+.devChoiceButtonActive { background: rgb(122 167 255 / 0.12); border-color: rgb(122 167 255 / 0.75); }
+.devAgentPanel { width: 24rem; }
+.devAgentList { display: flex; flex-direction: column; gap: var(--space-1); list-style: none; margin: 0; max-height: 16rem; overflow: auto; padding: 0; }
+.devAgentItem { align-items: center; display: flex; gap: var(--space-2); justify-content: space-between; }
+.devAgentItem label { align-items: center; color: var(--text); display: flex; font-size: var(--text-sm); gap: var(--space-2); min-width: 0; }
+.devAgentItem label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.devAgentGo { flex: none; font-variant-numeric: tabular-nums; }
+button.devAgentApply { background: var(--accent); color: #fff; }
+button.devAgentApply:hover:not(:disabled) { background: var(--accent-hover); }
+.devMicMeter { background: var(--surface); border: 1px solid var(--strong-line); border-radius: var(--radius-pill); height: 0.375rem; overflow: hidden; }
+.devMicMeter span { background: linear-gradient(90deg, rgb(52 211 153) 0 70%, rgb(250 204 21) 85%, var(--record)); display: block; height: 100%; transform-origin: left center; transition: transform 60ms linear; }
+.devTextButton { align-self: flex-start; background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: var(--text-sm); padding: var(--space-1) 0; }
+.devTextButton:hover:not(:disabled) { color: var(--text); }
+.devTakeHeader { align-items: center; display: flex; justify-content: space-between; }
+.devRecDot { align-items: center; color: #fda4af; display: inline-flex; font-size: var(--text-xs); font-weight: var(--weight-semibold); gap: var(--space-1-5); }
+.devRecDot::before { background: var(--record); border-radius: var(--radius-pill); content: ""; height: 0.5rem; width: 0.5rem; }
+.devTakeLive { aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius-sm); width: 100%; }
+.devField { align-items: center; color: var(--muted); display: grid; font-size: var(--text-sm); gap: var(--space-2); grid-template-columns: 3.5rem 1fr; }
+.devField select { background: var(--surface); border: 1px solid var(--strong-line); border-radius: var(--radius-sm); color: var(--text); font-size: var(--text-sm); min-width: 0; padding: var(--space-1) var(--space-1-5); }
+.devSwitch { align-items: center; color: var(--muted); display: flex; font-size: var(--text-sm); gap: var(--space-2); }
+.devTakeActions { align-items: center; justify-content: space-between; }
+.devPrimaryButton { background: var(--record); border: 0; border-radius: var(--radius-md); color: #fff; cursor: pointer; font-size: var(--text-md); font-weight: var(--weight-semibold); padding: var(--space-1-5) var(--space-4); }
+.devPrimaryButton:disabled { cursor: default; opacity: 0.45; }
+/* The global button hover would turn Record grey; keep it red, a touch brighter. */
+button.devPrimaryButton:hover:not(:disabled) { background: var(--record); filter: brightness(1.1); }
+button.devStopButton:hover:not(:disabled) { background: var(--panel-alt); filter: none; }
+.devStopButton { background: var(--panel-alt); border: 1px solid var(--record); color: var(--text); }
+.devMenuNotice { color: var(--muted); cursor: pointer; font-size: var(--text-xs); max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.devCountdown { align-items: center; display: flex; inset: 0; justify-content: center; pointer-events: none; position: fixed; z-index: 200; }
+.devCountdown span {
+  animation: devCountdownTick 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+  color: #fff;
+  font-size: calc(var(--text-3xl) * 4);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-bold);
+  text-shadow: 0 6px 30px rgb(0 0 0 / 0.6);
+}
+@keyframes devCountdownTick { from { opacity: 0; transform: scale(1.15); } 20% { opacity: 1; transform: scale(1); } to { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .devCountdown span { animation: none; } }
+
+.insertedAudioRegion {
+  align-items: center;
+  background: #252a35;
+  border: 1px solid #8b93a7;
+  border-radius: var(--radius-sm);
+  bottom: 0.28rem;
+  color: var(--muted);
+  display: flex;
+  font-size: var(--text-xs);
+  min-width: 2px;
+  overflow: hidden;
+  padding: 0 var(--space-2);
+  pointer-events: none;
+  position: absolute;
+  top: 0.28rem;
+  white-space: nowrap;
+  z-index: 9;
+}
+/* Voice-over takes: their own lane, green so they never read as a camera take or a clip. */
+.insertedClipBar.voiceOverBar { background: #17302a; border-color: rgb(52 211 153 / 0.75); }
+.insertedClipBar.voiceOverBar.voiceOver-over { background: #1d2a28; border-style: dashed; }
+.voiceModeChip {
+  background: rgb(0 0 0 / 0.35);
+  border: 1px solid rgb(52 211 153 / 0.6);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  cursor: pointer;
+  flex: none;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  margin-right: var(--space-2);
+  padding: 0 var(--space-1-5);
+}
+.voiceModeChip:hover { background: rgb(52 211 153 / 0.18); }
+/* On the Audio lane: where a voice-over replaces the voice, the recording's sound is muted. */
+.voiceOverMutedRange {
+  background: repeating-linear-gradient(135deg, rgb(52 211 153 / 0.18) 0 6px, rgb(12 20 18 / 0.7) 6px 12px);
+  border-left: 1px solid rgb(52 211 153 / 0.6);
+  border-right: 1px solid rgb(52 211 153 / 0.6);
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  z-index: 10;
+}
+/* A take's voice sits over the recording's sound, which stays (muted) underneath. */
+.insertedAudioRegion.takeVoiceRegion {
+  background: repeating-linear-gradient(135deg, rgb(244 63 94 / 0.22) 0 6px, rgb(42 26 32 / 0.92) 6px 12px);
+  border-color: rgb(244 63 94 / 0.7);
+  color: var(--text);
+  z-index: 10;
+}
+
+/* Bigger timeline toolbar icons so their detail reads (Noam 2026-11-01): the row grows with them. */
+.timelineDock .timelineToolbar { min-height: 3.25rem; }
+.timelineDock .timelineToolButton { height: 2.375rem; min-width: 2.375rem; }
+.timelineDock .timelineToolButton svg { width: 24px; height: 24px; }
+.timelineDock .timelineRippleButton svg { stroke-width: 2.2; }
+
+/* The trim toggle is a word, not an icon: detail is lost at toolbar size (Noam 2026-11-01). */
+.timelineDock .timelineRippleButton { padding: 0; }
+
+/* Audio tab: a quiet Reset sits beside Mute; a small speaker marks clips whose sound was changed. */
+.audioLevelActions { align-items: center; display: inline-flex; gap: var(--space-3); }
+.clipAudioIcon { flex: none; margin-left: var(--space-1); opacity: 0.75; vertical-align: -2px; }
+.audioLevelBadge .clipAudioIcon { margin: 0 var(--space-0-5) 0 0; }

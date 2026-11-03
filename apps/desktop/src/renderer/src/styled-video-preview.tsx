@@ -1,5 +1,7 @@
 import React from 'react';
 import { CAPTION_EDGE_MARGIN, captionAtSourceFrame, getCaptions, type CaptionSettings } from '../../shared/captions.mjs';
+import { clipCaptions, clipZoomCropAt, clipZooms, type ClipCaptionCue } from '../../shared/clip-overlays.mjs';
+import type { ZoomMarker } from '@rough-cut/project-model';
 import {
   AlignBottom as PhosphorAlignBottom,
   AlignCenterHorizontal as PhosphorAlignCenterHorizontal,
@@ -18,7 +20,10 @@ import {
   createDefaultRecordingBackgroundStyle,
   getRecordingBackgroundColors,
   getStyledCanvasResolution,
+  insertedMediaSourceIds,
+  listInsertedClips,
   type CameraPresentation,
+  type InsertedClipView,
   type NormalizedRect,
   type ProjectAspectRatio,
   type ProjectDocument,
@@ -39,7 +44,14 @@ import { moveCensorRect, resizeCensorRect } from '../../shared/censor-regions.mj
 import { timelineJoinGain } from '../../shared/timeline-audio-envelope.mjs';
 import { drawBackgroundGrid, isBackgroundGridOn } from '../../shared/background-grid.mjs';
 import { CUT_PREROLL_EARLY_FRAMES, cutPrerollKey, planCutPreroll, standbyAlignedForCut } from './timeline-cut-preroll.mjs';
+import { clampVoiceCleanAmount, createVoiceCleanMixer, type VoiceCleanMixer } from './voice-clean-mix.mjs';
+import { clipAudioGain, masterGain, previewNeedsLimiter, slotGain, type ClipGainOverride } from './audio-volume.mjs';
+import { boostLimiterCurve, MAX_COMBINED_GAIN } from '../../shared/audio-gain.mjs';
 import { shouldPublishTimelinePlayhead } from './timeline-playhead-publish.mjs';
+import { installPlayTracker, silenceAfterStop } from './preview-media-guard.mjs';
+
+// Remember every element that plays so Stop can silence strays too (sound that kept playing after Stop until a restart).
+installPlayTracker();
 import {
   cameraCoversSourceTime,
   cameraSyncCorrection,
@@ -456,6 +468,9 @@ type TimelinePlaybackSegment = {
   sourceIn: number;
   sourceOut: number;
   trackIndex: number;
+  /** The timeline clip this segment plays, and that clip's own volume (1 = as recorded). */
+  clipId: string;
+  audioGain: number;
 };
 
 export function resolveZoomAuthoringSafety({
@@ -514,6 +529,10 @@ export function StyledVideoPreview({
   onCensorRectChange,
   mediaUrlOverride,
   cameraMediaUrlOverride,
+  audioMuted = false,
+  voiceClean = null,
+  trackGain = 1,
+  clipGainOverride = null,
 }: {
   project: StyledPreviewProject;
   seekTimeSec?: number;
@@ -561,6 +580,17 @@ export function StyledVideoPreview({
   ) => void;
   mediaUrlOverride?: string | null;
   cameraMediaUrlOverride?: string | null;
+  /** Silence the program (used while recording a pickup over playback). */
+  audioMuted?: boolean;
+  /**
+   * Cached clean-voice file (ch0 original voice, ch1 cleaned) and the Amount.
+   * Null, a missing url or amount 0 keeps the old audio path untouched.
+   */
+  voiceClean?: { url: string; amount: number } | null;
+  /** The recording's track volume (0 when muted, 1 = as recorded); applied on the master gain. */
+  trackGain?: number;
+  /** A clip volume slider being dragged: those clips play at this gain until it is saved. */
+  clipGainOverride?: ClipGainOverride | null;
 }) {
   // videoRef/cameraVideoRef always point at the program (drawn, audible)
   // element. Each lane has a second, standby decoder so a cut that skips source
@@ -580,7 +610,22 @@ export function StyledVideoPreview({
     context: AudioContext;
     gains: Map<HTMLVideoElement, GainNode>;
     targets: Map<HTMLVideoElement, number>;
+    master: GainNode;
+    /** Peak limiter between master and the speakers; only while something plays above 100%. */
+    limiter: { pre: GainNode; shaper: WaveShaperNode } | null;
   } | null>(null);
+  // Track volume is the master gain; clip volume rides on the slot gains. Both
+  // are read through refs so moving a slider never restarts playback.
+  const trackGainRef = React.useRef(trackGain);
+  trackGainRef.current = trackGain;
+  const clipGainOverrideRef = React.useRef(clipGainOverride);
+  clipGainOverrideRef.current = clipGainOverride;
+  // Clean voice: one hidden <audio> per screen slot, slaved to that slot's
+  // video and mixed by gain only (voice-clean-mix.mjs). Absent unless a cleaned
+  // file exists and Amount > 0.
+  const voiceCleanMixerRef = React.useRef<{ mixer: VoiceCleanMixer; url: string } | null>(null);
+  const voiceCleanRef = React.useRef(voiceClean);
+  voiceCleanRef.current = voiceClean;
   const screenSlotRefCallbacks = React.useMemo(() => ([0, 1] as const).map((slot) => (element: HTMLVideoElement | null) => {
     screenSlotsRef.current[slot] = element;
     if (activeSlotRef.current === slot) videoRef.current = element;
@@ -601,6 +646,8 @@ export function StyledVideoPreview({
   // source frames back to timeline frames.
   const timelineRateRef = React.useRef(1);
   const activeTimelineSegmentRef = React.useRef<TimelinePlaybackSegment | null>(null);
+  /** The clip layout the running playback started on; null when not playing. */
+  const playbackRunRef = React.useRef<{ key: string } | null>(null);
   const timelineFrameFallbackRef = React.useRef(0);
   const cameraDragRef = React.useRef<NormalizedRect | null>(null);
   const cameraRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -610,6 +657,11 @@ export function StyledVideoPreview({
   const screenDragRef = React.useRef<NormalizedRect | null>(null);
   const captionsRef = React.useRef(getCaptions(project.document));
   captionsRef.current = React.useMemo(() => getCaptions(project.document), [project.document]);
+  // Zooms and captions placed on added clips, by the clip's asset id (in that file's frames).
+  const clipOverlaysRef = React.useRef(new Map<string, { zooms: ZoomMarker[]; captions: ClipCaptionCue[] }>());
+  clipOverlaysRef.current = React.useMemo(() => new Map(
+    (project.document.assets ?? []).map((asset) => [String(asset.id), { zooms: clipZooms(project.document, String(asset.id)), captions: clipCaptions(project.document, String(asset.id)) }]),
+  ), [project.document]);
   const screenRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const screenRadiusRef = React.useRef(22);
   const screenDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
@@ -786,6 +838,47 @@ export function StyledVideoPreview({
     () => canonicalizeProjectDocument(project.document as unknown as ProjectDocument),
     [project.document],
   );
+  // Footage inserted from outside the recording (clips, camera pickups). Each file
+  // has its own hidden decode surface; the canonical timeline clock positions it,
+  // and the recording's own playback treats those spans as gaps.
+  const insertedSourceIds = React.useMemo(() => insertedMediaSourceIds(canonicalDocument), [canonicalDocument]);
+  const insertedVideoClips = React.useMemo(
+    () => listInsertedClips(canonicalDocument).filter((clip) => clip.lane !== 'audio'),
+    [canonicalDocument],
+  );
+  const insertedAssetIds = React.useMemo(() => new Set(insertedVideoClips.map((clip) => clip.assetId)), [insertedVideoClips]);
+  const insertedMediaSources = React.useMemo(() => {
+    const urls = new Map<string, string>();
+    for (const clip of insertedVideoClips) {
+      if (!urls.has(clip.assetId)) urls.set(clip.assetId, `media://file/${encodeURIComponent(clip.filePath)}`);
+    }
+    return [...urls.entries()].map(([assetId, url]) => ({ assetId, url }));
+  }, [insertedVideoClips]);
+  const insertedVideoClipsRef = React.useRef<InsertedClipView[]>(insertedVideoClips);
+  insertedVideoClipsRef.current = insertedVideoClips;
+  const insertedVideosRef = React.useRef(new Map<string, HTMLVideoElement>());
+  // Voice-over takes: sound only, one hidden audio decoder per take file, placed by
+  // the same canonical timeline clock. "Replace" ones mute the recording under them.
+  const voiceOverClips = React.useMemo(
+    () => listInsertedClips(canonicalDocument).filter((clip) => clip.kind === 'voice'),
+    [canonicalDocument],
+  );
+  const voiceOverClipsRef = React.useRef<InsertedClipView[]>(voiceOverClips);
+  voiceOverClipsRef.current = voiceOverClips;
+  const voiceOverSources = React.useMemo(() => {
+    const urls = new Map<string, string>();
+    for (const clip of voiceOverClips) {
+      if (!urls.has(clip.assetId)) urls.set(clip.assetId, `media://file/${encodeURIComponent(clip.filePath)}`);
+    }
+    return [...urls.entries()].map(([assetId, url]) => ({ assetId, url }));
+  }, [voiceOverClips]);
+  const voiceOverAudiosRef = React.useRef(new Map<string, HTMLAudioElement>());
+  const audioMutedRef = React.useRef(audioMuted);
+  audioMutedRef.current = audioMuted;
+  // The project's camera style, for a camera take placed where the recording shows no bubble.
+  const recordingPresentationForTakes = getPrimaryRecordingAsset(project.document as unknown as ProjectDocument)?.presentation;
+  const fallbackCameraPresentation: CameraPresentation = { ...(recordingPresentationForTakes?.camera ?? DEFAULT_CAMERA_PRESENTATION), visible: true };
+  const fallbackCameraFrame = recordingPresentationForTakes?.cameraFrame ?? null;
   const sourceWidth = project.recording?.width ?? 1920;
   const sourceHeight = project.recording?.height ?? 1080;
   const fps = project.recording?.fps ?? 30;
@@ -952,7 +1045,9 @@ export function StyledVideoPreview({
   function timelineTimeToSourceTime(timelineTimeSec: number) {
     const timelineFrame = Math.max(0, Math.round(timelineTimeSec * fps));
     const resolved = resolveTimelineFrame(canonicalDocument, timelineFrame);
-    return resolved.video ? resolved.video.sourceFrame / fps : null;
+    const recordingLayers = resolved.videoLayers.filter((layer) => !insertedSourceIds.has(layer.media.id));
+    const top = recordingLayers[recordingLayers.length - 1] ?? null;
+    return top ? top.sourceFrame / fps : null;
   }
 
   function buildTimelinePlaybackSegments(): TimelinePlaybackSegment[] {
@@ -966,12 +1061,16 @@ export function StyledVideoPreview({
         const media = sources.find((source) => source.id === clip.mediaId);
         const asset = media?.assetId ? assets.find((item) => item.id === media.assetId) : null;
         if (media?.kind === 'camera' || asset?.metadata?.isCamera) return [];
+        // Inserted footage has its own decoder; for the recording it is a gap.
+        if (insertedSourceIds.has(clip.mediaId)) return [];
         return [{
           timelineIn: Math.max(0, Math.round(Number(clip.timelineIn) || 0)),
           timelineOut: Math.max(0, Math.round(Number(clip.timelineOut) || 0)),
           sourceIn: Math.max(0, Math.round(Number(clip.sourceIn) || 0)),
           sourceOut: Math.max(0, Math.round(Number(clip.sourceOut) || 0)),
           trackIndex: Number.isFinite(Number(track.index)) ? Number(track.index) : 0,
+          clipId: String(clip.id),
+          audioGain: clipAudioGain(clip),
         }];
       }))
       .filter((segment) => segment.timelineOut > segment.timelineIn && segment.sourceOut > segment.sourceIn)
@@ -988,6 +1087,95 @@ export function StyledVideoPreview({
   function nextTimelineSegmentAfterFrame(segments: readonly TimelinePlaybackSegment[], timelineFrame: number) {
     const frame = Math.max(0, Math.round(timelineFrame));
     return segments.find((segment) => segment.timelineIn >= frame) ?? null;
+  }
+
+  function insertedClipAt(timelineFrame: number, lane: 'screen' | 'camera'): InsertedClipView | null {
+    const frame = Math.max(0, Math.round(timelineFrame));
+    return insertedVideoClipsRef.current.find((clip) => clip.lane === lane && frame >= clip.timelineIn && frame < clip.timelineOut) ?? null;
+  }
+
+  /** Inserted footage still to come keeps playback running past the recording's last clip. */
+  function insertedContentAfter(timelineFrame: number) {
+    return insertedVideoClipsRef.current.some((clip) => clip.timelineOut > timelineFrame);
+  }
+
+  function insertedContentEndFrame() {
+    return insertedVideoClipsRef.current.reduce((end, clip) => Math.max(end, clip.timelineOut), 0);
+  }
+
+  function isRecordingScreenLayer(layer: { isCamera?: boolean; assetId?: string }) {
+    return !layer.isCamera && !insertedAssetIds.has(String(layer.assetId));
+  }
+
+  /**
+   * Position every inserted decoder from canonical timeline time. Video elements
+   * never own the clock: an active one plays along and is re-seeked only when it
+   * drifts, an upcoming one is parked on its first frame, the rest are paused.
+   */
+  function voiceOverReplacesAt(timelineFrame: number) {
+    const frame = Math.max(0, Math.round(timelineFrame));
+    return voiceOverClipsRef.current.some((clip) => clip.voiceMode === 'replace' && frame >= clip.timelineIn && frame < clip.timelineOut);
+  }
+
+  /** Same rules as inserted footage: the timeline clock places each voice-over decoder. */
+  function syncVoiceOvers(timelineFrame: number, playing: boolean) {
+    const clips = voiceOverClipsRef.current;
+    if (clips.length === 0) return;
+    const frame = Math.max(0, Math.round(timelineFrame));
+    const rate = timelineRateRef.current;
+    for (const [assetId, element] of voiceOverAudiosRef.current) {
+      const active = clips.find((clip) => clip.assetId === assetId && frame >= clip.timelineIn && frame < clip.timelineOut) ?? null;
+      if (!active) {
+        if (!element.paused) element.pause();
+        const upcoming = playing
+          ? clips.find((clip) => clip.assetId === assetId && clip.timelineIn > frame && clip.timelineIn - frame <= fps * 1.5) ?? null
+          : null;
+        if (upcoming && !element.seeking && Math.abs(element.currentTime - upcoming.sourceIn / fps) > 1 / fps) element.currentTime = upcoming.sourceIn / fps;
+        continue;
+      }
+      const target = (active.sourceIn + (frame - active.timelineIn)) / fps;
+      const muted = audioMutedRef.current;
+      if (element.muted !== muted) element.muted = muted;
+      if (playing) {
+        if (element.playbackRate !== rate) element.playbackRate = rate;
+        if (!element.seeking && Math.abs(element.currentTime - target) > 0.12) element.currentTime = target;
+        if (element.paused) void element.play().catch(() => undefined);
+      } else {
+        if (!element.paused) element.pause();
+        if (!element.seeking && Math.abs(element.currentTime - target) > 0.5 / fps) element.currentTime = target;
+      }
+    }
+  }
+
+  function syncInsertedMedia(timelineFrame: number, playing: boolean) {
+    const clips = insertedVideoClipsRef.current;
+    if (clips.length === 0) return;
+    const frame = Math.max(0, Math.round(timelineFrame));
+    const rate = timelineRateRef.current;
+    for (const [assetId, element] of insertedVideosRef.current) {
+      const active = clips.find((clip) => clip.assetId === assetId && frame >= clip.timelineIn && frame < clip.timelineOut) ?? null;
+      if (!active) {
+        if (!element.paused) element.pause();
+        const upcoming = playing
+          ? clips.find((clip) => clip.assetId === assetId && clip.timelineIn > frame && clip.timelineIn - frame <= fps * 1.5) ?? null
+          : null;
+        if (upcoming && !element.seeking && Math.abs(element.currentTime - upcoming.sourceIn / fps) > 1 / fps) {
+          element.currentTime = upcoming.sourceIn / fps;
+        }
+        continue;
+      }
+      const target = (active.sourceIn + (frame - active.timelineIn)) / fps;
+      const muted = audioMutedRef.current || !active.hasAudio;
+      if (element.muted !== muted) element.muted = muted;
+      if (playing) {
+        if (element.playbackRate !== rate) element.playbackRate = rate;
+        if (!element.seeking && Math.abs(element.currentTime - target) > 0.2) element.currentTime = target;
+        if (element.paused) void element.play().catch(() => undefined);
+      } else {
+        if (!element.paused) element.pause();
+        if (!element.seeking && Math.abs(element.currentTime - target) > 0.5 / fps) element.currentTime = target;
+      }
+    }
   }
 
   function sameTimelinePlaybackSegment(left: TimelinePlaybackSegment | null, right: TimelinePlaybackSegment | null) {
@@ -1038,18 +1226,29 @@ export function StyledVideoPreview({
       const context = new AudioContextCtor();
       const gains = new Map<HTMLVideoElement, GainNode>();
       const targets = new Map<HTMLVideoElement, number>();
+      const master = context.createGain();
+      master.gain.value = masterGain({ audioMuted: audioMutedRef.current, trackGain: trackGainRef.current });
+      master.connect(context.destination);
       for (const element of screenSlotsRef.current) {
         if (!element) continue;
         const gain = context.createGain();
         const target = element === videoRef.current ? element.volume : 0;
         gain.gain.value = target;
         element.volume = 1;
-        context.createMediaElementSource(element).connect(gain).connect(context.destination);
+        context.createMediaElementSource(element).connect(gain).connect(master);
         gains.set(element, gain);
         targets.set(element, target);
       }
-      previewAudioRef.current = { context, gains, targets };
+      previewAudioRef.current = { context, gains, targets, master, limiter: null };
+      // Read-only handle for audio-level harnesses (silent xvfb runs): the node
+      // that feeds the speakers, after the master and the limiter.
+      (window as unknown as Record<string, unknown>).__roughCutPreviewAudioTap = () => {
+        const current = previewAudioRef.current;
+        return current ? { context: current.context, output: current.limiter?.shaper ?? current.master } : null;
+      };
       void context.resume().catch(() => undefined);
+      syncVoiceCleanMixer();
+      syncBoostLimiter();
       return previewAudioRef.current;
     } catch (err) {
       recordPlaybackDebug('preview-audio-graph-failed', { message: err instanceof Error ? err.message : String(err) });
@@ -1057,8 +1256,7 @@ export function StyledVideoPreview({
     }
   }
 
-  function setScreenGain(element: HTMLVideoElement | null | undefined, value: number) {
-    if (!element) return;
+  function applyVideoGain(element: HTMLVideoElement, value: number) {
     const audio = previewAudioRef.current;
     const gain = audio?.gains.get(element);
     if (!audio || !gain) {
@@ -1070,6 +1268,99 @@ export function StyledVideoPreview({
     gain.gain.setTargetAtTime(value, audio.context.currentTime, 0.004);
   }
 
+  // `value` is the slot's level (cut joins, standby = 0). With clean voice on,
+  // the mixer splits it between the video's own sound and the clean player.
+  function setScreenGain(element: HTMLVideoElement | null | undefined, value: number) {
+    if (!element) return;
+    if (voiceCleanMixerRef.current?.mixer.setSlotGain(element, value)) return;
+    applyVideoGain(element, value);
+  }
+
+  /** A slot's level while it plays `segment`: the cut-join fade times that clip's volume. */
+  function playbackSegmentGain(joinGain: number, segment: TimelinePlaybackSegment | null | undefined) {
+    return slotGain(joinGain, segment, clipGainOverrideRef.current);
+  }
+
+  // Above 100% the sound can pass full scale, so a peak limiter goes between the
+  // master and the speakers: exactly linear below about -1 dBFS, a soft bend
+  // above it (the export uses ffmpeg's alimiter at the same level). It is only
+  // in the path while something is boosted; otherwise the old path is untouched.
+  function syncBoostLimiter() {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    const wanted = previewNeedsLimiter({ trackGain: trackGainRef.current, segments: buildTimelinePlaybackSegments(), override: clipGainOverrideRef.current });
+    if (wanted === Boolean(audio.limiter)) return;
+    try {
+      audio.master.disconnect();
+      if (audio.limiter) {
+        audio.limiter.pre.disconnect();
+        audio.limiter.shaper.disconnect();
+        audio.limiter = null;
+      }
+      if (wanted) {
+        const pre = audio.context.createGain();
+        pre.gain.value = 1 / MAX_COMBINED_GAIN;
+        const shaper = audio.context.createWaveShaper();
+        shaper.curve = boostLimiterCurve();
+        shaper.oversample = 'none';
+        audio.master.connect(pre).connect(shaper).connect(audio.context.destination);
+        audio.limiter = { pre, shaper };
+      } else {
+        audio.master.connect(audio.context.destination);
+      }
+      recordPlaybackDebug('preview-boost-limiter', { on: wanted });
+    } catch (err) {
+      recordPlaybackDebug('preview-boost-limiter-failed', { message: err instanceof Error ? err.message : String(err) });
+      audio.limiter = null;
+      try { audio.master.connect(audio.context.destination); } catch { /* already connected */ }
+    }
+  }
+
+  // Creates, retargets or removes the clean-voice mixer. Moving Amount only
+  // reaches setAmount (gain targets); the players are built once per file.
+  function syncVoiceCleanMixer() {
+    const wanted = voiceCleanRef.current;
+    const active = wanted?.url && clampVoiceCleanAmount(wanted.amount) > 0 ? wanted : null;
+    const current = voiceCleanMixerRef.current;
+    if (!active) {
+      if (current) {
+        voiceCleanMixerRef.current = null;
+        current.mixer.dispose();
+      }
+      return;
+    }
+    const audio = previewAudioRef.current;
+    if (!audio) return; // Built with the audio graph on first play.
+    if (current && current.url === active.url) {
+      current.mixer.setAmount(active.amount);
+      return;
+    }
+    if (current) {
+      voiceCleanMixerRef.current = null;
+      current.mixer.dispose();
+    }
+    try {
+      const mixer = createVoiceCleanMixer({
+        context: audio.context,
+        destination: audio.master,
+        url: active.url,
+        amount: active.amount,
+        applyVideoGain,
+        onEvent: (event) => recordPlaybackDebug(`voice-clean-${event.type}`, { drift: event.drift, playing: event.playing ?? null }),
+      });
+      for (const element of screenSlotsRef.current) {
+        if (element && audio.gains.has(element)) mixer.attach(element, audio.targets.get(element) ?? 0);
+      }
+      voiceCleanMixerRef.current = { mixer, url: active.url };
+    } catch (err) {
+      recordPlaybackDebug('voice-clean-mixer-failed', { message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  React.useEffect(() => {
+    syncVoiceCleanMixer();
+  }, [voiceClean?.url, voiceClean?.amount]);
+
   function resetCutPreroll() {
     cutPrerollRef.current = null;
     const standby = standbyScreenVideo();
@@ -1079,7 +1370,32 @@ export function StyledVideoPreview({
     if (standbyCamera && !standbyCamera.paused) standbyCamera.pause();
   }
 
+  React.useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (audio) audio.master.gain.setTargetAtTime(masterGain({ audioMuted, trackGain: trackGainRef.current }), audio.context.currentTime, 0.01);
+    for (const element of insertedVideosRef.current.values()) {
+      if (audioMuted) element.muted = true;
+    }
+  }, [audioMuted]);
+
+  // Track volume: a short ramp on the master (no zipper noise, no reload).
+  React.useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    syncBoostLimiter();
+    audio.master.gain.setTargetAtTime(masterGain({ audioMuted: audioMutedRef.current, trackGain }), audio.context.currentTime, 0.004);
+  }, [trackGain]);
+
+  // Clip volume: the draw loop re-applies the program slot's level every frame;
+  // a boost may need the limiter switched in first.
+  React.useEffect(() => {
+    syncBoostLimiter();
+  }, [clipGainOverride, project]);
+
   React.useEffect(() => () => {
+    for (const element of insertedVideosRef.current.values()) element.pause();
+    voiceCleanMixerRef.current?.mixer.dispose();
+    voiceCleanMixerRef.current = null;
     void previewAudioRef.current?.context.close().catch(() => undefined);
     previewAudioRef.current = null;
   }, []);
@@ -1120,6 +1436,7 @@ export function StyledVideoPreview({
   React.useEffect(() => {
     setSourceMediaDuration(null);
     setCameraMediaDuration(null);
+    console.warn('[playback-reset] source changed, time forced to 0', { was: currentTimeRef.current, src });
     updateCurrentTime(0, { immediate: true });
     setInternalPlaying(false);
     setCursorOffscreen(null);
@@ -1228,6 +1545,7 @@ export function StyledVideoPreview({
     } else {
       pausePreviewVideo(video);
       cameraVideo?.pause();
+      silenceAfterStop();
     }
   }, [controlledPlaying, timeMode]);
 
@@ -1236,11 +1554,15 @@ export function StyledVideoPreview({
   // decoded frames. Seeking is limited to play start, scrubs, and segment/cut
   // boundaries; the draw loop must not seek-sync every frame.
   React.useEffect(() => {
-    if (timeMode !== 'timeline') return;
+    if (timeMode !== 'timeline') {
+      playbackRunRef.current = null;
+      return;
+    }
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
     if (!video) return;
     if (scrubbing) {
+      playbackRunRef.current = null;
       pausePreviewVideo(video);
       cameraVideo?.pause();
       resetCutPreroll();
@@ -1251,10 +1573,26 @@ export function StyledVideoPreview({
     }
     if (isPlaying) {
       const segments = buildTimelinePlaybackSegments();
+      // An edit saved while playing that leaves every clip where it was (a
+      // volume, a zoom, a colour) must not restart the playing decoder: the
+      // restart re-seeks it from the published playhead, which lags, and that
+      // hitched playback ~50 ms (measured 2026-11-01 when saving a volume).
+      const structureKey = `${fps}|${segments.map((item) => `${item.timelineIn}:${item.timelineOut}:${item.sourceIn}:${item.sourceOut}:${item.trackIndex}`).join(',')}`;
+      const previousRun = playbackRunRef.current;
+      playbackRunRef.current = { key: structureKey };
+      const active = activeTimelineSegmentRef.current;
+      if (previousRun?.key === structureKey && active && !video.paused) {
+        const same = segments.find((candidate) => sameTimelinePlaybackSegment(candidate, active));
+        if (same) {
+          activeTimelineSegmentRef.current = same;
+          return;
+        }
+      }
       let timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
+      console.info('[playback-start]', { sec: currentTimeRef.current, frame: timelineFrame, segments: segments.length });
       let segment = timelineSegmentAtFrame(segments, timelineFrame);
       if (!segment) {
-        if (!nextTimelineSegmentAfterFrame(segments, timelineFrame)) {
+        if (!nextTimelineSegmentAfterFrame(segments, timelineFrame) && !insertedContentAfter(timelineFrame)) {
           setInternalPlaying(false);
           onPlayingChangeRef.current?.(false);
           return;
@@ -1273,9 +1611,11 @@ export function StyledVideoPreview({
       }
       startTimelineSegmentPlayback(segment, timelineFrame);
     } else {
+      playbackRunRef.current = null;
       pausePreviewVideo(video);
       cameraVideo?.pause();
       resetCutPreroll();
+      silenceAfterStop();
       video.playbackRate = timelineRateRef.current;
       if (cameraVideo) cameraVideo.playbackRate = timelineRateRef.current;
       activeTimelineSegmentRef.current = null;
@@ -1293,11 +1633,11 @@ export function StyledVideoPreview({
     timelineFrameFallbackRef.current = timelineFrame;
     const sourceFrame = segment.sourceIn + (timelineFrame - segment.timelineIn);
     const sourceTime = Math.max(0, sourceFrame / fps);
-    setScreenGain(video, timelineJoinGain(
+    setScreenGain(video, playbackSegmentGain(timelineJoinGain(
       buildTimelinePlaybackSegments(),
       segment,
       timelineFrame,
-    ));
+    ), segment));
     (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
       phase: 'play-start',
       timelineFrame,
@@ -1613,7 +1953,8 @@ export function StyledVideoPreview({
         cameraVideo = standbyCamera;
       }
       cutPrerollRef.current = null;
-      setScreenGain(standby, timelineJoinGain(buildTimelinePlaybackSegments(), nextSegment, nextSegment.timelineIn));
+      // The standby takes over at the next clip's own volume (it stayed silent while pre-rolling).
+      setScreenGain(standby, playbackSegmentGain(timelineJoinGain(buildTimelinePlaybackSegments(), nextSegment, nextSegment.timelineIn), nextSegment));
       setScreenGain(previousScreen, 0);
       claimAudiblePreviewVideo(standby);
       if (standby.paused) void standby.play().catch(() => undefined);
@@ -1647,11 +1988,11 @@ export function StyledVideoPreview({
         // back to that same frame flushes decode state and causes a visible hitch.
         activeTimelineSegmentRef.current = nextSegment;
         timelineFrameFallbackRef.current = nextSegment.timelineIn;
-        setScreenGain(screenVideo, timelineJoinGain(
+        setScreenGain(screenVideo, playbackSegmentGain(timelineJoinGain(
           buildTimelinePlaybackSegments(),
           nextSegment,
           nextSegment.timelineIn,
-        ));
+        ), nextSegment));
         recordPlaybackDebug('timeline-boundary-continuous', {
           renderLoopId,
           timelineIn: nextSegment.timelineIn,
@@ -1756,7 +2097,7 @@ export function StyledVideoPreview({
         if (segment && decodedSourceFrame >= segment.sourceOut) {
           const nextSegment = nextTimelineSegmentAfterFrame(segments, currentTimelineFrame);
           if (nextSegment && nextSegment.timelineIn > segment.timelineOut) return enterTimelineGapAfterSegment(segment);
-          if (!nextSegment) return holdTimelineSegmentEnd(segment);
+          if (!nextSegment) return insertedContentAfter(segment.timelineOut) ? enterTimelineGapAfterSegment(segment) : holdTimelineSegmentEnd(segment);
           if (seekTimelineBoundary(nextSegment)) return null;
           segment = nextSegment;
         }
@@ -1823,7 +2164,10 @@ export function StyledVideoPreview({
         }
       }
       lastTickAtMs = tickAtMs;
-      if (acceleratedTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && lastTickAtMs !== null && tickDeltaSec > 0) {
+      // The wall clock drives the playhead with the accelerated renderer, and with any
+      // renderer while no recording section is playing (a gap, or footage inserted from
+      // outside the recording): there is no decoded frame to follow there.
+      if ((acceleratedTimelinePlaybackClock || !activeTimelineSegmentRef.current) && timeMode === 'timeline' && isPlaying && lastTickAtMs !== null && tickDeltaSec > 0) {
         let nextClockTime = Math.min(timelineDuration, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
         // Never let the free-running clock outrun the decoder: on a stall the
         // cursor/zoom would glide over a frozen frame. Park the clock at most
@@ -1833,6 +2177,19 @@ export function StyledVideoPreview({
           const videoTimelineSec = (clampSegment.timelineIn + (video.currentTime * fps - clampSegment.sourceIn)) / fps;
           const maxClockTime = videoTimelineSec + 2 / fps;
           if (nextClockTime > maxClockTime) nextClockTime = Math.max(currentTimeRef.current, maxClockTime);
+        }
+        // Same rule over a clip inserted from outside the recording: its own decoder sets the pace.
+        const clampInserted = !clampSegment ? insertedClipAt(Math.round(currentTimeRef.current * fps), 'screen') : null;
+        const clampInsertedVideo = clampInserted ? insertedVideosRef.current.get(clampInserted.assetId) : null;
+        if (clampInserted && clampInsertedVideo) {
+          if (clampInsertedVideo.paused || clampInsertedVideo.seeking || clampInsertedVideo.readyState < 3) {
+            // Starting or re-seeking: hold the clock until the picture moves.
+            nextClockTime = currentTimeRef.current;
+          } else if (!clampInsertedVideo.ended) {
+            const insertedTimelineSec = (clampInserted.timelineIn + (clampInsertedVideo.currentTime * fps - clampInserted.sourceIn)) / fps;
+            const maxClockTime = insertedTimelineSec + 2 / fps;
+            if (nextClockTime > maxClockTime) nextClockTime = Math.max(currentTimeRef.current, maxClockTime);
+          }
         }
         if (nextClockTime > currentTimeRef.current) {
           updateCurrentTime(nextClockTime);
@@ -1873,7 +2230,7 @@ export function StyledVideoPreview({
         : null;
       const parkedTimelinePreviewFrame = parkedTimelineFrame !== null ? resolveCurrentFrame(parkedTimelineFrame) : null;
       const parkedTimelineGap = Boolean(
-        parkedTimelinePreviewFrame && !(parkedTimelinePreviewFrame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null),
+        parkedTimelinePreviewFrame && !(parkedTimelinePreviewFrame.layers?.find(isRecordingScreenLayer) ?? null),
       );
       if (!parkedTimelineGap && (video.seeking || video.readyState < 2)) {
         recordPlaybackDebug('render-skip-video-not-ready', {
@@ -1918,7 +2275,9 @@ export function StyledVideoPreview({
       const nextClockSegment = timelineClockFrame !== null
         ? nextTimelineSegmentAfterFrame(timelineClockSegments, timelineClockFrame)
         : null;
-      const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && nextClockSegment && timelineClockFrame < nextClockSegment.timelineIn
+      const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && (
+        (nextClockSegment && timelineClockFrame < nextClockSegment.timelineIn) || insertedContentAfter(timelineClockFrame)
+      )
         ? timelineClockFrame
         : null;
       if (timelineClockGapFrame !== null) {
@@ -1945,8 +2304,9 @@ export function StyledVideoPreview({
         let segmentAtClock = timelineSegmentAtFrame(segments, timelineFrame);
         if (!segmentAtClock) {
           const nextSegment = nextTimelineSegmentAfterFrame(segments, timelineFrame);
-          if (nextSegment) {
-            const gapTime = Math.min(nextSegment.timelineIn / fps, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
+          const gapEndFrame = nextSegment?.timelineIn ?? (insertedContentAfter(timelineFrame) ? insertedContentEndFrame() : null);
+          if (gapEndFrame !== null) {
+            const gapTime = Math.min(gapEndFrame / fps, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
             if (gapTime > currentTimeRef.current) {
               updateCurrentTime(gapTime);
               timelineFrameFallbackRef.current = Math.max(0, Math.round(gapTime * fps));
@@ -1981,7 +2341,7 @@ export function StyledVideoPreview({
         : null;
       if (timeMode === 'timeline' && isPlaying && !timelineDecoded) {
         const timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
-        const waitingForSegment = !activeTimelineSegmentRef.current && nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), timelineFrame);
+        const waitingForSegment = !activeTimelineSegmentRef.current && (nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), timelineFrame) || insertedContentAfter(timelineFrame));
         if (waitingForSegment) {
           timelineFrameFallbackRef.current = timelineFrame;
         } else {
@@ -2001,14 +2361,32 @@ export function StyledVideoPreview({
       const currentFrame = timeMode === 'timeline'
         ? timelineDecoded?.timelineFrame ?? playingGapFrame ?? parkedTimelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
         : sourceFrame;
+      syncInsertedMedia(timeMode === 'timeline' ? currentFrame : -1, timeMode === 'timeline' && isPlaying && !scrubbing);
+      syncVoiceOvers(timeMode === 'timeline' ? currentFrame : -1, timeMode === 'timeline' && isPlaying && !scrubbing);
+      if (
+        timeMode === 'timeline'
+        && isPlaying
+        && playingGapFrame !== null
+        && insertedVideoClipsRef.current.length > 0
+        && !insertedContentAfter(currentFrame)
+        && !nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), currentFrame)
+      ) {
+        // Past the last inserted clip with no recording after it: the timeline ended.
+        updateCurrentTime(Math.min(timelineDuration, insertedContentEndFrame() / fps), { immediate: true });
+        setInternalPlaying(false);
+        onPlayingChangeRef.current?.(false);
+      }
       setScreenGain(
         screenVideo,
-        timeMode === 'timeline' && timelineDecoded?.segment
-          ? timelineJoinGain(
+        // A camera take's voice replaces the recording's sound for its range (muted, not removed).
+        timeMode === 'timeline' && (insertedClipAt(currentFrame, 'camera')?.hasAudio || voiceOverReplacesAt(currentFrame))
+          ? 0
+          : timeMode === 'timeline' && timelineDecoded?.segment
+          ? playbackSegmentGain(timelineJoinGain(
               buildTimelinePlaybackSegments(),
               timelineDecoded.segment,
               currentFrame,
-            )
+            ), timelineDecoded.segment)
           : 1,
       );
       if (timeMode === 'timeline' && isPlaying && !acceleratedTimelinePlaybackClock && timelineDecoded?.segment) {
@@ -2023,7 +2401,12 @@ export function StyledVideoPreview({
         // and can be a fraction behind the clock, so letting it write too made the playhead step forward, dip
         // back and step forward again every frame (the "wiggle"). Within a few frames behind, the clock wins; a
         // larger gap is a real seek or restart and still applies.
-        const decodedFrameTime = Math.min(timelineDuration, currentFrame / fps);
+        // In a gap there is no decoded frame: the clock is the time. Snapping it to the
+        // nearest whole frame every tick undid each sub-frame step (a 60 Hz tick is under
+        // half a frame at 30 fps), so playback froze at the first frame of every gap.
+        const decodedFrameTime = playingGapFrame !== null
+          ? Math.min(timelineDuration, Math.max(currentFrame / fps, currentTimeRef.current))
+          : Math.min(timelineDuration, currentFrame / fps);
         const clockLeadSec = currentTimeRef.current - decodedFrameTime;
         const clockOwnsPlayhead = acceleratedTimelinePlaybackClock && playingGapFrame === null && clockLeadSec > 0 && clockLeadSec <= 3 / fps;
         if (!clockOwnsPlayhead) {
@@ -2084,7 +2467,7 @@ export function StyledVideoPreview({
       const activeTimelinePlayback = timeMode === 'timeline' && isPlaying;
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = activeTimelinePlayback ? 'low' : 'high';
-      const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
+      const screenLayer = frame.layers?.find(isRecordingScreenLayer) ?? null;
       (window as unknown as Record<string, unknown>).__roughCutPreviewRenderDebug = {
         src,
         cameraSrc,
@@ -2168,6 +2551,78 @@ export function StyledVideoPreview({
       markDrawPhase('background');
       // Empty timeline position: no clip covers the playhead, so there is no
       // recording to draw here and the frame is empty.
+      const insertedScreen = timeMode === 'timeline' && !screenLayer ? insertedClipAt(currentFrame, 'screen') : null;
+      if (insertedScreen) {
+        publishCursorOffscreenStatus(null);
+        const insertedVideo = insertedVideosRef.current.get(insertedScreen.assetId) ?? null;
+        if (!insertedVideo || insertedVideo.readyState < 2 || insertedVideo.videoWidth <= 0) {
+          // Not decoded yet: keep the last picture rather than flash black, and retry.
+          lastDrawnFrame = -1;
+          scheduleNextDraw();
+          return;
+        }
+        // Styled exactly like the recording it sits between, so it reads as part of one video.
+        screenLayerRenderer.drawBackground({
+          ctx,
+          canvasWidth,
+          canvasHeight,
+          startColor: backgroundStart,
+          endColor: backgroundEnd,
+          image: backgroundImageRef.current,
+        });
+        if (editablePreview && alignmentGridVisibleRef.current && !parityCapture) drawAlignmentGuides(ctx, canvasWidth, canvasHeight);
+        const insertedSourceFrame = insertedScreen.sourceIn + (currentFrame - insertedScreen.timelineIn);
+        const insertedOverlays = clipOverlaysRef.current.get(insertedScreen.assetId);
+        const insertedCrop = clipZoomCropAt(insertedOverlays?.zooms ?? [], insertedSourceFrame, insertedVideo.videoWidth, insertedVideo.videoHeight);
+        drawInsertedScreenClip(ctx, insertedVideo, canvasWidth, canvasHeight, insertedCrop);
+        // A camera take recorded over the added clip is its bubble.
+        const takeOverClip = insertedClipAt(currentFrame, 'camera');
+        const takeVideo = takeOverClip ? insertedVideosRef.current.get(takeOverClip.assetId) ?? null : null;
+        if (takeVideo && takeVideo.readyState >= 2 && takeVideo.videoWidth > 0) {
+          const takePresentation = { ...(frame.cameraPresentation ?? fallbackCameraPresentation), visible: true };
+          const takeFrame = constrainCameraShapeFrame(
+            resolveCameraFrame(frame.cameraFrame ?? fallbackCameraFrame, takePresentation, canvasWidth, canvasHeight),
+            takePresentation,
+            canvasWidth,
+            canvasHeight,
+          );
+          const takeSource = resolveCameraSourceRect(takeVideo.videoWidth, takeVideo.videoHeight, takeFrame.w, takeFrame.h, undefined);
+          if (takeSource) try {
+            screenLayerRenderer.drawCamera({
+              ctx,
+              video: takeVideo,
+              canvasWidth,
+              canvasHeight,
+              frame: takeFrame,
+              source: takeSource,
+              sourceWidth: takeVideo.videoWidth,
+              sourceHeight: takeVideo.videoHeight,
+              radius: resolveCameraRadius(takePresentation, takeFrame),
+              presentation: takePresentation,
+              shadow: !activeTimelinePlayback,
+            });
+          } catch {
+            // Draw the bubble on the next decoded frame.
+          }
+        }
+        // The clip's own captions, with the project's caption look.
+        const captionLook = captionsRef.current.settings;
+        const clipLine = captionLook.enabled ? captionAtSourceFrame(insertedOverlays?.captions ?? [], insertedSourceFrame) : null;
+        if (clipLine) drawCaptionLine(ctx, clipLine.text, canvasWidth, canvasHeight, captionLook);
+        (window as unknown as Record<string, unknown>).__roughCutInsertedMediaDebug = {
+          clipId: insertedScreen.clipId,
+          lane: 'screen',
+          videoTime: insertedVideo.currentTime,
+          expectedTime: insertedSourceFrame / fps,
+          caption: clipLine?.text ?? null,
+          zoomWindow: insertedCrop,
+          videoWidth: insertedVideo.videoWidth,
+        };
+        cameraRectRef.current = null;
+        publishResolvedLayout(resolvedScreenFrame, null, canvasWidth, canvasHeight);
+        scheduleNextDraw();
+        return;
+      }
       if (timeMode === 'timeline' && !screenLayer) {
         publishCursorOffscreenStatus(null);
         // Black, not the styled backdrop. The background is part of how the
@@ -2200,7 +2655,30 @@ export function StyledVideoPreview({
       const zoomSafety = !activeTimelinePlayback && selectedZoomFocalRef.current
         ? resolveZoomAuthoringSafety({ sourceWidth, sourceHeight, scale, offsetX, offsetY, cursor: cursorPos })
         : null;
-      const cameraHasFrame = Boolean(
+      const insertedCamera = timeMode === 'timeline' ? insertedClipAt(currentFrame, 'camera') : null;
+      const insertedCameraVideo = insertedCamera ? insertedVideosRef.current.get(insertedCamera.assetId) ?? null : null;
+      // A take is always shown, in the project's camera style, even where the recording had no camera.
+      const pickupHasFrame = Boolean(
+        insertedCamera &&
+        insertedCameraVideo &&
+        insertedCameraVideo.readyState >= 2 &&
+        insertedCameraVideo.videoWidth > 0,
+      );
+      if (pickupHasFrame && frame.cameraPresentation?.visible === false) {
+        frame.cameraPresentation = { ...frame.cameraPresentation, visible: true };
+      } else if (pickupHasFrame && !frame.cameraPresentation) {
+        frame.cameraPresentation = { ...fallbackCameraPresentation, visible: true };
+      }
+      if (insertedCamera && insertedCameraVideo) {
+        (window as unknown as Record<string, unknown>).__roughCutInsertedMediaDebug = {
+          clipId: insertedCamera.clipId,
+          lane: 'camera',
+          videoTime: insertedCameraVideo.currentTime,
+          expectedTime: (insertedCamera.sourceIn + (currentFrame - insertedCamera.timelineIn)) / fps,
+        };
+      }
+      // A pickup on the camera lane takes the bubble's place; the recording's camera stays hidden under it.
+      const cameraHasFrame = !insertedCamera && Boolean(
         cameraVideo &&
         cameraSrc &&
         cameraVideo.readyState >= 2 &&
@@ -2211,7 +2689,28 @@ export function StyledVideoPreview({
       let cameraFrameForDraw: { x: number; y: number; w: number; h: number } | null = null;
       let cameraSourceForDraw: { sx: number; sy: number; sw: number; sh: number } | null = null;
       let cameraRadiusForDraw = 0;
-      if (cameraHasFrame && cameraVideo) {
+      const cameraDrawVideo = pickupHasFrame ? insertedCameraVideo : cameraVideo;
+      if (pickupHasFrame && insertedCameraVideo) {
+        const dragRect = cameraDragRef.current;
+        const rawCameraFrame = constrainCameraShapeFrame(dragRect
+          ? { x: dragRect.x * canvasWidth, y: dragRect.y * canvasHeight, w: dragRect.w * canvasWidth, h: dragRect.h * canvasHeight }
+          : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight), frame.cameraPresentation, canvasWidth, canvasHeight);
+        cameraFrameForDraw = activeTimelinePlayback
+          ? { x: Math.round(rawCameraFrame.x), y: Math.round(rawCameraFrame.y), w: Math.round(rawCameraFrame.w), h: Math.round(rawCameraFrame.h) }
+          : rawCameraFrame;
+        cameraRectRef.current = cameraFrameForDraw;
+        cameraIsCircleRef.current = frame.cameraPresentation?.shape === 'circle';
+        cameraRadiusForDraw = resolveCameraRadius(frame.cameraPresentation, cameraFrameForDraw);
+        cameraRadiusRef.current = cameraRadiusForDraw;
+        // A pickup is a different file, so the recording camera's crop (in its pixels) does not apply.
+        cameraSourceForDraw = resolveCameraSourceRect(
+          insertedCameraVideo.videoWidth,
+          insertedCameraVideo.videoHeight,
+          cameraFrameForDraw.w,
+          cameraFrameForDraw.h,
+          undefined,
+        );
+      } else if (cameraHasFrame && cameraVideo) {
         const expectedCameraTime = clampedCameraTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps);
         if (timeMode !== 'timeline' && Math.abs(cameraVideo.currentTime - expectedCameraTime) > Math.max(0.12, 2 / fps)) {
           cameraVideo.currentTime = expectedCameraTime;
@@ -2343,13 +2842,13 @@ export function StyledVideoPreview({
               style: resolvedCursor?.style ?? 'default',
               sizePercent: resolvedCursor?.sizePercent ?? 100,
             },
-            camera: cameraVideo && cameraFrameForDraw && cameraSourceForDraw
+            camera: cameraDrawVideo && cameraFrameForDraw && cameraSourceForDraw
               ? {
-                  video: cameraVideo,
+                  video: cameraDrawVideo,
                   frame: cameraFrameForDraw,
                   source: cameraSourceForDraw,
-                  sourceWidth: cameraVideo.videoWidth,
-                  sourceHeight: cameraVideo.videoHeight,
+                  sourceWidth: cameraDrawVideo.videoWidth,
+                  sourceHeight: cameraDrawVideo.videoHeight,
                   radius: cameraRadiusForDraw,
                   presentation: frame.cameraPresentation,
                   shadow: false,
@@ -2572,7 +3071,7 @@ export function StyledVideoPreview({
           offsetY,
         });
       }
-      if (cameraVideo && cameraFrameForDraw && cameraSourceForDraw) {
+      if (cameraDrawVideo && cameraFrameForDraw && cameraSourceForDraw) {
         try {
           ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.globalAlpha = 1;
@@ -2580,13 +3079,13 @@ export function StyledVideoPreview({
           ctx.filter = 'none';
           const cameraLayerStats = screenLayerRenderer.drawCamera({
             ctx,
-            video: cameraVideo,
+            video: cameraDrawVideo,
             canvasWidth,
             canvasHeight,
             frame: cameraFrameForDraw,
             source: cameraSourceForDraw,
-            sourceWidth: cameraVideo.videoWidth,
-            sourceHeight: cameraVideo.videoHeight,
+            sourceWidth: cameraDrawVideo.videoWidth,
+            sourceHeight: cameraDrawVideo.videoHeight,
             radius: cameraRadiusForDraw,
             presentation: frame.cameraPresentation,
             shadow: !activeTimelinePlayback,
@@ -2692,6 +3191,7 @@ export function StyledVideoPreview({
         return;
       }
       if (currentTimeRef.current >= timelineDuration - 1 / fps) {
+        console.warn('[playback-reset] play pressed at/after the end, time forced to 0', { was: currentTimeRef.current, timelineDuration });
         updateCurrentTime(0, { immediate: true });
       }
       setInternalPlaying(true);
@@ -2703,6 +3203,7 @@ export function StyledVideoPreview({
       try {
         const atEnd = video.ended || sourceTimeToVisibleTime(video.currentTime) >= visibleDuration - 1 / fps;
         if (atEnd) {
+          console.warn('[playback-reset] play pressed at the end, time forced to 0', { was: currentTimeRef.current });
           const startTime = visibleTimeToSourceTime(0);
           video.currentTime = startTime;
           syncCameraTime(startTime);
@@ -2858,6 +3359,36 @@ export function StyledVideoPreview({
           }}
         />
       )) : null}
+      {insertedMediaSources.map(({ assetId, url }) => (
+        <video
+          key={`inserted-${assetId}`}
+          ref={(element) => {
+            if (element) insertedVideosRef.current.set(assetId, element);
+            else insertedVideosRef.current.delete(assetId);
+          }}
+          data-inserted-asset-id={assetId}
+          crossOrigin="anonymous"
+          src={url}
+          preload="auto"
+          playsInline
+          muted
+          className="hiddenStandbySource"
+          onLoadedData={() => { previewInteractionDirtyRef.current = true; }}
+          onSeeked={() => { previewInteractionDirtyRef.current = true; }}
+        />
+      ))}
+      {voiceOverSources.map(({ assetId, url }) => (
+        <audio
+          key={`voice-${assetId}`}
+          ref={(element) => {
+            if (element) voiceOverAudiosRef.current.set(assetId, element);
+            else voiceOverAudiosRef.current.delete(assetId);
+          }}
+          data-voice-over-asset-id={assetId}
+          src={url}
+          preload="auto"
+        />
+      ))}
       <canvas
         ref={webglCanvasRef}
         className={`styledPreviewAcceleratedCanvas styledPreviewWebglCanvas${acceleratedPresentationActive ? ' isActive' : ''}`}
@@ -3202,7 +3733,8 @@ export function StyledVideoPreview({
             setIsDraggingCamera(false);
             event.currentTarget.style.cursor = '';
             try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-            if (drag) onCameraFrameChange?.(drag);
+            // A click that moved nothing is not an edit (it would add an empty undo step).
+            if (drag && dragMoved(drag, origin, event.currentTarget)) onCameraFrameChange?.(drag);
             return;
           }
           const screenOrigin = screenDragOriginRef.current;
@@ -3213,7 +3745,7 @@ export function StyledVideoPreview({
           setIsDraggingScreen(false);
           event.currentTarget.style.cursor = '';
           try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-          if (screenDrag) onScreenFrameChange?.(screenDrag);
+          if (screenDrag && dragMoved(screenDrag, screenOrigin, event.currentTarget)) onScreenFrameChange?.(screenDrag);
         }}
         onPointerCancel={(event) => {
           if (timeMode === 'timeline' && isPlaying) {
@@ -3328,6 +3860,46 @@ export function StyledVideoPreview({
       {error ? <p className="error">Video failed to load: {error}</p> : null}
     </div>
   );
+}
+
+/**
+ * Draw a clip from outside the recording: it takes the whole picture, like a cut
+ * to another shot, fitted whole with the project background (already painted)
+ * showing on the empty sides. Same geometry as the export.
+ */
+function drawInsertedScreenClip(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  canvasWidth: number,
+  canvasHeight: number,
+  // The part of the clip shown (a zoom on the clip), in its pixels; the whole picture by default.
+  crop: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: video.videoWidth, h: video.videoHeight },
+) {
+  const rect = fitInsertedClipRect(video.videoWidth, video.videoHeight, canvasWidth, canvasHeight);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.filter = 'none';
+  ctx.drawImage(video, crop.x, crop.y, crop.w, crop.h, rect.x, rect.y, rect.w, rect.h);
+}
+
+/** Whether a screen/camera drag ended anywhere other than where it started (in canvas pixels). */
+export function dragMoved(
+  drag: { x: number; y: number; w: number; h: number },
+  origin: { startX: number; startY: number; width: number; height: number },
+  canvas: { width: number; height: number },
+) {
+  return Math.abs(drag.x * canvas.width - origin.startX) >= 0.5
+    || Math.abs(drag.y * canvas.height - origin.startY) >= 0.5
+    || Math.abs(drag.w * canvas.width - origin.width) >= 0.5
+    || Math.abs(drag.h * canvas.height - origin.height) >= 0.5;
+}
+
+export function fitInsertedClipRect(clipWidth: number, clipHeight: number, canvasWidth: number, canvasHeight: number) {
+  const scale = Math.min(canvasWidth / Math.max(1, clipWidth), canvasHeight / Math.max(1, clipHeight));
+  const w = clipWidth * scale;
+  const h = clipHeight * scale;
+  return { x: (canvasWidth - w) / 2, y: (canvasHeight - h) / 2, w, h };
 }
 
 function videoErrorMessage(video: HTMLVideoElement) {

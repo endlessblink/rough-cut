@@ -7,6 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { probeCameraMediaTiming, probeVideoStreamStartOffsets } from './media-probe.mjs';
 import { buildScreenCropTrack, createCropPanSendcmdLayer, createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
+import { prerenderZoomedClipSegments } from './clip-zoom-export.mjs';
+import { clipOverlaysOnTimeline } from '../shared/clip-overlays.mjs';
 import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import {
   resolveCensorBlurSpacing,
@@ -18,13 +20,20 @@ import { timelineJoinFadeFrames } from '../shared/timeline-audio-envelope.mjs';
 import { buildGraphicsOverlayArgs, planGraphicsOverlay } from './graphics-export.mjs';
 import { buildCaptionsAss, getCaptions } from '../shared/captions.mjs';
 import { levelQuietExport } from './export-leveling.mjs';
+import { buildVoiceCleanMixSourceArgs, planVoiceCleanExport, withPrimaryRecordingPath } from './voice-clean-export.mjs';
 import { buildBackgroundGridFilter, isBackgroundGridOn } from '../shared/background-grid.mjs';
+import { EXPORT_BOOST_LIMITER, combineGains, exportGainFilter, needsBoostLimiter } from '../shared/audio-gain.mjs';
 import {
+  audioLevelGain,
   canonicalizeProjectDocument,
   createDefaultCameraPresentation,
+  getRecordingAudioLevel,
+  isDefaultAudioLevel,
   getRecordingBackgroundColors,
   getSourceStabilization,
   getStyledCanvasResolution,
+  hasInsertedMedia,
+  listInsertedClips,
   resolveTimelineLengthFrames,
 } from '@rough-cut/project-model';
 import {
@@ -83,9 +92,41 @@ export function buildGraphicsFailureResult({ styledResult, error, expected }) {
  * otherwise). Exports that are already loud enough, plain file copies and cancelled exports are not touched.
  */
 export async function exportProjectToMp4(options = {}) {
+  // Clean voice: with Amount > 0 and a fresh cleaned file, every export path
+  // runs on a stand-in recording (same video stream, preview-equal mixed sound).
+  const voiceClean = await planVoiceCleanExport({ project: options.project }).catch(() => null);
+  if (!voiceClean || !options.outputPath) return exportProjectToMp4Leveled(options);
+  assertDistinctExportPath(voiceClean.sourcePath, options.outputPath);
+  const standIn = workingExportPath(options.outputPath, 'clean-voice');
+  const onProgress = options.onProgress ?? (() => undefined);
+  try {
+    onProgress({ phase: 'mixing-clean-voice', progress: 0 });
+    await mkdir(dirname(standIn), { recursive: true });
+    const mixed = await run('ffmpeg', buildVoiceCleanMixSourceArgs({ ...voiceClean, outputPath: standIn }), { signal: options.signal ?? null });
+    if (mixed.cancelled) return createCancelledExportResult({ outputPath: options.outputPath, sourcePath: voiceClean.sourcePath });
+    if (mixed.code !== 0) {
+      throw new Error(`Could not mix the clean voice into the export: ${String(mixed.stderr ?? '').trim().split('\n').slice(-2).join(' ')}`);
+    }
+    const result = await exportProjectToMp4Leveled({ ...options, project: withPrimaryRecordingPath(options.project, standIn) });
+    if (!result || typeof result !== 'object') return result;
+    return {
+      ...result,
+      sourcePath: result.sourcePath === standIn ? voiceClean.sourcePath : result.sourcePath,
+      byteEqualCandidate: false,
+      voiceCleanAmount: voiceClean.amount,
+    };
+  } finally {
+    await rm(standIn, { force: true }).catch(() => undefined);
+  }
+}
+
+async function exportProjectToMp4Leveled(options = {}) {
   const { levelQuietVoice = true, ...exportOptions } = options;
   const result = await exportProjectToMp4WithCaptions(exportOptions);
   if (!levelQuietVoice || !result || result.cancelled || result.byteEqualCandidate) return result;
+  // A track volume the user set is their decision about the overall level:
+  // lifting a quiet export would undo it (and the preview would not match).
+  if (!isDefaultAudioLevel(options.project?.settings?.recordingAudio)) return result;
   const outputPath = result.outputPath ?? options.outputPath;
   if (!outputPath || !existsSync(outputPath)) return result;
   const leveling = await levelQuietExport(outputPath, { signal: options.signal ?? null });
@@ -259,6 +300,21 @@ export async function exportProjectToMp4Core({
     if (!(exportMode === EXPORT_MODES.RAW && (canExportTrimmedRaw || canExportRawTimeline))) {
       throw new Error('Only unedited or head/tail-trimmed single-recording exports are supported in the MVP.');
     }
+  }
+
+  // Clips from outside the recording only exist on the timeline, so a raw export of
+  // the original file cannot contain them: build it through the timeline compositor
+  // with a plain look instead (screen only, full frame, no background or styling).
+  if (exportMode === EXPORT_MODES.RAW && timelineRecording?.hasInsertedMedia) {
+    return exportStyledProjectToMp4({
+      project: { ...project, settings: { ...project.settings, aspectRatio: 'auto' } },
+      recording: plainRawRecordingForTimeline(exportRecording),
+      outputPath,
+      onProgress,
+      signal,
+      sourceStabilization,
+      cameraStabilization: null,
+    });
   }
 
   if (exportMode === EXPORT_MODES.EXPERIMENTAL_HEADLESS) {
@@ -759,9 +815,13 @@ export async function exportStyledProjectToMp4({
       })
     : null;
   const sourceHasAudio = await sourceHasAudioStream(recording.filePath, signal);
+  const plannedAudioSegments = Array.isArray(recording.timelineAudioSegments) ? recording.timelineAudioSegments : recording.timelineSegments;
+  // A recording without sound can still carry an inserted clip's or a pickup's.
+  const timelineAudioSegments = (Array.isArray(plannedAudioSegments) ? plannedAudioSegments : [])
+    .filter((segment) => (segment?.inputPath ? segment.hasAudio !== false : sourceHasAudio));
   const includeTimelineAudio = Array.isArray(recording.timelineSegments)
     && recording.timelineSegments.length > 0
-    && sourceHasAudio;
+    && timelineAudioSegments.length > 0;
   // Needed only to place the camera's per-segment seeks on the same frame the
   // old frame-count trim picked; a failed probe just means "assume 0".
   const cameraSourceStartSeconds = recording.camera?.filePath
@@ -771,8 +831,18 @@ export async function exportStyledProjectToMp4({
     ? await probeCameraMediaTiming(recording.camera.filePath, { runner: (command, args) => run(command, args, { signal }) }).catch(() => null)
     : null;
   let useSimpleFastPath = false;
+  let clipZoomPieces = null;
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
+    // Zooms on added clips: those spans are rendered zoomed first, then used as is.
+    clipZoomPieces = await prerenderZoomedClipSegments({
+      segments: recording.timelineSegments ?? [],
+      document: project,
+      fps,
+      run,
+      probeSize: probeVideoSize,
+      signal,
+    });
     const durationSeconds = ((recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration) - cutRemap.removedFrames) / fps;
     const videoEncoder = await resolveStyledVideoEncoder(signal);
     const styledArgsInput = {
@@ -797,9 +867,9 @@ export async function exportStyledProjectToMp4({
       sourceFps: recording.fps,
       sourceTrimStartFrame: recording.sourceIn ?? 0,
       sourceTrimEndFrame: recording.sourceOut ?? recording.duration,
-      timelineSegments: recording.timelineSegments ?? [],
+      timelineSegments: clipZoomPieces.segments,
       timelineDurationFrames: recording.timelineDurationFrames ?? null,
-      timelineAudioSegments: includeTimelineAudio ? recording.timelineSegments ?? [] : [],
+      timelineAudioSegments: includeTimelineAudio ? timelineAudioSegments : [],
       sourceHasAudio,
       zoomCropFilter: zoomLayer?.filterFragment ?? null,
       zoomSendcmdPath: zoomLayer?.path ?? null,
@@ -898,6 +968,7 @@ export async function exportStyledProjectToMp4({
     if (cursorLayer) await cursorLayer.cleanup();
     if (zoomLayer) await zoomLayer.cleanup();
     if (cropPanLayer) await cropPanLayer.cleanup();
+    if (clipZoomPieces) await clipZoomPieces.cleanup();
   }
   const exported = await stat(outputPath);
   onProgress({ phase: 'complete', progress: 1 });
@@ -966,6 +1037,18 @@ function createCancelledExportResult({ outputPath, sourcePath }) {
   };
 }
 
+/**
+ * Adds `audioGain` (clip volume x track volume) to a recording section's
+ * export segment when it is not 100%; leaves the segment untouched otherwise.
+ */
+function sectionAudioGain(project) {
+  const trackGain = audioLevelGain(getRecordingAudioLevel(project?.settings));
+  return (segment, clip) => {
+    const gain = combineGains(audioLevelGain(clip?.audio), trackGain);
+    return gain === 1 ? segment : { ...segment, audioGain: gain };
+  };
+}
+
 export function resolveTimelineExportRecording(project, recording, { exportScope = EXPORT_SCOPES.TIMELINE } = {}) {
   const timelineModel = selectPrimaryTimelineModel(project, recording?.assetId);
   if (!timelineModel || timelineModel.screenClips.length === 0) return null;
@@ -988,24 +1071,31 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
   }));
   const sourceIn = screenClips[0].sourceIn;
   const sourceOut = screenClips[screenClips.length - 1].sourceOut;
-  const needsSegmentComposition = screenClips.length !== 1
+  // Sound level per section: the clip's own volume x the track volume, exactly
+  // what the preview's gain nodes play. A section not at 100% sends the export
+  // through the per-section path, the only one that can apply it (a plain copy
+  // or a single-clip pass has no per-section audio).
+  const withSectionGain = sectionAudioGain(project);
+  const hasAudioGain = screenClips.some((clip) => withSectionGain({}, clip).audioGain !== undefined);
+  const needsSegmentComposition = hasAudioGain
+    || screenClips.length !== 1
     || screenClips[0].timelineIn !== 0
     || screenClips[0].timelineOut !== timelineDurationFrames
     || cameraClips.some((clip, index) => clip.timelineIn !== screenClips[index]?.timelineIn || clip.timelineOut !== screenClips[index]?.timelineOut);
   const timelineSegments = needsSegmentComposition
-    ? screenClips.map((clip) => ({
+    ? screenClips.map((clip) => withSectionGain({
         timelineIn: clip.timelineIn,
         timelineOut: clip.timelineOut,
         sourceIn: clip.sourceIn,
         sourceOut: clip.sourceOut,
-      }))
+      }, clip))
     : [];
-  const timingSegments = screenClips.map((clip) => ({
+  const timingSegments = screenClips.map((clip) => withSectionGain({
     timelineIn: clip.timelineIn,
     timelineOut: clip.timelineOut,
     sourceIn: clip.sourceIn,
     sourceOut: clip.sourceOut,
-  }));
+  }, clip));
   const cameraTimelineSegments = needsSegmentComposition
     ? cameraClips.map((clip) => ({
         timelineIn: clip.timelineIn,
@@ -1027,6 +1117,14 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
     timelineDurationFrames,
   );
   const cutRanges = shiftMarkersForExport(timelineModel.cutRanges, timelineOffset, timelineDurationFrames);
+  const inserted = resolveInsertedExportSegments(timelineModel, {
+    recording,
+    timelineOffset,
+    timelineDurationFrames,
+    screenSegments: timingSegments,
+    cameraSegments: cameraClips.map((clip) => ({ timelineIn: clip.timelineIn, timelineOut: clip.timelineOut, sourceIn: clip.sourceIn, sourceOut: clip.sourceOut })),
+    withSectionGain,
+  });
 
   return {
     ...recording,
@@ -1034,18 +1132,29 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
     sourceOut,
     trimmedDuration: timelineDurationFrames,
     timelineDurationFrames,
-    timelineSegments,
+    ...(inserted ?? {}),
+    timelineSegments: inserted?.timelineSegments ?? timelineSegments,
     cursorEvents: mapCursorEventsToTimeline(recording.cursorEvents, timingSegments),
     // A moving screen crop is resolved in recording frames, like the preview,
     // so it keeps the unmapped cursor and the timeline→recording mapping.
     sourceCursorEvents: recording.cursorEvents,
     sourceTimingSegments: timingSegments,
-    camera: recording.camera && cameraClips[0]
-      ? { ...recording.camera, sourceInFrames: cameraClips[0].sourceIn, timelineSegments: cameraTimelineSegments }
+    camera: recording.camera && (cameraClips[0] || inserted?.cameraTimelineSegments)
+      ? {
+          ...recording.camera,
+          sourceInFrames: cameraClips[0]?.sourceIn ?? recording.camera.sourceInFrames ?? 0,
+          timelineSegments: inserted?.cameraTimelineSegments ?? cameraTimelineSegments,
+        }
       : recording.camera,
     zoomMarkers,
     // Caption lines on the timeline (the clips already carry any timeline offset).
-    captionCues: mapSourceMarkersToTimeline(getCaptions(project).cues, timingSegments)
+    captionCues: [
+      ...mapSourceMarkersToTimeline(getCaptions(project).cues, timingSegments),
+      // Lines placed on added clips, already in timeline frames.
+      ...clipOverlaysOnTimeline(timelineModel.document ?? project).captions
+        .map((cue) => ({ ...cue, startFrame: cue.startFrame - timelineOffset, endFrame: cue.endFrame - timelineOffset })),
+    ]
+      .sort((left, right) => left.startFrame - right.startFrame)
       .map((cue) => ({
         ...cue,
         startFrame: clampFrame(cue.startFrame, 0, Math.max(0, timelineDurationFrames - 1)),
@@ -1053,6 +1162,111 @@ export function resolveTimelineExportRecording(project, recording, { exportScope
       }))
       .filter((cue) => cue.endFrame > cue.startFrame),
     cutRanges: cutRanges.length > 0 ? cutRanges : recording.cutRanges,
+  };
+}
+
+/**
+ * Sections that come from files other than the recording (inserted clips and camera
+ * pickups). Each one carries its own `inputPath`, so the compositor gives it its own
+ * seeked input. Only called when the project has inserted media; otherwise the
+ * recording-only plan above is used untouched.
+ */
+function resolveInsertedExportSegments(timelineModel, { recording, timelineOffset, timelineDurationFrames, screenSegments, cameraSegments, withSectionGain = (segment) => segment }) {
+  const document = timelineModel.document;
+  if (!hasInsertedMedia(document)) return null;
+  const inside = (clip) => clip.timelineOut - timelineOffset > 0 && clip.timelineIn - timelineOffset < timelineDurationFrames;
+  const shifted = (clip) => ({
+    timelineIn: clip.timelineIn - timelineOffset,
+    timelineOut: clip.timelineOut - timelineOffset,
+    sourceIn: clip.sourceIn,
+    sourceOut: clip.sourceOut,
+  });
+  const insertedClips = listInsertedClips(document).filter(inside);
+  if (insertedClips.length === 0) return null;
+  const insertedPart = (clip) => ({ ...shifted(clip), inputPath: clip.filePath, inserted: true, hasAudio: clip.hasAudio, assetId: clip.assetId });
+  const byTimeline = (left, right) => left.timelineIn - right.timelineIn || left.timelineOut - right.timelineOut;
+  const timelineSegments = [
+    ...screenSegments,
+    ...insertedClips.filter((clip) => clip.lane === 'screen').map(insertedPart),
+  ].sort(byTimeline);
+  const insertedCamera = insertedClips.filter((clip) => clip.lane === 'camera').map(insertedPart);
+  // A camera take covers the recording's camera (and voice) for its range; the
+  // recording's own clips stay on their lanes, so they are left out only here.
+  const takeRanges = insertedCamera.map((segment) => [segment.timelineIn, segment.timelineOut]);
+  const cameraTimelineSegments = recording.camera || insertedCamera.length > 0
+    ? [...withoutRanges(cameraSegments, takeRanges), ...insertedCamera].sort(byTimeline)
+    : null;
+  // Sound follows the audio lane itself: a pickup replaces the recording's sound
+  // for its span, an inserted clip brings its own.
+  const recordingGroupId = `linked:${recording.assetId}`;
+  const audioTrack = document.timeline.tracks.find((track) => track.kind === 'audio' && track.enabled !== false && !track.muted
+    && track.clips.some((clip) => clip.linkGroupId === recordingGroupId));
+  const insertedSourceIds = new Set(insertedClips.map((clip) => `source:${clip.assetId}`));
+  const audioClips = (audioTrack?.clips ?? []).filter(inside);
+  const recordingAudio = audioClips.filter((clip) => clip.linkGroupId === recordingGroupId && !insertedSourceIds.has(clip.mediaId)).map((clip) => withSectionGain(shifted(clip), clip));
+  const insertedAudio = insertedClips.filter((clip) => clip.lane === 'audio').map(insertedPart);
+  // A camera take's voice, or a voice-over set to replace, mutes the recording under it.
+  const voicedTakeRanges = insertedClips
+    .filter((clip) => (clip.lane === 'camera' && clip.hasAudio) || (clip.kind === 'voice' && clip.voiceMode === 'replace'))
+    .map((clip) => [clip.timelineIn - timelineOffset, clip.timelineOut - timelineOffset]);
+  return {
+    hasInsertedMedia: true,
+    timelineSegments,
+    timelineAudioSegments: [...withoutRanges(audioTrack ? recordingAudio : screenSegments, voicedTakeRanges), ...insertedAudio].sort(byTimeline),
+    cameraTimelineSegments,
+  };
+}
+
+/** Timeline sections with the given [in, out) spans cut out of them (source frames follow). */
+function withoutRanges(segments, ranges) {
+  return segments.flatMap((segment) => {
+    let pieces = [segment];
+    for (const [rangeIn, rangeOut] of ranges) {
+      pieces = pieces.flatMap((piece) => {
+        if (rangeOut <= piece.timelineIn || rangeIn >= piece.timelineOut) return [piece];
+        const kept = [];
+        if (rangeIn > piece.timelineIn) {
+          kept.push({ ...piece, timelineOut: rangeIn, sourceOut: piece.sourceIn + (rangeIn - piece.timelineIn) });
+        }
+        if (rangeOut < piece.timelineOut) {
+          kept.push({ ...piece, timelineIn: rangeOut, sourceIn: piece.sourceIn + (rangeOut - piece.timelineIn) });
+        }
+        return kept;
+      });
+    }
+    return pieces;
+  });
+}
+
+/** The plain look a raw export has: the screen lane, full frame, nothing drawn over it. */
+function plainRawRecordingForTimeline(recording) {
+  const presentation = recording.presentation ?? {};
+  return {
+    ...recording,
+    cursorEvents: [],
+    sourceCursorEvents: [],
+    zoomMarkers: [],
+    camera: null,
+    captionCues: [],
+    presentation: {
+      ...presentation,
+      zoom: { ...(presentation.zoom ?? {}), markers: [] },
+      screenCrop: undefined,
+      screenFrame: null,
+      cameraFrame: null,
+      censorRegions: presentation.censorRegions ?? [],
+      framingRanges: [],
+      background: {
+        ...(presentation.background ?? {}),
+        bgImage: null,
+        bgPadding: 0,
+        bgCornerRadius: 0,
+        bgShadowEnabled: false,
+        bgShadowOpacity: 0,
+        bgInset: 0,
+        bgGrid: false,
+      },
+    },
   };
 }
 
@@ -1770,14 +1984,18 @@ export function buildStyledExportArgs({
   // these inputs afterwards leaves every existing index reference correct.
   // Skipped when stabilization is active: that filter is built off whole-input [0:v].
   const segmentInputBase = cameraInputPath ? 2 : 1;
+  // Clips from outside the recording take the whole picture (the insert layer below),
+  // so the screen lane composes only the recording and those spans are gaps in it.
+  const screenTimelineSegments = normalizedTimelineSegments.filter((segment) => !segment.inputPath);
+  const insertedPictureSegments = normalizedTimelineSegments.filter((segment) => segment.inputPath);
   const useSegmentInputs = useTimelineSegments
-    && normalizedTimelineSegments.length > 1
+    && screenTimelineSegments.length > 1
     && !sourceStabilizationTransform?.transformPath;
   const segmentInputLabels = useSegmentInputs
-    ? normalizedTimelineSegments.map((_segment, index) => `[${segmentInputBase + index}:v]`)
+    ? screenTimelineSegments.map((_segment, index) => `[${segmentInputBase + index}:v]`)
     : null;
   const segmentInputArgs = useSegmentInputs
-    ? normalizedTimelineSegments.flatMap((segment) => [
+    ? screenTimelineSegments.flatMap((segment) => [
         '-ss', formatFilterNumber(segment.sourceIn / fps),
         '-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps),
         '-i', inputPath,
@@ -1789,10 +2007,10 @@ export function buildStyledExportArgs({
   // concat drains the earlier branches — tens of GB of raw RGBA, which the
   // memory cap turns into a SIGKILL with no ffmpeg error line at all.
   // These inputs go last so the screen's indices stay put.
-  const cameraSegmentInputBase = segmentInputBase + (useSegmentInputs ? normalizedTimelineSegments.length : 0);
+  const cameraSegmentInputBase = segmentInputBase + (useSegmentInputs ? screenTimelineSegments.length : 0);
+  const hasInsertedCameraSegments = normalizedCameraTimelineSegments.some((segment) => segment.inputPath);
   const useCameraSegmentInputs = useCameraTimelineSegments
-    && normalizedCameraTimelineSegments.length > 1
-    && !cameraStabilizationTransform?.transformPath;
+    && (hasInsertedCameraSegments || (normalizedCameraTimelineSegments.length > 1 && !cameraStabilizationTransform?.transformPath));
   const cameraSegmentInputLabels = useCameraSegmentInputs
     ? normalizedCameraTimelineSegments.map((_segment, index) => `[${cameraSegmentInputBase + index}:v]`)
     : null;
@@ -1800,7 +2018,12 @@ export function buildStyledExportArgs({
   // container clock, and the camera stream rarely starts at exactly 0. Adding its
   // start offset back keeps the seek landing on the same frame the trim did.
   const cameraSegmentInputArgs = useCameraSegmentInputs
-    ? normalizedCameraTimelineSegments.flatMap((segment) => [
+    ? normalizedCameraTimelineSegments.flatMap((segment) => segment.inputPath ? [
+        // A camera pickup is its own file on its own clock: a plain seek into it.
+        '-ss', formatFilterNumber(segment.sourceIn / fps),
+        '-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps),
+        '-i', segment.inputPath,
+      ] : [
         ...(virtualCameraClock ? ['-noaccurate_seek'] : []),
         '-seek_timestamp', '1',
         '-ss', formatCameraSeekSeconds(Math.max(0, cameraSourceStartSeconds + (virtualCameraClock
@@ -1814,7 +2037,7 @@ export function buildStyledExportArgs({
     : [];
   const sourceBaseFilters = useTimelineSegments
     ? buildTimelineVideoBaseFilters({
-        segments: normalizedTimelineSegments,
+        segments: screenTimelineSegments,
         sourceWidth,
         sourceHeight,
         fps,
@@ -1847,7 +2070,11 @@ export function buildStyledExportArgs({
         outputLabel: 'camera_base',
         transparent: true,
         sourceFrameFilter: cameraFrameFilter,
-        segmentFrameFilters: virtualCameraClock ? normalizedCameraTimelineSegments.map(segment => {
+        segmentFrameFilters: virtualCameraClock || hasInsertedCameraSegments ? normalizedCameraTimelineSegments.map(segment => {
+          if (segment.inputPath) {
+            return insertedSegmentFrameFilter({ fps, width: cameraSourceWidth, height: cameraSourceHeight, frames: segment.sourceOut - segment.sourceIn, mode: 'cover' });
+          }
+          if (!virtualCameraClock) return null;
           const endFrame = Number.isFinite(cameraDecodedDurationSeconds) ? cameraDelayFrames + Math.round(cameraDecodedDurationSeconds * fps) : Infinity;
           // A seek past decoded media is seeded from its last frame. Count that
           // frame inside the remaining hold budget; after the budget every
@@ -1878,11 +2105,57 @@ export function buildStyledExportArgs({
   // Hidden ranges on a single un-split clip cut the video with `select`; the audio
   // must be cut over the same spans or it would drift (or, as before, vanish).
   const useCutAudio = !useTimelineAudio && !useTimelineSegments && normalizedCutRanges.length > 0 && Boolean(sourceHasAudio);
+  // The insert layer: each added clip fitted whole into the picture, on the project
+  // background, shown over everything below it (screen, cursor, zooms) for its span.
+  // Every clip has its own seeked input; tpad holds its last frame so a variable-rate
+  // file never comes up short and shifts the clips after it.
+  const insertedPictureInputBase = cameraSegmentInputBase + (useCameraSegmentInputs ? normalizedCameraTimelineSegments.length : 0);
+  const insertedPictureInputArgs = insertedPictureSegments.flatMap((segment) => [
+    '-ss', formatFilterNumber(segment.sourceIn / fps),
+    '-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps),
+    '-i', segment.inputPath,
+  ]);
+  const insertLayerFilters = insertedPictureSegments.length > 0
+    ? [
+        ...buildTimelineVideoBaseFilters({
+          segments: insertedPictureSegments,
+          sourceWidth: width,
+          sourceHeight: height,
+          fps,
+          durationFrames: timelineDuration,
+          segmentInputLabels: insertedPictureSegments.map((_segment, index) => `[${insertedPictureInputBase + index}:v]`),
+          segmentFrameFilters: insertedPictureSegments.map((segment) => insertedSegmentFrameFilter({ fps, width, height, frames: segment.sourceOut - segment.sourceIn, mode: 'canvas' })),
+          outputLabel: 'insert_pictures',
+          transparent: true,
+        }),
+        '[bg]split=2[bg_main][bg_insert]',
+        '[bg_insert][insert_pictures]overlay=0:0:shortest=1[insert_layer]',
+      ]
+    : [];
+  const insertLayerEnable = insertedPictureSegments
+    .map((segment) => `between(t,${formatFilterNumber(segment.timelineIn / fps)},${formatFilterNumber((segment.timelineOut - 0.5) / fps)})`)
+    .join('+');
+  // Inserted sound gets its own seeked input, after every video input.
+  const audioSegmentInputBase = insertedPictureInputBase + insertedPictureSegments.length;
+  const insertedAudioInputs = [];
+  const audioInputLabels = normalizedTimelineAudioSegments.map((segment) => {
+    if (!segment.inputPath) return null;
+    insertedAudioInputs.push(segment);
+    return `${audioSegmentInputBase + insertedAudioInputs.length - 1}:a`;
+  });
+  const audioSegmentInputArgs = useTimelineAudio
+    ? insertedAudioInputs.flatMap((segment) => [
+        '-ss', formatFilterNumber(segment.sourceIn / fps),
+        '-t', formatFilterNumber((Math.max(1, segment.sourceOut - segment.sourceIn) + SEGMENT_INPUT_TAIL_FRAMES) / fps),
+        '-i', segment.inputPath,
+      ])
+    : [];
   const audioFilters = useTimelineAudio
     ? buildTimelineAudioFilters({
         segments: normalizedTimelineAudioSegments,
         fps,
         durationFrames: timelineDuration,
+        segmentInputLabels: audioInputLabels,
       })
     : useCutAudio
       ? [buildCutAudioFilter(normalizedCutRanges, trimStartFrame, fps)]
@@ -1892,8 +2165,9 @@ export function buildStyledExportArgs({
     `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=gray,geq=lum='${screenAlpha}',${staticLoop}[screen_mask]`,
     '[screen][screen_mask]alphamerge[rounded]',
     `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=rgba,geq=r='0':g='0':b='0':a='(${screenAlpha})*${formatFilterNumber(shadowOpacity)}',boxblur=${shadowBlur}:5,${staticLoop}[shadow]`,
-    `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
-    `[with_shadow][rounded]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
+    `${insertLayerFilters.length > 0 ? '[bg_main]' : '[bg]'}[shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
+    `[with_shadow][rounded]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[${insertLayerFilters.length > 0 ? 'with_screen_base' : 'with_screen'}]`,
+    ...(insertLayerFilters.length > 0 ? [`[with_screen_base][insert_layer]overlay=0:0:enable='${insertLayerEnable}'[with_screen]`] : []),
   ];
   const filter = [
     ...backgroundFilter,
@@ -1901,6 +2175,7 @@ export function buildStyledExportArgs({
     ...(cameraBaseTransformFilter ? [cameraBaseTransformFilter] : []),
     ...sourceBaseFilters,
     ...cameraBaseFilters,
+    ...insertLayerFilters,
     ...audioFilters,
     ...censorLayer.filters,
     ...(cursorAssPath ? [`${censorLayer.outputLabel}subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
@@ -1932,6 +2207,8 @@ export function buildStyledExportArgs({
     ...(cameraInputPath ? ['-i', cameraInputPath] : []),
     ...segmentInputArgs,
     ...cameraSegmentInputArgs,
+    ...insertedPictureInputArgs,
+    ...audioSegmentInputArgs,
     '-filter_complex',
     filter,
     '-map',
@@ -2309,9 +2586,20 @@ function normalizeTimelineSegments(segments) {
       const sourceIn = Math.max(0, Math.round(Number(segment?.sourceIn) || 0));
       const sourceOut = Math.max(sourceIn + 1, Math.round(Number(segment?.sourceOut) || 0));
       const duration = Math.min(timelineOut - timelineIn, sourceOut - sourceIn);
-      return duration > 0
-        ? { timelineIn, timelineOut: timelineIn + duration, sourceIn, sourceOut: sourceIn + duration }
-        : null;
+      if (!(duration > 0)) return null;
+      const gain = Number(segment?.audioGain);
+      const normalized = {
+        timelineIn,
+        timelineOut: timelineIn + duration,
+        sourceIn,
+        sourceOut: sourceIn + duration,
+        // A section's own sound level (clip x track volume); absent = as recorded.
+        ...(Number.isFinite(gain) && gain !== 1 ? { audioGain: Math.max(0, gain) } : {}),
+      };
+      // Sections from another file (inserted clips, camera pickups) keep their file.
+      return typeof segment?.inputPath === 'string' && segment.inputPath
+        ? { ...normalized, inputPath: segment.inputPath, hasAudio: segment.hasAudio !== false }
+        : normalized;
     })
     .filter(Boolean)
     .sort((left, right) => left.timelineIn - right.timelineIn || left.timelineOut - right.timelineOut || left.sourceIn - right.sourceIn);
@@ -2403,7 +2691,22 @@ function buildTimelineVideoBaseFilters({
   return filters;
 }
 
-function buildTimelineAudioFilters({ segments, fps, durationFrames, audioInputLabel = '0:a' }) {
+/**
+ * Video filter for a section that comes from another file: constant frame rate,
+ * fitted to the lane's frame size, and padded with its last frame so it always
+ * yields exactly `frames` frames.
+ */
+function insertedSegmentFrameFilter({ fps, width, height, frames, mode }) {
+  const w = Math.max(2, Math.round(Number.isFinite(width) ? width : 1280));
+  const h = Math.max(2, Math.round(Number.isFinite(height) ? height : 720));
+  const fit = mode === 'cover'
+    ? `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`
+    // Fitted whole; the empty sides stay clear so the background shows through.
+    : `scale=${w}:${h}:force_original_aspect_ratio=decrease,format=rgba,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black@0`;
+  return `fps=${formatFilterNumber(fps)},setpts=PTS-STARTPTS,${fit},setsar=1,tpad=stop_mode=clone:stop=${Math.max(1, Math.round(frames))}`;
+}
+
+function buildTimelineAudioFilters({ segments, fps, durationFrames, audioInputLabel = '0:a', segmentInputLabels = null }) {
   const durationSeconds = formatFilterNumber(Math.max(1, Math.round(durationFrames || 1)) / fps);
   const filters = [`anullsrc=channel_layout=stereo:sample_rate=48000:d=${durationSeconds}[audio_blank]`];
   const labels = ['[audio_blank]'];
@@ -2430,14 +2733,22 @@ function buildTimelineAudioFilters({ segments, fps, durationFrames, audioInputLa
         )}:d=${formatFilterNumber(fadeOutFrames / fps)}`,
       );
     }
+    // The section's own level (clip x track volume), same gain the preview plays.
+    const gainFilter = exportGainFilter(segment.audioGain ?? 1);
+    if (gainFilter) joinFilters.push(gainFilter);
+    // A section with its own seeked input starts at its first sample.
+    const ownInput = segmentInputLabels?.[index] ?? null;
     filters.push(
-      `[${audioInputLabel}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS${
+      `[${ownInput ?? audioInputLabel}]atrim=start=${ownInput ? 0 : start}:end=${ownInput ? formatFilterNumber(duration) : end},asetpts=PTS-STARTPTS${
         joinFilters.length > 0 ? `,${joinFilters.join(',')}` : ''
       },adelay=${delayMs}:all=1[${label}]`,
     );
     labels.push(`[${label}]`);
   });
-  filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=0:normalize=0[a]`);
+  // Boosted sound (over 100%) is peak-limited so it cannot clip harshly.
+  const boosted = needsBoostLimiter(segments.map((segment) => segment.audioGain ?? 1));
+  filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=0:normalize=0[${boosted ? 'a_boosted' : 'a'}]`);
+  if (boosted) filters.push(`[a_boosted]${EXPORT_BOOST_LIMITER}[a]`);
   return filters;
 }
 
@@ -2982,8 +3293,11 @@ function canExportStyledTimeline(project, assetId, { exportScope = EXPORT_SCOPES
     if (track.kind !== 'video' || track.enabled === false) return [];
     return (track.clips ?? []).filter((clip) => clip.enabled !== false);
   });
-  const unsupportedClips = enabledVideoClips.filter((clip) => clip.mediaId !== model.primarySourceId && clip.linkGroupId !== linkedGroupId);
+  const insertedSources = new Set(listInsertedClips(model.document).map((clip) => `source:${clip.assetId}`));
+  const unsupportedClips = enabledVideoClips.filter((clip) => clip.mediaId !== model.primarySourceId && clip.linkGroupId !== linkedGroupId && !insertedSources.has(clip.mediaId));
   if (unsupportedClips.length > 0) return false;
+  // Inserted footage is composed section by section, so the camera need not line up with the screen.
+  if (insertedSources.size > 0) return true;
 
   const linkedVideoClips = enabledVideoClips.filter((clip) => clip.mediaId !== model.primarySourceId);
   if (linkedVideoClips.length === 0) return true;
@@ -3165,6 +3479,9 @@ export function memoryCappedCommand(command, args, platform = process.platform) 
       ...(cap && cap !== '0' && cap.toLowerCase() !== 'off' ? ['-p', `MemoryMax=${cap}`, '-p', 'MemorySwapMax=0'] : []),
       ...(cpuQuota && cpuQuota !== '0' && cpuQuota.toLowerCase() !== 'off' ? ['-p', `CPUQuota=${cpuQuota}`] : []),
       ...(ioWeight && ioWeight !== '0' && ioWeight.toLowerCase() !== 'off' ? ['-p', `IOWeight=${ioWeight}`] : []),
+      // Low CPU and idle-class disk priority on top of the scope limits, so a
+      // render yields to the desktop instead of freezing it.
+      'nice', '-n', '10', 'ionice', '-c', '3',
       command,
       ...args,
     ],
@@ -3240,6 +3557,11 @@ async function probeDurationSeconds(inputPath, signal = null) {
   const result = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', inputPath], { signal });
   const value = Number(String(result.stdout ?? '').trim());
   return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+/** ffmpeg through the same capped, low-priority wrapper the export uses. */
+export function runCappedFfmpeg(args, options = {}) {
+  return run('ffmpeg', args, options);
 }
 
 async function run(command, args, options = {}) {

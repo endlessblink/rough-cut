@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rough Cut - AI versions mockup</title>
+<style>
+  :root{--bg:#0f1115;--panel:#161a21;--panel2:#1c212a;--line:#2a313c;--text:#e8ecf2;--mute:#8d97a6;--accent:#6ea8ff;--ok:#5fd39a;--cut:#ff7a7a;--warn:#f3c969}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+  .app{display:grid;grid-template-columns:260px 1fr 340px;grid-template-rows:44px 1fr 190px;height:100vh;min-height:720px}
+  header{grid-column:1/4;display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header b{font-weight:600}
+  header .tab{color:var(--mute);padding:4px 10px;border-radius:6px}
+  header .tab.on{color:var(--text);background:var(--panel2)}
+  header .sp{flex:1}
+  .btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:6px 12px;border-radius:8px;font:inherit;cursor:pointer}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#08121f;font-weight:600}
+  .btn.ghost{background:transparent}
+  aside{border-right:1px solid var(--line);background:var(--panel);padding:14px;overflow:auto}
+  h3{margin:0 0 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:600}
+  .ver{border:1px solid var(--line);background:var(--panel2);border-radius:10px;padding:10px;margin-bottom:10px;cursor:pointer}
+  .ver.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .ver .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .ver .name{font-weight:600}
+  .ver .meta{color:var(--mute);font-size:12px;margin-top:2px}
+  .badge{font-size:11px;padding:2px 7px;border-radius:99px;background:#243247;color:var(--accent)}
+  .badge.ai{background:#2a2447;color:#b79bff}
+  .badge.you{background:#1f3a2e;color:var(--ok)}
+  .bar{height:8px;border-radius:4px;background:#2c3440;margin-top:8px;position:relative;overflow:hidden}
+  .bar i{position:absolute;top:0;bottom:0;background:var(--cut);opacity:.85}
+  main{display:flex;flex-direction:column;background:#0b0d11}
+  .stage{flex:1;display:flex;align-items:center;justify-content:center;padding:18px;position:relative}
+  .screen{width:100%;max-width:760px;aspect-ratio:16/9;background:linear-gradient(135deg,#1b2230,#10141b);border:1px solid var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--mute);position:relative}
+  .cam{position:absolute;right:14px;bottom:14px;width:110px;height:110px;border-radius:50%;background:#2b3442;border:2px solid #3a4558}
+  .compare{position:absolute;top:26px;left:50%;transform:translateX(-50%);display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel);z-index:2}
+  .compare span{padding:5px 12px;color:var(--mute);font-size:12px}
+  .compare span.on{background:var(--accent);color:#08121f;font-weight:600}
+  .join{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:12px;color:var(--warn);white-space:nowrap}
+  .panel{border-left:1px solid var(--line);background:var(--panel);padding:14px;overflow:auto}
+  .sug{border:1px solid var(--line);border-radius:10px;background:var(--panel2);padding:10px;margin-bottom:8px}
+  .sug .top{display:flex;justify-content:space-between;gap:8px}
+  .kind{font-size:11px;padding:2px 7px;border-radius:99px}
+  .kind.retake{background:#3a2f1a;color:var(--warn)}
+  .kind.silence{background:#1c3140;color:#7cc7ff}
+  .kind.privacy{background:#3d1f24;color:var(--cut)}
+  .sug p{margin:6px 0;color:var(--mute);font-size:12px}
+  .sug .acts{display:flex;gap:6px}
+  .sug .acts .btn{padding:3px 9px;font-size:12px}
+  .sum{display:flex;gap:8px;margin:0 0 12px}
+  .sum div{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  .sum b{display:block;font-size:18px}
+  .sum small{color:var(--mute)}
+  .timeline{grid-column:1/4;border-top:1px solid var(--line);background:var(--panel);padding:12px 16px}
+  .lane{display:flex;align-items:center;gap:10px;margin:6px 0}
+  .lane label{width:150px;color:var(--mute);font-size:12px}
+  .track{flex:1;height:26px;background:#232a35;border-radius:6px;position:relative;overflow:hidden}
+  .track i{position:absolute;top:0;bottom:0}
+  .keep{background:#35507a}
+  .gone{background:repeating-linear-gradient(45deg,#7a3a3a,#7a3a3a 5px,#5c2b2b 5px,#5c2b2b 10px)}
+  .aiv{background:#4a3a7a}
+  .note{color:var(--mute);font-size:12px;margin-top:8px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .legend span{margin-right:14px}
+  @media (max-width:900px){.app{grid-template-columns:1fr;grid-template-rows:auto;height:auto}header,.timeline{grid-column:1}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <b>Rough Cut</b>
+    <span class="tab">Record</span><span class="tab on">Recording edit</span><span class="tab">Graphics</span><span class="tab">Export</span>
+    <span class="sp"></span>
+    <button class="btn ghost">Ask AI to edit…</button>
+    <button class="btn primary">Export</button>
+  </header>
+
+  <aside>
+    <h3>Versions of this video</h3>
+    <div class="ver">
+      <div class="row"><span class="name">Original recording</span><span class="badge">raw</span></div>
+      <div class="meta">18:00 · untouched, always kept</div>
+    </div>
+    <div class="ver on">
+      <div class="row"><span class="name">AI cut v2</span><span class="badge ai">AI</span></div>
+      <div class="meta">10:25 · repeats, waits, private screens out</div>
+      <div class="bar"><i style="left:3%;width:6%"></i><i style="left:14%;width:3%"></i><i style="left:24%;width:12%"></i><i style="left:40%;width:10%"></i><i style="left:61%;width:8%"></i><i style="left:76%;width:6%"></i></div>
+    </div>
+    <div class="ver">
+      <div class="row"><span class="name">AI cut v1</span><span class="badge ai">AI</span></div>
+      <div class="meta">10:44 · first pass, kept more waiting</div>
+    </div>
+    <div class="ver">
+      <div class="row"><span class="name">My edit</span><span class="badge you">you</span></div>
+      <div class="meta">your own work · never changed by AI</div>
+    </div>
+    <button class="btn" style="width:100%;margin-top:6px">+ Ask AI for another version</button>
+    <p class="note">Every AI version is a normal project with the original recording linked, so you can open it, change it, or delete it.</p>
+  </aside>
+
+  <main>
+    <div class="stage">
+      <div class="compare"><span>Original</span><span class="on">AI cut v2</span><span>Side by side</span></div>
+      <div class="screen">Preview · AI cut v2 · 04:12
+        <div class="cam"></div>
+        <div class="join">▲ you are at a cut: repeat removed (said again 4 s later)</div>
+      </div>
+    </div>
+  </main>
+
+  <section class="panel">
+    <h3>What AI changed (21)</h3>
+    <div class="sum">
+      <div><b>7:35</b><small>removed</small></div>
+      <div><b>3</b><small>private screens</small></div>
+      <div><b>9</b><small>repeats</small></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn primary" style="flex:1">Take all</button>
+      <button class="btn" style="flex:1">Review each</button>
+    </div>
+    <div class="sug">
+      <div class="top"><b>00:00 – 00:55</b><span class="kind retake">repeat</span></div>
+      <p>Intro said 6 times. Kept the last full take.</p>
+      <div class="acts"><button class="btn">Play across</button><button class="btn ghost">Keep this part</button></div>
+    </div>
+    <div class="sug">
+      <div class="top"><b>02:46 – 03:09</b><span class="kind privacy">private</span></div>
+      <p>Account list on screen. Cut, or blur instead.</p>
+      <div class="acts"><button class="btn">Play across</button><button class="btn">Blur</button><button class="btn ghost">Keep</button></div>
+    </div>
+    <div class="sug">
+      <div class="top"><b>09:04 – 09:19</b><span class="kind silence">wait</span></div>
+      <p>15 s of nothing happening on screen or in sound.</p>
+      <div class="acts"><button class="btn">Play across</button><button class="btn ghost">Keep this part</button></div>
+    </div>
+    <div class="sug" style="opacity:.7">
+      <div class="top"><b>15:40 – 16:25</b><span class="kind silence">kept</span></div>
+      <p>Silent but the animation is playing, so AI left it in.</p>
+    </div>
+  </section>
+
+  <section class="timeline">
+    <div class="lane"><label>Original (18:00)</label>
+      <div class="track"><i class="keep" style="left:0;width:3%"></i><i class="gone" style="left:3%;width:6%"></i><i class="keep" style="left:9%;width:5%"></i><i class="gone" style="left:14%;width:3%"></i><i class="keep" style="left:17%;width:7%"></i><i class="gone" style="left:24%;width:12%"></i><i class="keep" style="left:36%;width:4%"></i><i class="gone" style="left:40%;width:10%"></i><i class="keep" style="left:50%;width:11%"></i><i class="gone" style="left:61%;width:8%"></i><i class="keep" style="left:69%;width:7%"></i><i class="gone" style="left:76%;width:6%"></i><i class="keep" style="left:82%;width:18%"></i></div></div>
+    <div class="lane"><label>AI cut v2 (10:25)</label>
+      <div class="track"><i class="aiv" style="left:0;width:58%"></i></div></div>
+    <div class="lane"><label>My edit</label>
+      <div class="track"><i class="keep" style="left:0;width:100%;opacity:.35"></i></div></div>
+    <div class="legend note"><span><i class="dot keep"></i>kept</span><span><i class="dot gone"></i>removed by AI</span><span><i class="dot aiv"></i>AI version</span>Click a red stretch to hear it, drag its edge to take some back.</div>
+  </section>
+</div>
+</body>
+</html>

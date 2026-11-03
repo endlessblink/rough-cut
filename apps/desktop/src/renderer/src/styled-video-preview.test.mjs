@@ -104,12 +104,15 @@ test('styled video preview plays timeline gaps as black timeline time under cont
   assert.match(source, /const timelineClockSegments = timelineClockFrame !== null \? buildTimelinePlaybackSegments\(\) : \[\]/);
   assert.match(source, /const activeClockSegment = timelineClockFrame !== null\n\s+\? timelineSegmentAtFrame\(timelineClockSegments, timelineClockFrame\)/);
   assert.match(source, /const nextClockSegment = timelineClockFrame !== null\n\s+\? nextTimelineSegmentAfterFrame\(timelineClockSegments, timelineClockFrame\)/);
-  assert.match(source, /const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && nextClockSegment && timelineClockFrame < nextClockSegment\.timelineIn/);
+  // A gap is any clock position with no recording clip: before the next clip, or
+  // over clips inserted from outside the recording (they have their own decoder).
+  assert.match(source, /const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && \(\n\s+\(nextClockSegment && timelineClockFrame < nextClockSegment\.timelineIn\) \|\| insertedContentAfter\(timelineClockFrame\)\n\s+\)/);
   assert.match(source, /if \(timelineClockGapFrame !== null\) \{\n\s+activeTimelineSegmentRef\.current = null;\n\s+timelineFrameFallbackRef\.current = timelineClockGapFrame;\n\s+pausePreviewVideo\(screenVideo\);\n\s+cameraVideo\?\.pause\(\);/);
   assert.match(source, /: timelineClockGapFrame !== null\n\s+\? null\n\s+: timeMode === 'timeline' && isPlaying\n\s+\? handleTimelineDecodedFrame\(sourceFrame\)/);
   assert.match(source, /const playingGapFrame = timeMode === 'timeline' && isPlaying && !timelineDecoded && !activeTimelineSegmentRef\.current\n\s+\? timelineClockGapFrame \?\? Math\.max\(0, Math\.round\(currentTimeRef\.current \* fps\)\)/);
   assert.doesNotMatch(source, /notify: controlledPlaying === true \? false : undefined/);
-  assert.match(source, /const decodedFrameTime = Math\.min\(timelineDuration, currentFrame \/ fps\);/);
+  // Gaps keep the clock's sub-frame time; decoded frames publish their own frame time.
+  assert.match(source, /const decodedFrameTime = playingGapFrame !== null\n\s+\? Math\.min\(timelineDuration, Math\.max\(currentFrame \/ fps, currentTimeRef\.current\)\)\n\s+: Math\.min\(timelineDuration, currentFrame \/ fps\);/);
   assert.match(source, /const clockOwnsPlayhead = acceleratedTimelinePlaybackClock && playingGapFrame === null && clockLeadSec > 0 && clockLeadSec <= 3 \/ fps;/);
   assert.match(source, /if \(!clockOwnsPlayhead\) \{\n\s+updateCurrentTime\(decodedFrameTime, \{\n\s+immediate: playingGapFrame !== null,\n\s+\}\)/);
   assert.doesNotMatch(source, /timelineSegmentAtFrame\(segments, currentTimelineFrame\) \?\? nextTimelineSegmentAfterFrame\(segments, currentTimelineFrame\)/);
@@ -863,7 +866,29 @@ test('preview holds the last decodable frame instead of seeking to the exact tri
   assert.doesNotMatch(source, /video\.currentTime = effectiveTrimEndSec;/);
 });
 
+// Regression 2026-10-21: a plain click on the preview committed the unchanged screen frame,
+// adding an empty undo step, so the next undo (e.g. of taken-in agent edits) seemed to do nothing.
+test('a click on the preview that moves nothing commits no screen or camera change', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  assert.match(source, /if \(drag && dragMoved\(drag, origin, event\.currentTarget\)\) onCameraFrameChange\?\.\(drag\)/);
+  assert.match(source, /if \(screenDrag && dragMoved\(screenDrag, screenOrigin, event\.currentTarget\)\) onScreenFrameChange\?\.\(screenDrag\)/);
+});
+
 test('parked timeline playhead past a trimmed end holds the last visible frame, not a blank gap', () => {
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
   assert.match(source, /Math\.max\(0, Math\.round\(timelineDuration \* fps\) - 1\)/);
+});
+
+test('clean voice: no mixer (old audio path) unless a cleaned file exists and Amount > 0', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const mixSource = readFileSync(join(here, 'voice-clean-mix.mjs'), 'utf8');
+
+  // Without a mixer every gain change goes through the unchanged setTargetAtTime path.
+  assert.match(source, /if \(voiceCleanMixerRef\.current\?\.mixer\.setSlotGain\(element, value\)\) return;\s*applyVideoGain\(element, value\);/);
+  assert.match(source, /const active = wanted\?\.url && clampVoiceCleanAmount\(wanted\.amount\) > 0 \? wanted : null;/);
+  // Moving Amount only retargets gains on the existing mixer.
+  assert.match(source, /current\.mixer\.setAmount\(active\.amount\);/);
+  // The clean players never touch element.volume (it stalls video ~200 ms).
+  assert.doesNotMatch(mixSource, /\.volume\s*=/);
+  assert.match(mixSource, /setTargetAtTime\(/);
 });

@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Option E - rail versions</title><style>
+:root{--bg:#0a0c10;--panel:#0e1117;--line:#1d222b;--fg:#e8eaef;--mute:#7b8392;--blue:#2f6bff;--clip:#1d3c72;--wave:#143a46}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,sans-serif;height:100vh;min-height:640px;display:grid;grid-template-rows:44px 1fr 220px;grid-template-columns:1fr 280px 52px;overflow:hidden}
+.top{grid-column:1/4;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--line)}
+.top small{display:block;color:var(--mute);font-size:11px;line-height:1}
+.tabs{display:flex;gap:2px;padding:3px;background:#12161d;border:1px solid var(--line);border-radius:9px}.tabs span{padding:4px 12px;border-radius:7px;color:var(--mute)}.tabs span.on{background:#222833;color:var(--fg)}
+.r{display:flex;gap:10px;align-items:center;color:var(--mute)}.rec{border:1px solid var(--line);padding:5px 12px;border-radius:8px;color:var(--fg)}.exp{background:var(--blue);color:#fff;padding:6px 14px;border-radius:8px;font-weight:600}
+.view{display:flex;align-items:center;justify-content:center;background:radial-gradient(#10141b 1px,transparent 1px) 0 0/22px 22px}
+.canvas{width:min(560px,86%);aspect-ratio:16/9;background:#0c0f14;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--mute)}
+.insp{border-left:1px solid var(--line);background:var(--panel);padding:14px;color:var(--mute);overflow:auto}.insp h4{margin:0 0 10px;color:var(--fg);font-weight:600}
+.rail{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:12px;color:var(--mute);font-size:10px}
+.rail i{font-style:normal;width:36px;padding:6px 0;text-align:center;border-radius:8px}.rail i.on{background:#1b2230;color:#9bb8ff}
+.tl{grid-column:1/4;border-top:1px solid var(--line);background:var(--panel);padding-top:6px}
+.tool{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;color:var(--mute)}
+.lane{display:flex;align-items:center;height:34px}.lane .n{width:62px;padding-left:16px;color:var(--mute);font-size:11px}.lane .t{flex:1;position:relative;height:26px;margin-right:16px}
+.clip{position:absolute;top:0;bottom:0;background:var(--clip);border:1px solid #2c5399;border-radius:4px}.wave{position:absolute;top:2px;bottom:2px;background:var(--wave);border-radius:3px}
+.gap{position:absolute;top:0;bottom:0;width:6px;margin-left:-3px;background:repeating-linear-gradient(45deg,#8a4a4a,#8a4a4a 2px,#3a1f1f 2px,#3a1f1f 4px);border-radius:2px;opacity:.9}
+.v{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;color:var(--mute)}
+.v b{color:var(--fg);font-weight:500}.v.on{border-color:#35507a;background:#121a2a}.v .meta{font-size:12px}
+.strip{height:4px;border-radius:2px;background:#2a303a;position:relative;margin-top:8px;overflow:hidden}.strip i{position:absolute;top:0;bottom:0;background:#4a79d8}
+.soon{color:var(--mute);font-size:12px;border:1px dashed var(--line);border-radius:99px;padding:7px 14px;display:inline-block}
+.menu{position:absolute;background:#12161d;border:1px solid var(--line);border-radius:12px;padding:6px;min-width:260px;z-index:5}.menu div{padding:8px 10px;border-radius:8px;display:flex;justify-content:space-between;color:var(--mute)}.menu div.on{background:#1b2230;color:var(--fg)}
+.pill{border:1px solid var(--line);border-radius:99px;padding:3px 11px;color:var(--fg)}
+</style></head><body><div class="top"><div><b>Mixamo motion test</b><small>Saved</small></div><div class="tabs"><span>Recording</span><span>Projects</span><span class="on">Recording edit</span><span>AI</span></div><div class="r"><span>↶</span><span>↷</span><span class="rec">● Record</span><span class="exp">Export</span></div></div><div class="view"><div class="canvas">preview · AI cut 5</div></div>
+<div class="insp"><h4>AI</h4>
+<div class="v on"><b>AI cut 5</b><span class="meta">8:39</span></div>
+<div class="v"><b>AI cut 4</b><span class="meta">8:41</span></div>
+<div class="v"><b>AI cut 3</b><span class="meta">9:46</span></div>
+<div style="color:var(--mute);margin:0 0 14px">More (2) ▾</div>
+<div class="v"><b>My edit</b><span class="meta">18:00</span></div>
+<div class="soon" style="margin-top:8px">Ask AI for another version…</div></div><div class="rail"><i class="">Background</i><i class="">Frame</i><i class="">Camera</i><i class="">Cursor</i><i class="">Zoom</i><i class="on">AI</i></div><div class="tl"><div class="tool"><span>✂ &nbsp; Select range</span><span>AI cut 5</span></div>
+<div class="lane"><span class="n">Screen</span><div class="t"><div class="clip" style="left:0;width:22%"></div><div class="clip" style="left:22.6%;width:30%"></div><div class="clip" style="left:53.2%;width:20%"></div><div class="clip" style="left:73.8%;width:26%"></div><i class="gap" style="left:22.3%"></i><i class="gap" style="left:52.9%"></i><i class="gap" style="left:73.5%"></i></div></div>
+<div class="lane"><span class="n">Audio</span><div class="t"><div class="wave" style="left:0;width:22%"></div><div class="wave" style="left:22.6%;width:30%"></div><div class="wave" style="left:53.2%;width:20%"></div><div class="wave" style="left:73.8%;width:26%"></div></div></div>
+<div class="lane"><span class="n">Camera</span><div class="t"><div class="clip" style="left:0;right:0;background:#1b2230;border-color:#2b3447"></div></div></div></div></body></html>

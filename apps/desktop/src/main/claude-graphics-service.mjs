@@ -17,6 +17,11 @@ export { parseClaudeResult, resolveClaudeBinary, runClaudeOnce } from './claude-
 
 // Design work: the most capable model is worth the extra seconds here.
 export const GRAPHICS_MODEL = 'opus';
+// Opus designing a graphic usually answers in 1.5–2 minutes, sometimes well past 4
+// (2026-10-20: one took over 240 s and failed). Wait up to 7 minutes, and ask once
+// more if even that runs out, before telling the user.
+export const GRAPHICS_TIMEOUT_MS = 420_000;
+export const GRAPHICS_TIMEOUT_RETRIES = 1;
 
 export const DEFAULT_GRAPHICS_STYLE = Object.freeze({
   fontFamily: 'Heebo',
@@ -73,7 +78,8 @@ export function buildGraphicsSystemPrompt({ width, height, fps, style }) {
     '',
     `## Visual style: ${look.label} (${look.mood})`,
     s.styleLock === 'true'
-      ? 'STYLE LOCKED by the user: follow this style closely — its palette, type, texture and motion character. Only the composition, layout and motifs are new, from the idea and the design direction below.'
+      ? 'STYLE LOCKED by the user: follow this style closely — its palette, type, texture and motion character. Only the composition, layout and motifs are new, from the idea and the design direction below. '
+        + 'The lock beats the request: if the request also describes a look (style, colours, fonts, texture, size, easing or motion), ignore those parts and keep this style; take only the content (what to say and show) from the request.'
       : 'LIGHT INFLUENCE ONLY: treat this style as a hint, not a rule. Take at most its mood and one accent colour; choose your own palette, type and shapes to suit the idea, so each graphic feels unique. Never let the style dictate the composition.',
     look.brief,
     `Type: ${look.fonts}`,
@@ -97,7 +103,9 @@ export function buildGraphicsSystemPrompt({ width, height, fps, style }) {
     '- The user\'s words tell you the IDEA to get across, not the picture. Invent an original visual for it: a metaphor, a small scene, an object, a diagram, a character — something that explains or dramatises the point.',
     '- Do not reproduce what is already on screen: no copies of the slide\'s title, layout, cards or wording, and no recreating the video\'s own graphics. Repeating the speaker\'s sentence as big type is not an illustration.',
     '- Keep on-screen text minimal (a label or a few words at most) unless the user explicitly asks for a text graphic (title card, lower third, callout, quote).',
-    '- Any style reference (palette, type feel) is loose inspiration so it sits comfortably with the video — borrow an accent colour or the mood, never the look wholesale.',
+    s.styleLock === 'true'
+      ? '- The look comes from the locked style above, never from the video or from look words in the request.'
+      : '- Any style reference (palette, type feel) is loose inspiration so it sits comfortably with the video — borrow an accent colour or the mood, never the look wholesale.',
     '',
     '## Composition',
     '- Two focal points; lead the eye. Place it near an edge rather than floating in the middle (unless it is a centred opener the style calls for).',
@@ -151,8 +159,14 @@ export function pickDesignDirection({ used = [], random = Math.random } = {}) {
   return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
 }
 
-export function buildGraphicsUserPrompt({ request, existing = null, validationErrors = [], direction = null, others = [], lengthSec = null }) {
+export function buildGraphicsUserPrompt({ request, existing = null, validationErrors = [], direction = null, others = [], lengthSec = null, styleLocked = false }) {
   const parts = [];
+  // With the style locked, the request only supplies content: say so right next to it,
+  // because a detailed request ("Style: torn paper… Motion: ease-out…") otherwise outranks
+  // the lock in the system prompt (bug 2026-10-20).
+  const lockNote = styleLocked
+    ? 'The style is LOCKED: any look, colour, font, texture, size, easing or motion words in the request are ignored; use only its content.'
+    : null;
   if (existing) {
     parts.push('Change this existing graphic as requested. Keep what the request does not mention.');
     parts.push(`Current title: ${existing.title}`);
@@ -162,8 +176,10 @@ export function buildGraphicsUserPrompt({ request, existing = null, validationEr
     parts.push(existing.html);
     parts.push('');
     parts.push(`Requested change: ${request}`);
+    if (lockNote) parts.push(lockNote);
   } else {
     parts.push(`Make this graphic: ${request}`);
+    if (lockNote) parts.push(lockNote);
     if (direction && !/\b(lower third|title card|callout|quote)\b/i.test(request)) {
       parts.push('');
       parts.push(`Design direction for this one (unless the request clearly asks for something else): ${direction.brief}`);
@@ -176,7 +192,7 @@ export function buildGraphicsUserPrompt({ request, existing = null, validationEr
   }
   if (Number(lengthSec) > 0) {
     parts.push('');
-    parts.push(`Length: exactly ${Number(lengthSec)} seconds (set durationSec to ${Number(lengthSec)}).` + (Number(lengthSec) > 10
+    parts.push(`Length: exactly ${Number(lengthSec)} seconds (set durationSec to ${Number(lengthSec)}). This overrides any length or timing the request mentions; time every animation to this length.` + (Number(lengthSec) > 10
       ? ' This is long: build a multi-beat scene — an opening build, then several beats that each add or change something, spaced across the whole length, then a resolve and exit. Never one short animation followed by a long frozen hold.'
       : ''));
   }
@@ -223,7 +239,7 @@ export async function generateGraphic({
   const result = await askClaudeForJson({
     systemPrompt: buildGraphicsSystemPrompt({ width: canvas.width, height: canvas.height, fps, style }),
     schema: GRAPHIC_JSON_SCHEMA,
-    buildPrompt: (validationErrors) => buildGraphicsUserPrompt({ request: text, existing, validationErrors, direction, others: otherSummaries, lengthSec: wantedLength }),
+    buildPrompt: (validationErrors) => buildGraphicsUserPrompt({ request: text, existing, validationErrors, direction, others: otherSummaries, lengthSec: wantedLength, styleLocked: style?.styleLock === true || style?.styleLock === 'true' }),
     validate: (value) => {
       const checked = validateGraphicSpec(value);
       return checked.ok ? { ok: true, value: checked.graphic } : checked;
@@ -233,6 +249,8 @@ export async function generateGraphic({
     binary,
     runOnce,
     connectionCheck,
+    timeoutMs: GRAPHICS_TIMEOUT_MS,
+    timeoutRetries: GRAPHICS_TIMEOUT_RETRIES,
     label: existing ? 'graphic-change' : 'graphic',
     debugDir,
     onProgress,

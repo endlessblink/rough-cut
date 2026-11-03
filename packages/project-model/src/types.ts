@@ -67,6 +67,27 @@ export interface ProjectSettings {
   readonly backgroundConfig?: BackgroundConfig;
   readonly recordingDefaults?: RecordingPresentation;
   readonly destinationPresetId?: string | null;
+  /** Clean voice mix; absent = 0 (original sound only). */
+  readonly voiceClean?: VoiceCleanSettings;
+  /** Volume and mute of the recording's sound (the Audio track); absent = as recorded. */
+  readonly recordingAudio?: AudioLevel;
+}
+
+export interface VoiceCleanSettings {
+  /** 0 = original voice only, 1 = cleaned voice only; mixed at playback. */
+  readonly amount: number;
+}
+
+/**
+ * Volume and mute for a piece of sound: the recording's track (project
+ * settings) or one timeline clip. Both fields are optional so documents saved
+ * before they existed play exactly as before.
+ */
+export interface AudioLevel {
+  /** Linear gain, 0 (silent) to 2 (200%); absent = 1 (as recorded). */
+  readonly volume?: number;
+  /** Absent = not muted. */
+  readonly muted?: boolean;
 }
 
 export type ZoomMarkerId = string & { readonly __brand: 'ZoomMarkerId' };

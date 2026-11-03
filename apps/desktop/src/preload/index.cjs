@@ -11,6 +11,18 @@ const IPC_CHANNELS = {
   CLAUDE_CONNECTION_SETUP: 'claude:connection-setup',
   UPDATE_STATUS: 'update:status',
   UPDATE_INSTALL: 'update:install',
+  // Dev-only (Noam's own dock copy): add outside clips, record camera takes.
+  // Main registers the DEV_* handlers only when the local dev switch is on.
+  DEV_FEATURES_STATUS: 'dev:features-status',
+  DEV_INSERT_PICK: 'dev:insert-pick',
+  DEV_INSERT_PREPARE: 'dev:insert-prepare',
+  DEV_INSERT_PROGRESS: 'dev:insert-progress',
+  DEV_TAKE_BEGIN: 'dev:take-begin',
+  DEV_TAKE_CHUNK: 'dev:take-chunk',
+  DEV_TAKE_FINISH: 'dev:take-finish',
+  DEV_TAKE_CANCEL: 'dev:take-cancel',
+  DEV_AGENT_EDITS_GET: 'dev:agent-edits-get',
+  DEV_AGENT_EDITS_RESOLVE: 'dev:agent-edits-resolve',
   UPDATE_CHECK: 'update:check',
   ABOUT_OPEN: 'about:open',
   APP_GET_VERSION: 'app:get-version',
@@ -41,6 +53,10 @@ const IPC_CHANNELS = {
   STABILIZATION_CANCEL: 'stabilization:cancel',
   STABILIZATION_PROGRESS: 'stabilization:progress',
   STABILIZATION_SUPPORT: 'stabilization:support',
+  VOICE_CLEAN_STATUS: 'voice-clean:status',
+  VOICE_CLEAN_START: 'voice-clean:start',
+  VOICE_CLEAN_CANCEL: 'voice-clean:cancel',
+  VOICE_CLEAN_PROGRESS: 'voice-clean:progress',
   EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
   EXPORT_START: 'export:start',
   EXPORT_CANCEL: 'export:cancel',
@@ -199,6 +215,22 @@ contextBridge.exposeInMainWorld('roughCut', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, listener);
   },
   installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
+  // Dev-only bridge. The handlers exist only when the dev switch is on; with it off
+  // every call is refused by main and the status says so.
+  getDevFeatures: () => ipcRenderer.invoke(IPC_CHANNELS.DEV_FEATURES_STATUS),
+  devPickInsert: () => ipcRenderer.invoke(IPC_CHANNELS.DEV_INSERT_PICK),
+  devPrepareInsert: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_INSERT_PREPARE, payload),
+  onDevInsertProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.DEV_INSERT_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.DEV_INSERT_PROGRESS, listener);
+  },
+  devTakeBegin: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_BEGIN, payload),
+  devTakeChunk: (id, chunk) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_CHUNK, id, chunk),
+  devTakeFinish: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_FINISH, payload),
+  devTakeCancel: (id) => ipcRenderer.invoke(IPC_CHANNELS.DEV_TAKE_CANCEL, id),
+  devGetAgentEdits: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_AGENT_EDITS_GET, payload),
+  devResolveAgentEdits: (payload) => ipcRenderer.invoke(IPC_CHANNELS.DEV_AGENT_EDITS_RESOLVE, payload),
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
   onAboutOpen: (callback) => {
     const listener = () => callback();
@@ -252,6 +284,14 @@ contextBridge.exposeInMainWorld('roughCut', {
     const listener = (_event, progress) => callback(progress);
     ipcRenderer.on(IPC_CHANNELS.STABILIZATION_PROGRESS, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.STABILIZATION_PROGRESS, listener);
+  },
+  getVoiceCleanStatus: (payload) => ipcRenderer.invoke(IPC_CHANNELS.VOICE_CLEAN_STATUS, payload),
+  startVoiceClean: (payload) => ipcRenderer.invoke(IPC_CHANNELS.VOICE_CLEAN_START, payload),
+  cancelVoiceClean: (payload) => ipcRenderer.invoke(IPC_CHANNELS.VOICE_CLEAN_CANCEL, payload),
+  onVoiceCleanProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.VOICE_CLEAN_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VOICE_CLEAN_PROGRESS, listener);
   },
   exportProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_START, payload),
   cancelExport: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_CANCEL),

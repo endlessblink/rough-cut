@@ -644,12 +644,18 @@ function GraphicJobProgressBar({ job }: { job: GraphicJob }) {
   }, []);
   const progress = graphicJobProgress(job, now);
   const left = graphicJobSecondsLeft(job, now);
+  const slowRetry = job.stage !== 'checking' && /slow/i.test(job.retryReason ?? '');
   const label = job.stage === 'checking'
     ? 'Checking the result…'
-    : job.attempt > 1
-      ? 'Second try — fixing a problem in the first answer…'
-      : job.kind === 'change' ? 'Claude is revising…' : 'Claude is designing…';
-  const hint = job.stage === 'checking' ? '' : left > 0 ? `about ${left}s left` : 'taking a little longer than usual…';
+    : slowRetry
+      ? 'Claude was slow — asking again…'
+      : job.attempt > 1
+        ? 'Second try — fixing a problem in the first answer…'
+        : job.kind === 'change' ? 'Claude is revising…' : 'Claude is designing…';
+  // Past the usual time, say how long it has been instead of a countdown stuck at 0.
+  const elapsed = Math.max(0, Math.round((now - job.attemptStartedAt) / 1000));
+  const elapsedText = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
+  const hint = job.stage === 'checking' ? '' : left > 0 ? `about ${left}s left` : `taking longer than usual (${elapsedText} so far)…`;
   return (
     <div className="graphicsJob" role="status" aria-live="polite" data-graphics-job={job.stage}>
       <div className="graphicsJobText"><span>{label}</span><span className="graphicsJobHint">{hint}</span></div>

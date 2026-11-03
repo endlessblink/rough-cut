@@ -28,3 +28,7 @@ export * from './cleanup-session.js';
 export * from './natural-join.js';
 export * from './interaction-primitives.js';
 export * from './cleanup-review.js';
+export * from './inserted-media.js';
+export * from './agent-edits.js';
+export * from './voice-clean.js';
+export * from './audio-level.js';

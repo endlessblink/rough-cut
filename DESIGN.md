@@ -11,6 +11,8 @@ Rough Cut should feel like a focused screen-recording editor inspired by Screen 
 - Studio layout (approved 2026-09-28): one slim top bar (project, page tabs, Record, Export); the preview is the hero; the settings panel and a labelled seven-tab tool strip (Background, Frame, Camera, Cursor, Zoom, Censor, Graphics) sit on the right; the timeline spans the full width; export is a pop-over from the top bar. Rarely used controls go under a "More …" disclosure, never deleted.
 - Graphics (added 2026-09-29): Claude-made layers drawn live over the whole composite. The Graphics lane is the top timeline lane (top of the stack draws on top). Graphic pills are a pale translucent fill with a solid edge, distinct from blue zoom, dark censor and dashed framing pills without adding an accent hue.
 
+- Dev-only tools (added 2026-10-20): a "Dev" button in the timeline toolbar opens a compact menu in a floating layer above the preview. Added clips are neutral slate bars with a light edge on the Screen lane; camera takes are dark bars edged in the record red on the Camera lane; a take's voice is red-striped on the Audio lane to show it covers (mutes) the recording's sound; a marked take range is a dashed red band.
+
 ## Tokens
 
 Global tokens live in `apps/desktop/src/renderer/src/styles.css` under `:root`.
