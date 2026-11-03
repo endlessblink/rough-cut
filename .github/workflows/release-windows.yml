@@ -58,6 +58,9 @@ jobs:
       - run: pnpm build
       - run: node scripts/prepare-windows-tools.mjs
       - run: node scripts/package-windows.mjs
+      - name: Windows recording pipeline check (capture, save, reopen, raw and styled export)
+        shell: pwsh
+        run: node scripts/windows/smoke-windows-recording.mjs
       - run: node scripts/build-windows-release.mjs
 
       - name: Checksums and unsigned update file
