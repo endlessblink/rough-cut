@@ -1842,3 +1842,18 @@ test('with alignment switched off the feed is left alone but the gap is still lo
   await session.stop();
   await rm(root, { recursive: true, force: true });
 });
+
+test('an odd-sized region is captured at an even size, which libx264 needs for yuv420p', () => {
+  const displayInfo = resolveCaptureDisplayInfo(
+    { display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 },
+    { mode: 'region', x: 292, y: 168, width: 1349, height: 741, absoluteX: 292, absoluteY: 168 },
+  );
+  assert.equal(displayInfo.width, 1348);
+  assert.equal(displayInfo.height, 740);
+  assert.equal(displayInfo.originX, 292);
+  const tiny = resolveCaptureDisplayInfo(
+    { display: 'desktop+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 },
+    { mode: 'region', x: 0, y: 0, width: 3, height: 3, absoluteX: 0, absoluteY: 0 },
+  );
+  assert.equal(tiny.width, 2);
+});
