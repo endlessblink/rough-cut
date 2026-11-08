@@ -1033,8 +1033,11 @@ export function resolveCaptureDisplayInfo(displayInfo, captureRegion) {
   const hasAbsoluteRegion = Number.isFinite(region.absoluteX) && Number.isFinite(region.absoluteY);
   const originX = hasAbsoluteRegion ? Math.round(region.absoluteX) : Math.round((displayInfo.originX ?? 0) + region.x * scaleFactor);
   const originY = hasAbsoluteRegion ? Math.round(region.absoluteY) : Math.round((displayInfo.originY ?? 0) + region.y * scaleFactor);
-  const width = Math.max(2, hasAbsoluteRegion ? Math.round(region.width) : Math.round(region.width * scaleFactor));
-  const height = Math.max(2, hasAbsoluteRegion ? Math.round(region.height) : Math.round(region.height * scaleFactor));
+  // libx264 with yuv420p cannot open an odd-sized frame (the take then fails to start with "Error while opening encoder"),
+  // and a region drawn on screen is often odd, so the captured size is rounded down to an even number.
+  const evenFloor = (value) => Math.max(2, Math.floor(value / 2) * 2);
+  const width = evenFloor(hasAbsoluteRegion ? Math.round(region.width) : Math.round(region.width * scaleFactor));
+  const height = evenFloor(hasAbsoluteRegion ? Math.round(region.height) : Math.round(region.height * scaleFactor));
   assertCaptureRegionWithinBounds({ originX, originY, width, height, displayInfo });
   const baseDisplay = baseX11DisplayName(displayInfo.display ?? process.env.DISPLAY ?? ':0');
 
