@@ -472,7 +472,13 @@ export function createRecordingSession({
     });
   }
 
-  return { start, stop, cancel, pause, resume, restart, status, terminateChildren };
+  /** The captured area in physical desktop pixels, or null when nothing is recording. */
+  function captureArea() {
+    if (!active) return null;
+    return { x: active.originX, y: active.originY, width: active.width, height: active.height };
+  }
+
+  return { start, stop, cancel, pause, resume, restart, status, captureArea, terminateChildren };
 }
 
 async function startActiveSegment(session, {
