@@ -143,6 +143,7 @@ export function createRecordingSession({
     const systemAudioSource = normalizeAudioSource(options.systemAudioSource);
     const systemAudioGainPercent = normalizeAudioGainPercent(options.systemAudioGainPercent);
     const cameraDevicePath = normalizeCameraDevicePath(options.cameraDevicePath);
+    const lightMode = options.lightMode === true;
 
     await mkdir(recordingsDir, { recursive: true });
 
@@ -174,7 +175,7 @@ export function createRecordingSession({
       cursorTelemetryPath,
       eventsLogPath,
       eventLogger,
-      options: { micSource, micGainPercent, systemAudioSource, systemAudioGainPercent, cameraDevicePath, captureRegion: options.captureRegion ?? null },
+      options: { micSource, micGainPercent, systemAudioSource, systemAudioGainPercent, cameraDevicePath, lightMode, captureRegion: options.captureRegion ?? null },
       stamp,
       fps: DEFAULT_FPS,
       micSource,
@@ -182,6 +183,7 @@ export function createRecordingSession({
       systemAudioSource,
       systemAudioGainPercent,
       cameraDevicePath,
+      lightMode,
       cameraError: null,
       cameraPrerollMs: 0,
       cameraPrerollFrames: 0,
@@ -551,6 +553,7 @@ async function startActiveSegment(session, {
         factory: cameraCaptureFactory,
         outputPath: paths.cameraRawPath,
         devicePath: session.cameraDevicePath,
+        ...(session.lightMode ? { lightMode: true } : {}),
         onFirstFrame: session.measureCameraPreroll ? noteCameraFirstFrame : null,
         maxAttempts: 6,
         earlyExitWindowMs: 1500,
@@ -581,6 +584,7 @@ async function startActiveSegment(session, {
         width: session.width,
         height: session.height,
         cameraDevicePath: session.cameraDevicePath,
+        ...(session.lightMode ? { lightMode: true } : {}),
         micSource: session.micSource,
         micGainPercent: session.micGainPercent,
         systemAudioSource: session.systemAudioInput ?? session.systemAudioSource,
@@ -610,6 +614,7 @@ async function startActiveSegment(session, {
       micGainPercent: session.micGainPercent,
       systemAudioSource: session.systemAudioInput ?? session.systemAudioSource,
       systemAudioGainPercent: session.systemAudioGainPercent,
+      ...(session.lightMode ? { lightMode: true } : {}),
       onFirstFrame: noteFirstFrame,
     });
   }
@@ -787,6 +792,7 @@ async function spawnCameraCaptureWithRetry({
   factory,
   outputPath,
   devicePath,
+  lightMode = false,
   onFirstFrame = null,
   maxAttempts = 6,
   earlyExitWindowMs = 1500,
@@ -800,6 +806,7 @@ async function spawnCameraCaptureWithRetry({
       devicePath,
       width: 1280,
       height: 720,
+      ...(lightMode ? { lightMode } : {}),
       ...(onFirstFrame ? { onFirstFrame } : {}),
     });
     // Test mocks may not expose whenExited; in that case skip the early-exit
@@ -859,6 +866,7 @@ async function spawnUnifiedCaptureWithRetry({
   micGainPercent,
   systemAudioSource,
   systemAudioGainPercent,
+  lightMode = false,
   onFirstFrame,
   maxAttempts = 6,
   earlyExitWindowMs = 1500,
@@ -879,6 +887,7 @@ async function spawnUnifiedCaptureWithRetry({
       micGainPercent,
       systemAudioSource,
       systemAudioGainPercent,
+      ...(lightMode ? { lightMode } : {}),
       onFirstFrame,
     });
     if (typeof capture.whenExited !== 'function') {
