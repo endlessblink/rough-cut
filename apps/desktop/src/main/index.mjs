@@ -3,6 +3,7 @@ import { configureBundledTools } from './bundled-tools.mjs';
 import { runAppImageSandboxed, sandboxDisabledByArgs, shouldHandOffAppImage } from './linux-sandbox-permission.mjs';
 import { planTrayUpdate } from './recording-tray-policy.mjs';
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
+import { CONTROL_BAR_SIZE, buildControlBarHtml, controlBarPosition, controlBarSupported, parseControlBarTitle, removeControlBarPage, writeControlBarPage } from './recording-control-bar.mjs';
 import { buildRegionSelectorHtml, parseRegionSelectorTitle, regionFromOverlayRect, removeRegionSelectorPage, writeRegionSelectorPage } from './region-selector.mjs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -266,6 +267,8 @@ const recordingRestartShortcut = 'CommandOrControl+Shift+N';
 let hiddenRecorderWindow = null;
 let recordingTray = null;
 let recordingTrayWindow = null;
+let recordingBar = null;
+let recordingBarPagePath = null;
 let hiddenRecordingOptions = null;
 let hiddenRecordingStopping = false;
 let activeRecordingFinalizePromise = null;
@@ -2290,8 +2293,70 @@ function updateRecordingTray(window, state) {
   recordingTray.setToolTip(recordingTrayTooltip(state));
   // Linux requires setContextMenu() after each menu change; mutating items is not enough.
   recordingTray.setContextMenu(Menu.buildFromTemplate(recordingTrayMenuTemplate(menuWindow, state)));
+  updateRecordingBar(menuWindow, state);
 }
 
+// Floating Pause/Resume/Stop bar (see recording-control-bar.mjs). Shown with the tray while a hidden-recorder take runs.
+function updateRecordingBar(window, state) {
+  if (!controlBarSupported() || (state !== 'recording' && state !== 'paused')) {
+    destroyRecordingBar();
+    return;
+  }
+  const status = recordingSession.status();
+  const push = () => {
+    if (!recordingBar || recordingBar.isDestroyed()) return;
+    const payload = JSON.stringify({ paused: state === 'paused', elapsedMs: status.recordedDurationMs ?? 0 });
+    recordingBar.webContents.executeJavaScript(`window.setState && window.setState(${payload})`).catch(() => {});
+  };
+  if (recordingBar && !recordingBar.isDestroyed()) {
+    push();
+    return;
+  }
+  const bounds = controlBarPosition(screen.getPrimaryDisplay().workArea, CONTROL_BAR_SIZE);
+  recordingBar = new BrowserWindow({
+    ...bounds,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: true,
+    show: false,
+    alwaysOnTop: true,
+    title: 'Recording controls',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  recordingBar.setAlwaysOnTop(true, 'screen-saver');
+  // Keeps the bar out of the recording itself (Windows excludes the window from capture).
+  recordingBar.setContentProtection(true);
+  recordingBar.webContents.on('page-title-updated', (_event, title) => {
+    const action = parseControlBarTitle(title);
+    if (!action || !window || window.isDestroyed()) return;
+    if (action === 'stop') void stopHiddenRecordingAndOpenEditor(window);
+    else if (action === 'pause') void recordingSession.pause().then(() => updateRecordingTray(window, 'paused'));
+    else void recordingSession.resume().then(() => updateRecordingTray(window, 'recording'));
+  });
+  recordingBar.on('closed', () => { recordingBar = null; });
+  recordingBarPagePath = writeControlBarPage(buildControlBarHtml());
+  recordingBar.loadFile(recordingBarPagePath).then(() => {
+    if (!recordingBar || recordingBar.isDestroyed()) return;
+    push();
+    recordingBar.showInactive();
+  }).catch((error) => {
+    console.warn('[recording-bar] could not open:', error instanceof Error ? error.message : error);
+    destroyRecordingBar();
+  });
+}
+
+function destroyRecordingBar() {
+  const bar = recordingBar;
+  recordingBar = null;
+  if (bar && !bar.isDestroyed()) bar.destroy();
+  if (recordingBarPagePath) removeControlBarPage(recordingBarPagePath);
+  recordingBarPagePath = null;
+}
 function recordingTrayTooltip(state) {
   if (state === 'saved') return 'Rough Cut saved your recording.';
   if (state === 'discarded') return 'Rough Cut discarded the recording.';
@@ -2360,6 +2425,7 @@ function recordingTrayMenuTemplate(window, state) {
 }
 
 function destroyRecordingTray() {
+  destroyRecordingBar();
   if (recordingTray && !recordingTray.isDestroyed()) {
     recordingTray.setContextMenu(null);
     recordingTray.setToolTip('');
