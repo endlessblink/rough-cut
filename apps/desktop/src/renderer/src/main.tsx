@@ -167,11 +167,11 @@ declare global {
       getDisplays: () => Promise<CaptureDisplay[]>;
       getRecordingPreflightStatus: (options?: RecordingPreflightOptions) => Promise<RecordingPreflightStatus>;
       selectCaptureRegion: (options?: { displayId?: string | null; initialRegion?: CaptureRegion | null }) => Promise<CaptureRegion | null>;
-      startRecording: (options?: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean }) => Promise<RecordingStatus>;
+      startRecording: (options?: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean; lightMode?: boolean }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
       pauseRecording: () => Promise<RecordingStatus>;
       resumeRecording: () => Promise<RecordingStatus>;
-      restartRecording: (options?: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean } | null) => Promise<RecordingStatus>;
+      restartRecording: (options?: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean; lightMode?: boolean } | null) => Promise<RecordingStatus>;
       cancelRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
       translateCaptions: (payload: { requestId: string; lines: Array<{ id: string; text: string }>; targetLanguage: string }) => Promise<{ lines: Array<{ id: string; text: string }> } | { error: { code: string; message: string } }>;
@@ -459,6 +459,7 @@ type PreRecordPreferences = {
   captureMode: CaptureMode | null;
   captureDisplayId: string | null;
   captureRegion: CaptureRegion | null;
+  lightMode: boolean;
 };
 
 function readPreRecordPreferences(): PreRecordPreferences {
@@ -468,6 +469,7 @@ function readPreRecordPreferences(): PreRecordPreferences {
     micGainPercent: DEFAULT_RECORDED_GAIN_PERCENT,
     systemAudioGainPercent: DEFAULT_RECORDED_GAIN_PERCENT,
     captureMode: null, captureDisplayId: null, captureRegion: null,
+    lightMode: false,
   };
   try {
     const raw = window.localStorage.getItem(PRE_RECORD_PREFS_KEY);
@@ -496,6 +498,7 @@ function readPreRecordPreferences(): PreRecordPreferences {
       captureMode,
       captureDisplayId: typeof parsed.captureDisplayId === 'string' ? parsed.captureDisplayId : null,
       captureRegion,
+      lightMode: parsed.lightMode === true,
     };
   } catch {
     return fallback;
@@ -583,6 +586,7 @@ function App() {
   const [recordMic, setRecordMic] = React.useState(initialPreRecordPreferences.recordMic);
   const [recordSystemAudio, setRecordSystemAudio] = React.useState(initialPreRecordPreferences.recordSystemAudio);
   const [recordCamera, setRecordCamera] = React.useState(initialPreRecordPreferences.recordCamera);
+  const [lightMode, setLightMode] = React.useState(initialPreRecordPreferences.lightMode);
   const [selectedMicSource, setSelectedMicSource] = React.useState<string>(initialPreRecordPreferences.micSource ?? '');
   const [selectedSystemAudioSource, setSelectedSystemAudioSource] = React.useState<string>(initialPreRecordPreferences.systemAudioSource ?? '');
   const [micGainPercent, setMicGainPercent] = React.useState<number>(initialPreRecordPreferences.micGainPercent);
@@ -829,8 +833,9 @@ function App() {
       captureMode,
       captureDisplayId: selectedCaptureDisplayId,
       captureRegion: captureMode === 'region' ? captureRegion : null,
+      lightMode,
     });
-  }, [recordMic, recordSystemAudio, recordCamera, selectedMicSource, micGainPercent, selectedSystemAudioSource, systemAudioGainPercent, selectedCameraSource, captureMode, selectedCaptureDisplayId, captureRegion]);
+  }, [lightMode, recordMic, recordSystemAudio, recordCamera, selectedMicSource, micGainPercent, selectedSystemAudioSource, systemAudioGainPercent, selectedCameraSource, captureMode, selectedCaptureDisplayId, captureRegion]);
 
   async function stopAudioPreview() {
     const token = audioPreviewTokenRef.current;
@@ -1097,6 +1102,7 @@ function App() {
           cameraDevicePath,
           captureRegion: region,
           hideWindowDuringRecording: true,
+          lightMode,
         }));
       }
     } catch (err) {
@@ -1172,7 +1178,7 @@ function App() {
     }
   }
 
-  function buildCurrentRecordingOptions({ hideWindowDuringRecording = false } = {}): { micSource: string | null; micGainPercent: number; systemAudioSource: string | null; systemAudioGainPercent: number; cameraDevicePath: string | null; captureRegion: CaptureRegion | null; hideWindowDuringRecording: boolean } {
+  function buildCurrentRecordingOptions({ hideWindowDuringRecording = false } = {}): { micSource: string | null; micGainPercent: number; systemAudioSource: string | null; systemAudioGainPercent: number; cameraDevicePath: string | null; captureRegion: CaptureRegion | null; hideWindowDuringRecording: boolean; lightMode: boolean } {
     const micSource = recordMic ? selectedMicSource || null : null;
     const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
     const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
@@ -1187,6 +1193,7 @@ function App() {
       cameraDevicePath,
       captureRegion: region,
       hideWindowDuringRecording,
+      lightMode,
     };
   }
 
@@ -1493,6 +1500,8 @@ function App() {
             recordMic={recordMic}
             recordSystemAudio={recordSystemAudio}
             recordCamera={recordCamera}
+            lightMode={lightMode}
+            onLightModeChange={setLightMode}
             selectedMicSource={selectedMicSource}
             selectedSystemAudioSource={selectedSystemAudioSource}
             micGainPercent={micGainPercent}
@@ -1668,6 +1677,8 @@ function App() {
                 recordMic={recordMic}
                 recordSystemAudio={recordSystemAudio}
                 recordCamera={recordCamera}
+                lightMode={lightMode}
+                onLightModeChange={setLightMode}
                 selectedMicSource={selectedMicSource}
                 selectedSystemAudioSource={selectedSystemAudioSource}
                 micGainPercent={micGainPercent}
@@ -2126,6 +2137,8 @@ function ScreenPreviewCard({ display, sideLabel, selected, region = null, disabl
 
 function PreRecordPanel({
   variant = 'dialog',
+  lightMode,
+  onLightModeChange,
   micSources,
   systemAudioSources,
   cameraSources,
@@ -2178,6 +2191,8 @@ function PreRecordPanel({
   screenPickerOpen: boolean;
   preflightStatus: RecordingPreflightStatus | null;
   actionPending: boolean;
+  lightMode: boolean;
+  onLightModeChange: (checked: boolean) => void;
   onClose: () => void;
   onStart: () => void;
   onRecordMicChange: (checked: boolean) => void;
@@ -2293,6 +2308,10 @@ function PreRecordPanel({
             />
             <PreRecordSourceSelect icon="camera" label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera" offLabel="No camera" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
           </div>
+            <label className="preRecordLightMode" title="Lighter on the CPU: cheaper video encoding and smaller files. Recommended for slower computers.">
+              <input type="checkbox" checked={lightMode} disabled={actionPending} onChange={(event) => onLightModeChange(event.target.checked)} data-recording-option="light-mode" />
+              <span>Light mode (for slower computers)</span>
+            </label>
 
           {recordCamera && selectedCameraSource ? (
             <PreRecordCameraSetup source={cameraSources.find((source) => source.name === selectedCameraSource)} />

@@ -41,6 +41,16 @@ export const FFMPEG_CAMERA_STOP_TIMEOUT_MS = 5_000;
 export const FFMPEG_CAMERA_SIGINT_TIMEOUT_MS = 5_000;
 export const FFMPEG_CAMERA_SIGTERM_TIMEOUT_MS = 3_000;
 
+// Light recording mode: for slow computers. Same codec and frame rate, but the cheapest x264 preset and a higher CRF,
+// so a take costs far less CPU while staying clearly watchable. The default (lightMode off) is unchanged.
+export const LIGHT_MODE_PRESET = 'ultrafast';
+export const LIGHT_MODE_CRF_OFFSET = 7;
+
+export function x264Quality({ lightMode = false, crf, stream = '' }) {
+  const preset = lightMode ? LIGHT_MODE_PRESET : 'superfast';
+  const quality = lightMode ? crf + LIGHT_MODE_CRF_OFFSET : crf;
+  return ['-preset' + stream, preset, '-crf' + stream, String(quality)];
+}
 /**
  * Whether FFmpeg x11grab capture is available on this platform.
  * @returns {boolean}
@@ -77,9 +87,11 @@ export function startFfmpegCapture({
   systemAudioSource = null,
   systemAudioGainPercent = 100,
   onFirstFrame = null,
+  lightMode = false,
 }) {
   const args = buildFfmpegCaptureArgs({
     outputPath,
+    lightMode,
     fps,
     display,
     width,
@@ -178,8 +190,9 @@ export function startFfmpegCameraCapture({
   width = 1280,
   height = 720,
   onFirstFrame = null,
+  lightMode = false,
 }) {
-  const args = buildFfmpegCameraCaptureArgs({ outputPath, fps, devicePath, width, height });
+  const args = buildFfmpegCameraCaptureArgs({ outputPath, fps, devicePath, width, height, lightMode });
   console.info('[ffmpeg-camera] Starting:', 'ffmpeg', args.join(' '));
 
   const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -297,9 +310,11 @@ export function startFfmpegUnifiedCapture({
   systemAudioSource = null,
   systemAudioGainPercent = 100,
   onFirstFrame = null,
+  lightMode = false,
 }) {
   const args = buildFfmpegUnifiedCaptureArgs({
     outputPath,
+    lightMode,
     fps,
     display,
     width,
@@ -416,6 +431,7 @@ export function buildFfmpegCameraCaptureArgs({
   width = 1280,
   height = 720,
   platform = process.platform,
+  lightMode = false,
 }) {
   if (typeof devicePath !== 'string' || devicePath.trim().length === 0) {
     throw new Error('Camera device path is required.');
@@ -463,10 +479,7 @@ export function buildFfmpegCameraCaptureArgs({
     ...(platform === 'win32' ? ['-fps_mode', 'cfr', '-r', String(frameRate)] : []),
     '-c:v',
     'libx264',
-    '-preset',
-    'superfast',
-    '-crf',
-    '18',
+    ...x264Quality({ lightMode, crf: 18 }),
     '-pix_fmt',
     'yuv420p',
     '-g',
@@ -647,6 +660,7 @@ export function buildFfmpegCaptureArgs({
   systemAudioSource = null,
   systemAudioGainPercent = 100,
   platform = process.platform,
+  lightMode = false,
   micDelayMs = platform === 'win32' ? WINDOWS_MIC_LEAD_MS : 0,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
@@ -715,10 +729,7 @@ export function buildFfmpegCaptureArgs({
   args.push(
     '-c:v',
     'libx264',
-    '-preset',
-    'superfast',
-    '-crf',
-    '16',
+    ...x264Quality({ lightMode, crf: 16 }),
     '-pix_fmt',
     'yuv420p',
     '-g',
@@ -755,6 +766,7 @@ export function buildFfmpegUnifiedCaptureArgs({
   systemAudioSource = null,
   systemAudioGainPercent = 100,
   platform = process.platform,
+  lightMode = false,
 }) {
   if (typeof cameraDevicePath !== 'string' || cameraDevicePath.trim().length === 0) {
     throw new Error('Camera device path is required for unified capture.');
@@ -817,10 +829,7 @@ export function buildFfmpegUnifiedCaptureArgs({
   args.push(
     '-c:v:0',
     'libx264',
-    '-preset:v:0',
-    'superfast',
-    '-crf:v:0',
-    '16',
+    ...x264Quality({ lightMode, crf: 16, stream: ':v:0' }),
     '-pix_fmt:v:0',
     'yuv420p',
     '-g:v:0',
@@ -829,10 +838,7 @@ export function buildFfmpegUnifiedCaptureArgs({
     String(screenKeyframeInterval),
     '-c:v:1',
     'libx264',
-    '-preset:v:1',
-    'superfast',
-    '-crf:v:1',
-    '18',
+    ...x264Quality({ lightMode, crf: 18, stream: ':v:1' }),
     '-pix_fmt:v:1',
     'yuv420p',
     '-g:v:1',

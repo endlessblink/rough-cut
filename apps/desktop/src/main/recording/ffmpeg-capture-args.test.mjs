@@ -357,3 +357,21 @@ test('banner anchor parser handles the single-input screen-only banner', () => {
   assert.equal(parser.anchored, true);
   assert.ok(Math.abs(fired[0] - 1784052450500) < 0.01);
 });
+
+test('light mode makes screen and camera encoding cheaper and leaves the default untouched', () => {
+  const base = { platform: 'linux', outputPath: '/tmp/x.mp4', fps: 30, display: ':0+0,0', width: 1920, height: 1080 };
+  const light = buildFfmpegCaptureArgs({ ...base, lightMode: true });
+  assert.equal(light[light.indexOf('-preset') + 1], 'ultrafast');
+  assert.equal(light[light.indexOf('-crf') + 1], '23');
+  assert.equal(light[light.indexOf('-c:v') + 1], 'libx264');
+  assert.deepEqual(buildFfmpegCaptureArgs({ ...base, lightMode: false }), buildFfmpegCaptureArgs(base));
+
+  const camera = buildFfmpegCameraCaptureArgs({ platform: 'linux', outputPath: '/tmp/c.mp4', fps: 30, devicePath: '/dev/video0', lightMode: true });
+  assert.equal(camera[camera.indexOf('-preset') + 1], 'ultrafast');
+  assert.equal(camera[camera.indexOf('-crf') + 1], '25');
+
+  const unified = buildFfmpegUnifiedCaptureArgs({ ...base, cameraDevicePath: '/dev/video0', lightMode: true });
+  assert.equal(unified[unified.indexOf('-preset:v:0') + 1], 'ultrafast');
+  assert.equal(unified[unified.indexOf('-crf:v:0') + 1], '23');
+  assert.equal(unified[unified.indexOf('-crf:v:1') + 1], '25');
+});
