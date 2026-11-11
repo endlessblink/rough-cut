@@ -4389,6 +4389,36 @@ function ProjectPreview({
   onCurrentTimeSecChange: (nextTimeSec: number) => void;
   onActiveToolChange: (tool: ActiveTool, options?: { revealPanel?: boolean }) => void;
 }) {
+  // Draggable split between the preview and the timeline: the timeline viewport's max height (px), persisted.
+  const [timelineViewportMaxPx, setTimelineViewportMaxPx] = React.useState<number | null>(() => {
+    try { const v = Number(window.localStorage.getItem('roughCut.timelineViewportMaxPx')); return Number.isFinite(v) && v > 0 ? v : null; } catch { return null; }
+  });
+  const startTimelineResize = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const dock = event.currentTarget.parentElement;
+    const viewport = dock?.querySelector<HTMLElement>('.timelineViewport');
+    const startY = event.clientY;
+    const startHeight = viewport?.getBoundingClientRect().height ?? window.innerHeight * 0.44;
+    let latest = startHeight;
+    const onMove = (move: PointerEvent) => {
+      latest = Math.round(Math.max(60, Math.min(window.innerHeight * 0.85, startHeight - (move.clientY - startY))));
+      setTimelineViewportMaxPx(latest);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.classList.remove('timelineResizing');
+      try { window.localStorage.setItem('roughCut.timelineViewportMaxPx', String(latest)); } catch { /* preference only */ }
+    };
+    document.body.classList.add('timelineResizing');
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, []);
+  const resetTimelineResize = React.useCallback(() => {
+    setTimelineViewportMaxPx(null);
+    try { window.localStorage.removeItem('roughCut.timelineViewportMaxPx'); } catch { /* preference only */ }
+  }, []);
   const setCurrentTimeSec = React.useCallback((next: React.SetStateAction<number>) => {
     onCurrentTimeSecChange(typeof next === 'function' ? next(currentTimeSec) : next);
   }, [currentTimeSec, onCurrentTimeSecChange]);
@@ -5524,7 +5554,8 @@ function ProjectPreview({
           </section>
         )}
       </div>
-        <div className="timelineDock" aria-label="Timeline and review rail" data-ui-region="timeline-review-rail">
+        <div className="timelineDock" aria-label="Timeline and review rail" data-ui-region="timeline-review-rail" style={timelineViewportMaxPx != null ? ({ '--timeline-max-h': `${timelineViewportMaxPx}px` } as React.CSSProperties) : undefined}>
+          <div className="timelineResizeHandle" role="separator" aria-orientation="horizontal" aria-label="Resize timeline" title="Drag to resize the timeline and preview" onPointerDown={startTimelineResize} onDoubleClick={resetTimelineResize} />
           <div className="timelineHeader">
           <p className="timelineHeaderTitle">Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
